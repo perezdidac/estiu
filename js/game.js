@@ -25,7 +25,24 @@ const Game = {
     level: 1,
     timeLimit: 60,
     maxCars: 36,
-    score: 0, // NEW: Cumulative Total Score
+    getNearestDiagonalRoad(x, y) {
+        let nearestRoad = null;
+        let minDist = Infinity;
+        for (let r of MapData.roads) {
+            if (r.x1 !== r.x2 && r.y1 !== r.y2) {
+                const x1_w = r.x1 * TILE_SIZE + TILE_SIZE / 2;
+                const y1_w = r.y1 * TILE_SIZE + TILE_SIZE / 2;
+                const x2_w = r.x2 * TILE_SIZE + TILE_SIZE / 2;
+                const y2_w = r.y2 * TILE_SIZE + TILE_SIZE / 2;
+                const d = Utils.distToSegment(x, y, x1_w, y1_w, x2_w, y2_w);
+                if (d < minDist) {
+                    minDist = d;
+                    nearestRoad = r;
+                }
+            }
+        }
+        return { road: nearestRoad, dist: minDist };
+    },
 
     init() {
         this.canvas = document.getElementById('gameCanvas');
@@ -76,7 +93,7 @@ const Game = {
                         this.textOverlay.push({ x: x1 * TILE_SIZE + TILE_SIZE / 2, y: y * TILE_SIZE + TILE_SIZE / 2, text: name, vertical: true });
                     }
                 }
-            } else { // Horz
+            } else if (y1 === y2) { // Horz
                 for (let x = Math.min(x1, x2); x <= Math.max(x1, x2); x++) {
                     if (this.map[y1][x] === 0) this.map[y1][x] = type;
                     else if (this.map[y1][x] !== type) this.map[y1][x] = 3; // Intersection
@@ -86,6 +103,50 @@ const Game = {
                     for (let x = Math.min(x1, x2) + 2; x <= Math.max(x1, x2); x += 5) {
                         this.textOverlay.push({ x: x * TILE_SIZE + TILE_SIZE / 2, y: y1 * TILE_SIZE + TILE_SIZE / 2, text: name, vertical: false });
                     }
+                }
+            } else { // Diagonal
+                const x1_w = x1 * TILE_SIZE + TILE_SIZE / 2;
+                const y1_w = y1 * TILE_SIZE + TILE_SIZE / 2;
+                const x2_w = x2 * TILE_SIZE + TILE_SIZE / 2;
+                const y2_w = y2 * TILE_SIZE + TILE_SIZE / 2;
+
+                const minX = Math.min(x1, x2);
+                const maxX = Math.max(x1, x2);
+                const minY = Math.min(y1, y2);
+                const maxY = Math.max(y1, y2);
+
+                const pad = 1;
+                const startGridX = Math.max(0, minX - pad);
+                const endGridX = Math.min(MAP_W - 1, maxX + pad);
+                const startGridY = Math.max(0, minY - pad);
+                const endGridY = Math.min(MAP_H - 1, maxY + pad);
+
+                for (let y = startGridY; y <= endGridY; y++) {
+                    for (let x = startGridX; x <= endGridX; x++) {
+                        const cellX = x * TILE_SIZE + TILE_SIZE / 2;
+                        const cellY = y * TILE_SIZE + TILE_SIZE / 2;
+                        const d = Utils.distToSegment(cellX, cellY, x1_w, y1_w, x2_w, y2_w);
+                        if (d < TILE_SIZE * 0.7) {
+                            if (this.map[y][x] === 0) {
+                                this.map[y][x] = type;
+                            } else if (this.map[y][x] !== type) {
+                                this.map[y][x] = 3; // Intersection
+                            }
+                        }
+                    }
+                }
+
+                if (name) {
+                    const midX = (x1_w + x2_w) / 2;
+                    const midY = (y1_w + y2_w) / 2;
+                    const roadAngle = Math.atan2(y2_w - y1_w, x2_w - x1_w);
+                    this.textOverlay.push({
+                        x: midX,
+                        y: midY,
+                        text: name,
+                        diagonal: true,
+                        angle: roadAngle
+                    });
                 }
             }
         };
@@ -107,8 +168,10 @@ const Game = {
                 if (this.map[y][x] === 3) {
                     // Check if intersection involves Arterials
                     let isArt = false;
-                    if (x > 0 && (this.map[y][x - 1] === 6 || this.map[y][x - 1] === 7)) isArt = true;
-                    if (y > 0 && (this.map[y - 1][x] === 6 || this.map[y - 1][x] === 7)) isArt = true;
+                    if (x > 0 && (this.map[y][x - 1] === 6 || this.map[y][x - 1] === 7 || this.map[y][x - 1] === 9)) isArt = true;
+                    if (x < MAP_W - 1 && (this.map[y][x + 1] === 6 || this.map[y][x + 1] === 7 || this.map[y][x + 1] === 9)) isArt = true;
+                    if (y > 0 && (this.map[y - 1][x] === 6 || this.map[y - 1][x] === 7 || this.map[y - 1][x] === 9)) isArt = true;
+                    if (y < MAP_H - 1 && (this.map[y + 1][x] === 6 || this.map[y + 1][x] === 7 || this.map[y + 1][x] === 9)) isArt = true;
 
                     // Arterials get Lights, Residential get Stops
                     // Override 32nd/Seaview to be Stops mostly? No, keep logic simple.
@@ -153,11 +216,52 @@ const Game = {
                     const bw = TILE_SIZE - (padLeft + padRight);
                     const bh = TILE_SIZE - (padTop + padBottom);
 
-                    if (bw > 20 && bh > 20) this.buildings.push(new Building(bx, by, bw, bh));
+                    if (bw > 20 && bh > 20) {
+                        const buildingPoly = [
+                            { x: bx, y: by },
+                            { x: bx + bw, y: by },
+                            { x: bx + bw, y: by + bh },
+                            { x: bx, y: by + bh }
+                        ];
+
+                        let overlapsRoad = false;
+                        for (let r of MapData.roads) {
+                            if (r.x1 !== r.x2 && r.y1 !== r.y2) {
+                                const x1_w = r.x1 * TILE_SIZE + TILE_SIZE / 2;
+                                const y1_w = r.y1 * TILE_SIZE + TILE_SIZE / 2;
+                                const x2_w = r.x2 * TILE_SIZE + TILE_SIZE / 2;
+                                const y2_w = r.y2 * TILE_SIZE + TILE_SIZE / 2;
+
+                                const dx = x2_w - x1_w;
+                                const dy = y2_w - y1_w;
+                                const len = Math.hypot(dx, dy);
+                                const ux = dx / len;
+                                const uy = dy / len;
+                                const nx = -uy;
+                                const ny = ux;
+                                const hw = TILE_SIZE / 2;
+
+                                const roadPoly = [
+                                    { x: x1_w + nx * hw, y: y1_w + ny * hw },
+                                    { x: x2_w + nx * hw, y: y2_w + ny * hw },
+                                    { x: x2_w - nx * hw, y: y2_w - ny * hw },
+                                    { x: x1_w - nx * hw, y: y1_w - ny * hw }
+                                ];
+
+                                if (Utils.polysIntersect(buildingPoly, roadPoly)) {
+                                    overlapsRoad = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if (!overlapsRoad) {
+                            this.buildings.push(new Building(bx, by, bw, bh));
+                        }
+                    }
                 }
 
                 const t = this.map[y][x];
-                if (t === 1 || t === 2 || t === 6 || t === 7) {
+                if (t === 1 || t === 2 || t === 6 || t === 7 || t === 8 || t === 9) {
                     this.validSpawnTiles.push({ x, y, type: t });
                     if (x === 0 || x === MAP_W - 1 || y === 0 || y === MAP_H - 1) {
                         this.edgeSpawnTiles.push({ x, y, type: t });
@@ -173,7 +277,22 @@ const Game = {
             let tx = Utils.rand(0, MAP_W * TILE_SIZE), ty = Utils.rand(0, MAP_H * TILE_SIZE);
             // Simple check to not be on road
             const mx = Math.floor(tx / TILE_SIZE), my = Math.floor(ty / TILE_SIZE);
-            if (this.map[my] && this.map[my][mx] === 0) this.trees.push({ x: tx, y: ty });
+            if (this.map[my] && this.map[my][mx] === 0) {
+                let tooClose = false;
+                for (let r of MapData.roads) {
+                    if (r.x1 !== r.x2 && r.y1 !== r.y2) {
+                        const d = Utils.distToSegment(tx, ty,
+                            r.x1 * TILE_SIZE + TILE_SIZE / 2, r.y1 * TILE_SIZE + TILE_SIZE / 2,
+                            r.x2 * TILE_SIZE + TILE_SIZE / 2, r.y2 * TILE_SIZE + TILE_SIZE / 2
+                        );
+                        if (d < TILE_SIZE * 0.6) {
+                            tooClose = true;
+                            break;
+                        }
+                    }
+                }
+                if (!tooClose) this.trees.push({ x: tx, y: ty });
+            }
         }
     },
     reset() { this.entities = []; this.particles = []; this.chill = 100; this.start(); },
@@ -231,6 +350,42 @@ const Game = {
                 } else if (t.type === 7) { // Art Horz
                     if (Math.random() > 0.5) { startY = t.y * 120 + 100; startX = t.x * 120 + 60; startAngle = 0; }
                     else { startY = t.y * 120 + 20; startX = t.x * 120 + 60; startAngle = Math.PI; }
+                } else if (t.type === 8 || t.type === 9) { // Diagonal Roads
+                    const result = this.getNearestDiagonalRoad(t.x * TILE_SIZE + TILE_SIZE / 2, t.y * TILE_SIZE + TILE_SIZE / 2);
+                    const r = result.road;
+                    if (r) {
+                        const x1_w = r.x1 * TILE_SIZE + TILE_SIZE / 2;
+                        const y1_w = r.y1 * TILE_SIZE + TILE_SIZE / 2;
+                        const x2_w = r.x2 * TILE_SIZE + TILE_SIZE / 2;
+                        const y2_w = r.y2 * TILE_SIZE + TILE_SIZE / 2;
+
+                        const dx = x2_w - x1_w;
+                        const dy = y2_w - y1_w;
+                        const len = Math.hypot(dx, dy);
+                        const ux = dx / len;
+                        const uy = dy / len;
+
+                        const travelDir = Math.random() > 0.5 ? 1 : -1;
+                        const ux_travel = ux * travelDir;
+                        const uy_travel = uy * travelDir;
+
+                        const nx_right = -uy_travel;
+                        const ny_right = ux_travel;
+                        const offsetDistance = 30;
+
+                        const closest = Utils.getClosestPointOnSegment(
+                            t.x * TILE_SIZE + TILE_SIZE / 2,
+                            t.y * TILE_SIZE + TILE_SIZE / 2,
+                            x1_w, y1_w, x2_w, y2_w
+                        );
+
+                        startX = closest.x + nx_right * offsetDistance;
+                        startY = closest.y + ny_right * offsetDistance;
+                        startAngle = Math.atan2(uy_travel, ux_travel);
+                        validStart = true;
+                    } else {
+                        validStart = false;
+                    }
                 }
             }
         }
@@ -272,6 +427,39 @@ const Game = {
             } else if (tile === 7) { // Art Horz
                 if (Math.random() > 0.5) { y = ty * 120 + 100; x = tx * 120 + 60; angle = 0; }
                 else { y = ty * 120 + 20; x = tx * 120 + 60; angle = Math.PI; }
+            } else if (tile === 8 || tile === 9) { // Diagonal
+                const result = this.getNearestDiagonalRoad(tx * TILE_SIZE + TILE_SIZE / 2, ty * TILE_SIZE + TILE_SIZE / 2);
+                const r = result.road;
+                if (r) {
+                    const x1_w = r.x1 * TILE_SIZE + TILE_SIZE / 2;
+                    const y1_w = r.y1 * TILE_SIZE + TILE_SIZE / 2;
+                    const x2_w = r.x2 * TILE_SIZE + TILE_SIZE / 2;
+                    const y2_w = r.y2 * TILE_SIZE + TILE_SIZE / 2;
+
+                    const dx = x2_w - x1_w;
+                    const dy = y2_w - y1_w;
+                    const len = Math.hypot(dx, dy);
+                    const ux = dx / len;
+                    const uy = dy / len;
+
+                    const travelDir = Math.random() > 0.5 ? 1 : -1;
+                    const ux_travel = ux * travelDir;
+                    const uy_travel = uy * travelDir;
+
+                    const nx_right = -uy_travel;
+                    const ny_right = ux_travel;
+                    const offsetDistance = 30;
+
+                    const closest = Utils.getClosestPointOnSegment(
+                        tx * TILE_SIZE + TILE_SIZE / 2,
+                        ty * TILE_SIZE + TILE_SIZE / 2,
+                        x1_w, y1_w, x2_w, y2_w
+                    );
+
+                    x = closest.x + nx_right * offsetDistance;
+                    y = closest.y + ny_right * offsetDistance;
+                    angle = Math.atan2(uy_travel, ux_travel);
+                }
             }
 
             valid = true;
@@ -282,7 +470,7 @@ const Game = {
 
         if (valid) {
             // Chance to spawn Biker on Arterials
-            if ((tile === 6 || tile === 7) && Math.random() < 0.3) {
+            if ((tile === 6 || tile === 7 || tile === 9) && Math.random() < 0.3) {
                 // Offset for bike lane
                 let bx = x, by = y;
                 if (tile === 6) { // Vert
@@ -291,12 +479,44 @@ const Game = {
                     // South bound (angle PI/2) -> Left side (West/-x)
                     if (Math.abs(angle - (-Math.PI / 2)) < 0.1) bx += 130; // Far Right (Offset +130)
                     else bx -= 10; // Far Left (Offset -10)
-                } else { // Horz
+                } else if (tile === 7) { // Horz
                     // Spawning for Arterial Horz (Separated Lanes)
                     // East bound (angle 0) -> Bottom side (South/+y)
                     // West bound (angle PI) -> Top side (North/-y)
                     if (Math.abs(angle) < 0.1) by += 130;
                     else by -= 10;
+                } else if (tile === 9) { // Arterial Diagonal
+                    const result = this.getNearestDiagonalRoad(tx * TILE_SIZE + TILE_SIZE / 2, ty * TILE_SIZE + TILE_SIZE / 2);
+                    const r = result.road;
+                    if (r) {
+                        const x1_w = r.x1 * TILE_SIZE + TILE_SIZE / 2;
+                        const y1_w = r.y1 * TILE_SIZE + TILE_SIZE / 2;
+                        const x2_w = r.x2 * TILE_SIZE + TILE_SIZE / 2;
+                        const y2_w = r.y2 * TILE_SIZE + TILE_SIZE / 2;
+
+                        const dx = x2_w - x1_w;
+                        const dy = y2_w - y1_w;
+                        const len = Math.hypot(dx, dy);
+                        const ux = dx / len;
+                        const uy = dy / len;
+
+                        const travelDir = Math.abs(angle - Math.atan2(uy, ux)) < 0.5 ? 1 : -1;
+                        const ux_travel = ux * travelDir;
+                        const uy_travel = uy * travelDir;
+
+                        const nx_right = -uy_travel;
+                        const ny_right = ux_travel;
+                        const offsetDistance = 50; // green bike lane offset
+
+                        const closest = Utils.getClosestPointOnSegment(
+                            tx * TILE_SIZE + TILE_SIZE / 2,
+                            ty * TILE_SIZE + TILE_SIZE / 2,
+                            x1_w, y1_w, x2_w, y2_w
+                        );
+
+                        bx = closest.x + nx_right * offsetDistance;
+                        by = closest.y + ny_right * offsetDistance;
+                    }
                 }
 
                 const biker = new Biker(bx, by);
@@ -492,6 +712,9 @@ const Game = {
                         this.ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
                         this.ctx.fillStyle = '#2d3748';
                         this.ctx.fillRect(x + 15, y + 15, TILE_SIZE - 30, TILE_SIZE - 30);
+                    } else if (tile === 8 || tile === 9) {
+                        this.ctx.fillStyle = '#9ca3af';
+                        this.ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
                     } else if (tile === 4) {
                         this.ctx.fillStyle = '#2d3748'; this.ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
                         const pulse = Math.sin(Date.now() / 200) * 5;
@@ -571,6 +794,104 @@ const Game = {
                 }
             }
         }
+
+        // Draw Diagonal Roads
+        MapData.roads.forEach(r => {
+            if (r.x1 !== r.x2 && r.y1 !== r.y2) {
+                const x1_w = r.x1 * TILE_SIZE + TILE_SIZE / 2;
+                const y1_w = r.y1 * TILE_SIZE + TILE_SIZE / 2;
+                const x2_w = r.x2 * TILE_SIZE + TILE_SIZE / 2;
+                const y2_w = r.y2 * TILE_SIZE + TILE_SIZE / 2;
+
+                const dx = x2_w - x1_w;
+                const dy = y2_w - y1_w;
+                const len = Math.hypot(dx, dy);
+                const ux = dx / len;
+                const uy = dy / len;
+                const nx = -uy;
+                const ny = ux;
+
+                // 1. Draw Asphalt Base
+                this.ctx.strokeStyle = '#4a5568';
+                this.ctx.lineWidth = TILE_SIZE;
+                this.ctx.lineCap = 'round';
+                this.ctx.beginPath();
+                this.ctx.moveTo(x1_w - cx, y1_w - cy);
+                this.ctx.lineTo(x2_w - cx, y2_w - cy);
+                this.ctx.stroke();
+
+                this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+                this.ctx.lineWidth = TILE_SIZE;
+                this.ctx.beginPath();
+                this.ctx.moveTo(x1_w - cx, y1_w - cy);
+                this.ctx.lineTo(x2_w - cx, y2_w - cy);
+                this.ctx.stroke();
+
+                // 2. Draw Markings
+                if (r.type === 8) { // Standard Diagonal
+                    // Center Double Yellow Line
+                    this.ctx.strokeStyle = '#d69e2e';
+                    this.ctx.lineWidth = 2;
+                    this.ctx.lineCap = 'butt';
+
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(x1_w - cx + nx * 2, y1_w - cy + ny * 2);
+                    this.ctx.lineTo(x2_w - cx + nx * 2, y2_w - cy + ny * 2);
+                    this.ctx.stroke();
+
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(x1_w - cx - nx * 2, y1_w - cy - ny * 2);
+                    this.ctx.lineTo(x2_w - cx - nx * 2, y2_w - cy - ny * 2);
+                    this.ctx.stroke();
+                } else if (r.type === 9) { // Arterial Diagonal
+                    // Green Bike Lanes (offset 50px)
+                    this.ctx.strokeStyle = 'rgba(72, 187, 120, 0.3)';
+                    this.ctx.lineWidth = 15;
+                    this.ctx.lineCap = 'round';
+
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(x1_w - cx + nx * 50, y1_w - cy + ny * 50);
+                    this.ctx.lineTo(x2_w - cx + nx * 50, y2_w - cy + ny * 50);
+                    this.ctx.stroke();
+
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(x1_w - cx - nx * 50, y1_w - cy - ny * 50);
+                    this.ctx.lineTo(x2_w - cx - nx * 50, y2_w - cy - ny * 50);
+                    this.ctx.stroke();
+
+                    // Center Double Yellow Line
+                    this.ctx.strokeStyle = '#ecc94b';
+                    this.ctx.lineWidth = 2;
+                    this.ctx.lineCap = 'butt';
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(x1_w - cx + nx * 2, y1_w - cy + ny * 2);
+                    this.ctx.lineTo(x2_w - cx + nx * 2, y2_w - cy + ny * 2);
+                    this.ctx.stroke();
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(x1_w - cx - nx * 2, y1_w - cy - ny * 2);
+                    this.ctx.lineTo(x2_w - cx - nx * 2, y2_w - cy - ny * 2);
+                    this.ctx.stroke();
+
+                    // Dashed white lines (offset 25px)
+                    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+                    this.ctx.lineWidth = 1.5;
+                    this.ctx.setLineDash([10, 15]);
+
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(x1_w - cx + nx * 25, y1_w - cy + ny * 25);
+                    this.ctx.lineTo(x2_w - cx + nx * 25, y2_w - cy + ny * 25);
+                    this.ctx.stroke();
+
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(x1_w - cx - nx * 25, y1_w - cy - ny * 25);
+                    this.ctx.lineTo(x2_w - cx - nx * 25, y2_w - cy - ny * 25);
+                    this.ctx.stroke();
+
+                    this.ctx.setLineDash([]); // Reset
+                }
+            }
+        });
+
         this.buildings.forEach(b => b.draw(this.ctx, cx, cy));
 
         // Draw Street Names
@@ -584,6 +905,7 @@ const Game = {
                 this.ctx.save();
                 this.ctx.translate(tx, ty);
                 if (t.vertical) this.ctx.rotate(-Math.PI / 2);
+                else if (t.diagonal) this.ctx.rotate(t.angle);
                 this.ctx.fillText(t.text.toUpperCase(), 0, 0);
                 this.ctx.restore();
             }

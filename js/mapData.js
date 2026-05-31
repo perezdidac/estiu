@@ -22,9 +22,8 @@ const MapData = {
         // NW 65th St (Major Horz North) -> y=6
         { x1: 0, y1: 6, x2: 41, y2: 6, type: 7, name: "NW 65th St" },
 
-        // Leary Way (Major Horz South) -> y=26
-        // Runs from 15th(x38) westward, then turns or ends. We'll run it full width for now.
-        { x1: 0, y1: 26, x2: 41, y2: 26, type: 7, name: "Leary Way NW" },
+        // Leary Way (Major Diagonal South-East)
+        { x1: 20, y1: 16, x2: 41, y2: 28, type: 9, name: "Leary Way NW" },
 
 
         // --- RESIDENTIAL AVENUES (North-South) ---
@@ -62,28 +61,10 @@ const MapData = {
         { x1: 0, y1: 20, x2: 41, y2: 20, type: 2, name: null },
 
 
-        // --- BALLARD AVE NW (Diagonal Stair-Step) ---
+        // --- BALLARD AVE NW (Diagonal) ---
         // Starts x24,y16 (22nd & Market)
         // Ends x38,y26 (15th & Leary approx)
-        // Steps down-right.
-
-        // Segment 1: Market to 22nd area
-        { x1: 24, y1: 17, x2: 25, y2: 17, type: 2, name: "Ballard Ave" }, // Right
-        { x1: 25, y1: 17, x2: 25, y2: 18, type: 1, name: null },           // Down
-
-        { x1: 25, y1: 18, x2: 27, y2: 18, type: 2, name: null },           // Right
-        { x1: 27, y1: 18, x2: 27, y2: 20, type: 1, name: null },           // Down
-
-        { x1: 27, y1: 20, x2: 30, y2: 20, type: 2, name: null },           // Right
-        { x1: 30, y1: 20, x2: 30, y2: 22, type: 1, name: null },           // Down
-
-        { x1: 30, y1: 22, x2: 33, y2: 22, type: 2, name: null },           // Right
-        { x1: 33, y1: 22, x2: 33, y2: 24, type: 1, name: null },           // Down
-
-        { x1: 33, y1: 24, x2: 36, y2: 24, type: 2, name: null },           // Right
-        { x1: 36, y1: 24, x2: 36, y2: 26, type: 1, name: null },           // Down
-
-        { x1: 36, y1: 26, x2: 38, y2: 26, type: 2, name: null },           // Right Connect to 15th
+        { x1: 24, y1: 16, x2: 38, y2: 26, type: 8, name: "Ballard Ave" },
     ],
 
     destinations: [

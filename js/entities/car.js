@@ -236,6 +236,44 @@ class Car {
             if (this.vx > 0.1 && relY < 80) wrongWay = true;
             if (this.vx < -0.1 && relY > 40) wrongWay = true;
         }
+        else if (tile === 8 || tile === 9) {
+            const result = Game.getNearestDiagonalRoad(this.x, this.y);
+            const r = result.road;
+            if (r) {
+                const x1_w = r.x1 * TILE_SIZE + TILE_SIZE / 2;
+                const y1_w = r.y1 * TILE_SIZE + TILE_SIZE / 2;
+                const x2_w = r.x2 * TILE_SIZE + TILE_SIZE / 2;
+                const y2_w = r.y2 * TILE_SIZE + TILE_SIZE / 2;
+
+                const dx = x2_w - x1_w;
+                const dy = y2_w - y1_w;
+                const len = Math.hypot(dx, dy);
+                const ux = dx / len;
+                const uy = dy / len;
+
+                this.lastAxis = Math.abs(dx) > Math.abs(dy) ? 'EW' : 'NS';
+
+                // Determine direction of travel
+                const dot = Math.cos(this.angle) * ux + Math.sin(this.angle) * uy;
+                const travelDir = dot > 0 ? 1 : -1;
+                const ux_travel = ux * travelDir;
+                const uy_travel = uy * travelDir;
+
+                // Right normal
+                const nx_right = -uy_travel;
+                const ny_right = ux_travel;
+
+                const closest = Utils.getClosestPointOnSegment(this.x, this.y, x1_w, y1_w, x2_w, y2_w);
+                const rx = this.x - closest.x;
+                const ry = this.y - closest.y;
+
+                const side = rx * nx_right + ry * ny_right;
+
+                if (side < -10) {
+                    wrongWay = true;
+                }
+            }
+        }
 
         if (wrongWay) {
             this.wrongWayTimer++;
@@ -310,6 +348,46 @@ class Car {
             let current = this.angle;
             if (targetAngle === Math.PI && current < 0) current += Math.PI * 2;
             this.angle += (targetAngle - current) * 0.1;
+        } else if (tile === 8 || tile === 9) {
+            const result = Game.getNearestDiagonalRoad(this.x, this.y);
+            const r = result.road;
+            if (r) {
+                const x1_w = r.x1 * TILE_SIZE + TILE_SIZE / 2;
+                const y1_w = r.y1 * TILE_SIZE + TILE_SIZE / 2;
+                const x2_w = r.x2 * TILE_SIZE + TILE_SIZE / 2;
+                const y2_w = r.y2 * TILE_SIZE + TILE_SIZE / 2;
+
+                const dx = x2_w - x1_w;
+                const dy = y2_w - y1_w;
+                const len = Math.hypot(dx, dy);
+                const ux = dx / len;
+                const uy = dy / len;
+
+                // Determine direction of travel
+                const dot = Math.cos(this.angle) * ux + Math.sin(this.angle) * uy;
+                const travelDir = dot > 0 ? 1 : -1;
+                const ux_travel = ux * travelDir;
+                const uy_travel = uy * travelDir;
+
+                // Right lane offset normal
+                const nx_right = -uy_travel;
+                const ny_right = ux_travel;
+                const offsetDistance = 30;
+
+                // Get closest point on centerline
+                const closest = Utils.getClosestPointOnSegment(this.x, this.y, x1_w, y1_w, x2_w, y2_w);
+
+                // Look-ahead target point on the right lane
+                const lookAhead = 60;
+                const targetX = closest.x + ux_travel * lookAhead + nx_right * offsetDistance;
+                const targetY = closest.y + uy_travel * lookAhead + ny_right * offsetDistance;
+
+                // Steer towards target point
+                const targetAngle = Math.atan2(targetY - this.y, targetX - this.x);
+                let angleDiff = targetAngle - this.angle;
+                angleDiff = Math.atan2(Math.sin(angleDiff), Math.cos(angleDiff));
+                this.angle += angleDiff * 0.15;
+            }
         }
         this.angle += steeringForce;
 
@@ -407,7 +485,14 @@ class Car {
             if (this.speed < this.targetSpeed) this.speed += this.accel * 0.5;
         }
 
-        if (tile === 0) this.angle += Math.PI;
+        let isOffRoad = (tile === 0);
+        if (isOffRoad) {
+            const nearestDiag = Game.getNearestDiagonalRoad(this.x, this.y);
+            if (nearestDiag.road && nearestDiag.dist < TILE_SIZE / 2) {
+                isOffRoad = false;
+            }
+        }
+        if (isOffRoad) this.angle += Math.PI;
     }
 
     draw(ctx, camX, camY) {
