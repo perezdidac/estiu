@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Ballard Driver Nightmare: Wet Asphalt Edition</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body>
+
+    <div id="game-container">
+        <canvas id="gameCanvas"></canvas>
+        <div id="rain-layer" style="position: absolute; inset:0; pointer-events:none; overflow:hidden;"></div>
+
+        <div id="ui-layer">
+            <div class="hud-left">
+                <div class="hud-panel">
+                    <div style="font-size: 10px; color: #a0aec0; letter-spacing: 1px; font-weight: bold;">MENTAL STATE
+                    </div>
+                    <div class="meter-bar">
+                        <div id="chill-fill"></div>
+                    </div>
+                    <div style="margin-top: 4px; font-size: 10px; text-align: right;" id="chill-text">100% CHILL</div>
+
+                    <div
+                        style="margin-top: 8px; font-size: 10px; color: #a0aec0; letter-spacing: 1px; font-weight: bold;">
+                        FUEL</div>
+                    <div class="meter-bar" style="border: 2px solid #744210;">
+                        <div id="gas-fill"></div>
+                    </div>
+
+                    <div
+                        style="margin-top: 8px; font-size: 10px; color: #a0aec0; letter-spacing: 1px; font-weight: bold;">
+                        LIVES</div>
+                    <div id="lives-display"
+                        style="font-family: 'Press Start 2P', cursive; font-size: 10px; color: #f56565;">❤❤❤</div>
+                </div>
+                <div class="hud-panel" style="border-left-color: #f6ad55;">
+                    <div id="level-display">LEVEL 1</div>
+                    <div style="font-weight: bold;" id="target-name-display">Get to Trader Joe's</div>
+                </div>
+                <div class="hud-panel" style="border-left-color: #63b3ed; opacity: 0; transition: opacity 0.5s;"
+                    id="warning-panel">
+                    <div style="font-size: 10px; color: #a0aec0;">WARNING</div>
+                    <div style="font-weight: bold; color: #f56565;" id="warning-text"></div>
+                </div>
+            </div>
+
+            <div class="timer-panel">
+                <div style="font-size: 10px; color: #a0aec0; letter-spacing: 1px;">TIME LEFT</div>
+                <div id="timer-display">60</div>
+                <div style="font-size: 10px; color: #a0aec0; letter-spacing: 1px; margin-top: 10px;">TOTAL SCORE</div>
+                <div id="score-hud-display">0</div>
+            </div>
+        </div>
+
+        <div id="notifications"></div>
+
+        <!-- Start Screen -->
+        <div id="start-screen" class="screen">
+            <h1>BALLARD<br>DRIVER<br>NIGHTMARE</h1>
+            <div style="text-align: center; max-width: 500px; color: #cbd5e0; margin-bottom: 30px; line-height: 1.6;">
+                <p>It's 5:00 PM. It's raining. You need to run errands.</p>
+                <div
+                    style="font-size: 0.8em; margin-top: 15px; color: #a0aec0; text-align: left; display: inline-block;">
+                    <p><span style="color:#ed8936">■</span> Orange: Grandma (Slow)</p>
+                    <p><span style="color:#ecc94b">■</span> Yellow: Aggressive (Honks at everyone)</p>
+                    <p><span style="color:#f56565">■</span> Red: Distracted (Sleeps at green lights)</p>
+                    <p><span style="color:#9f7aea">■</span> Purple: Rideshare (Stops randomly)</p>
+                    <p><span style="color:#fff">■</span> White: Student (Wobbles/Brakes)</p>
+                </div>
+                <p style="margin-top: 20px;">Use SPACE to Honk. Watch your Gas!</p>
+                <p style="margin-top: 10px; color: #e53e3e;">STOP at Red Signs (-15 Chill Penalty)</p>
+            </div>
+            <button class="btn" onclick="Game.restartGame()">START ENGINE</button>
+        </div>
+
+        <!-- Game Over -->
+        <div id="game-over-screen" class="screen hidden">
+            <h1 style="color: #e53e3e;">GAME OVER</h1>
+            <p id="fail-reason" style="margin-bottom: 10px; font-size: 1.2rem;">You lost your cool.</p>
+            <div id="final-total-score"
+                style="font-family: 'Press Start 2P'; color: #ecc94b; margin-bottom: 20px; font-size: 1rem;"></div>
+            <button class="btn" id="game-over-btn" onclick="Game.restartGame()">TRY AGAIN</button>
+        </div>
+
+        <!-- Win -->
+        <div id="win-screen" class="screen hidden">
+            <h1 style="color: #48bb78;">ERRAND COMPLETE!</h1>
+            <p style="margin-bottom: 20px;">You survived this trip.</p>
+            <div id="score-details"
+                style="font-family: 'Press Start 2P'; color: #ecc94b; margin-bottom: 30px; text-align: center; line-height: 1.8;">
+            </div>
+            <button class="btn" onclick="Game.nextLevel()">NEXT LEVEL</button>
+        </div>
+
+        <!-- Mobile Controls -->
+        <div id="honk-area">
+            <div class="honk-btn" id="btn-honk">HONK</div>
+        </div>
+        <div id="mobile-controls">
+            <div id="joystick-container">
+                <div id="joystick-knob"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/constants.js"></script>
+    <script src="js/utils.js"></script>
+    <script src="js/systems/audio.js"></script>
+    <script src="js/systems/draw.js"></script>
+    <script src="js/entities/props.js"></script>
+    <script src="js/entities/biker.js"></script>
+    <script src="js/entities/car.js"></script>
+    <script src="js/mapData.js"></script>
+    <script src="js/game.js"></script>
+    <script src="js/main.js"></script>
+</body>
+
+</html>
