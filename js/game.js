@@ -75,8 +75,7 @@ const Game = {
         this.map = Array(MAP_H).fill(0).map(() => Array(MAP_W).fill(0));
         this.validSpawnTiles = [];
         this.edgeSpawnTiles = [];
-        this.lights = [];
-        this.stopSigns = [];
+        this.intersections = [];
         this.props = [];
         this.trees = [];
         this.textOverlay = [];
@@ -163,6 +162,7 @@ const Game = {
 
         // Fix Intersections
         // Iterate map to identify 3s and spawn props
+        this.intersections = [];
         for (let y = 0; y < MAP_H; y++) {
             for (let x = 0; x < MAP_W; x++) {
                 if (this.map[y][x] === 3) {
@@ -173,13 +173,82 @@ const Game = {
                     if (y > 0 && (this.map[y - 1][x] === 6 || this.map[y - 1][x] === 7 || this.map[y - 1][x] === 9)) isArt = true;
                     if (y < MAP_H - 1 && (this.map[y + 1][x] === 6 || this.map[y + 1][x] === 7 || this.map[y + 1][x] === 9)) isArt = true;
 
-                    // Arterials get Lights, Residential get Stops
-                    // Override 32nd/Seaview to be Stops mostly? No, keep logic simple.
-                    if (isArt) {
-                        this.lights.push(new TrafficLight(x * TILE_SIZE + TILE_SIZE / 2, y * TILE_SIZE + TILE_SIZE / 2));
-                    } else {
-                        this.stopSigns.push(new StopSign(x * TILE_SIZE + TILE_SIZE / 2, y * TILE_SIZE + TILE_SIZE / 2));
+                    const cx = x * TILE_SIZE + TILE_SIZE / 2;
+                    const cy = y * TILE_SIZE + TILE_SIZE / 2;
+
+                    const approaches = [];
+                    const addApproach = (ang) => {
+                        if (approaches.some(a => Math.abs(Math.atan2(Math.sin(a.angle - ang), Math.cos(a.angle - ang))) < 0.1)) {
+                            return;
+                        }
+                        const dx = Math.cos(ang);
+                        const dy = Math.sin(ang);
+                        const nx = -dy;
+                        const ny = dx;
+                        const stopLineCenter = { x: cx - dx * 55, y: cy - dy * 55 };
+                        const crosswalkCenter = { x: cx - dx * 75, y: cy - dy * 75 };
+                        const pos = { x: cx - dx * 55 + nx * 45, y: cy - dy * 55 + ny * 45 };
+
+                        approaches.push({
+                            angle: ang,
+                            stopLineCenter,
+                            crosswalkCenter,
+                            lightPos: isArt ? pos : null,
+                            signPos: !isArt ? pos : null,
+                            dominantAxis: Math.abs(dx) > Math.abs(dy) ? 'EW' : 'NS'
+                        });
+                    };
+
+                    const neighborTypes = [1, 2, 6, 7, 3, 4, 5];
+                    // West neighbor
+                    if (x > 0 && neighborTypes.includes(this.map[y][x - 1])) {
+                        addApproach(0);
                     }
+                    // East neighbor
+                    if (x < MAP_W - 1 && neighborTypes.includes(this.map[y][x + 1])) {
+                        addApproach(Math.PI);
+                    }
+                    // North neighbor
+                    if (y > 0 && neighborTypes.includes(this.map[y - 1][x])) {
+                        addApproach(Math.PI / 2);
+                    }
+                    // South neighbor
+                    if (y < MAP_H - 1 && neighborTypes.includes(this.map[y + 1][x])) {
+                        addApproach(-Math.PI / 2);
+                    }
+
+                    // Diagonal neighbor check
+                    MapData.roads.forEach(r => {
+                        if (r.x1 !== r.x2 && r.y1 !== r.y2) {
+                            const A = { x: r.x1 * TILE_SIZE + TILE_SIZE / 2, y: r.y1 * TILE_SIZE + TILE_SIZE / 2 };
+                            const B = { x: r.x2 * TILE_SIZE + TILE_SIZE / 2, y: r.y2 * TILE_SIZE + TILE_SIZE / 2 };
+                            const closest = Utils.getClosestPointOnSegment(cx, cy, A.x, A.y, B.x, B.y);
+                            const d = Math.hypot(cx - closest.x, cy - closest.y);
+                            if (d < TILE_SIZE * 0.8) {
+                                const roadAngle = Math.atan2(B.y - A.y, B.x - A.x);
+                                if (closest.t > 0.05) {
+                                    addApproach(roadAngle);
+                                }
+                                if (closest.t < 0.95) {
+                                    let ang = roadAngle + Math.PI;
+                                    if (ang > Math.PI) ang -= Math.PI * 2;
+                                    addApproach(ang);
+                                }
+                            }
+                        }
+                    });
+
+                    this.intersections.push({
+                        x, y,
+                        worldX: cx,
+                        worldY: cy,
+                        isArt,
+                        stateNS: 'RED',
+                        stateEW: 'RED',
+                        timer: 0,
+                        cycleOffset: Math.floor(Math.random() * 900),
+                        approaches
+                    });
                 }
             }
         }
@@ -892,6 +961,43 @@ const Game = {
             }
         });
 
+        // Draw Stop Lines and Crosswalks
+        this.intersections.forEach(inter => {
+            inter.approaches.forEach(a => {
+                const sxc = a.stopLineCenter.x - cx;
+                const syc = a.stopLineCenter.y - cy;
+                const cxc = a.crosswalkCenter.x - cx;
+                const cyc = a.crosswalkCenter.y - cy;
+
+                const dx = Math.cos(a.angle);
+                const dy = Math.sin(a.angle);
+                const nx = -dy;
+                const ny = dx;
+
+                if (sxc > -100 && sxc < this.canvas.width + 100 && syc > -100 && syc < this.canvas.height + 100) {
+                    // 1. Draw Stop Line (Thick white bar)
+                    this.ctx.strokeStyle = '#fff';
+                    this.ctx.lineWidth = 4;
+                    this.ctx.lineCap = 'butt';
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(sxc - nx * 30, syc - ny * 30);
+                    this.ctx.lineTo(sxc + nx * 30, syc + ny * 30);
+                    this.ctx.stroke();
+
+                    // 2. Draw Crosswalk (Zebra stripes)
+                    this.ctx.fillStyle = '#fff';
+                    this.ctx.save();
+                    this.ctx.translate(cxc, cyc);
+                    this.ctx.rotate(a.angle);
+                    for (let i = -2; i <= 2; i++) {
+                        const stripeY = i * 14;
+                        this.ctx.fillRect(-8, stripeY - 3, 16, 6);
+                    }
+                    this.ctx.restore();
+                }
+            });
+        });
+
         this.buildings.forEach(b => b.draw(this.ctx, cx, cy));
 
         // Draw Street Names
@@ -921,8 +1027,93 @@ const Game = {
         this.entities.sort((a, b) => a.y - b.y);
         this.entities.forEach(e => e.draw(this.ctx, cx, cy));
         this.drawNavArrow();
-        this.lights.forEach(l => l.draw(this.ctx, cx, cy));
-        this.stopSigns.forEach(s => s.draw(this.ctx, cx, cy)); // Added stop signs draw
+        // Draw Traffic Lights and Stop Signs at corners
+        this.intersections.forEach(inter => {
+            inter.approaches.forEach(a => {
+                if (inter.isArt && a.lightPos) {
+                    const lx = a.lightPos.x - cx;
+                    const ly = a.lightPos.y - cy;
+                    if (lx > -50 && lx < this.canvas.width + 50 && ly > -50 && ly < this.canvas.height + 50) {
+                        // Draw pole
+                        this.ctx.fillStyle = '#2d3748';
+                        this.ctx.beginPath();
+                        this.ctx.arc(lx, ly, 3, 0, Math.PI * 2);
+                        this.ctx.fill();
+
+                        // Draw Light Box
+                        this.ctx.save();
+                        this.ctx.translate(lx, ly);
+                        this.ctx.rotate(a.angle + Math.PI); // Face oncoming traffic
+                        
+                        this.ctx.fillStyle = '#000';
+                        this.ctx.fillRect(-5, -12, 10, 24);
+
+                        // Draw lights
+                        const state = a.dominantAxis === 'NS' ? inter.stateNS : inter.stateEW;
+                        let rCol = '#330000', yCol = '#333300', gCol = '#003300';
+                        let glow = null;
+                        if (state === 'RED') { rCol = '#ff0000'; glow = 'red'; }
+                        else if (state === 'YELLOW') { yCol = '#ffff00'; glow = 'yellow'; }
+                        else if (state === 'GREEN') { gCol = '#00ff00'; glow = 'green'; }
+
+                        // Red circle
+                        this.ctx.fillStyle = rCol;
+                        if (glow === 'red') { this.ctx.shadowBlur = 6; this.ctx.shadowColor = 'red'; }
+                        this.ctx.beginPath(); this.ctx.arc(0, -6, 2.5, 0, Math.PI*2); this.ctx.fill(); this.ctx.shadowBlur = 0;
+
+                        // Yellow circle
+                        this.ctx.fillStyle = yCol;
+                        if (glow === 'yellow') { this.ctx.shadowBlur = 6; this.ctx.shadowColor = 'yellow'; }
+                        this.ctx.beginPath(); this.ctx.arc(0, 0, 2.5, 0, Math.PI*2); this.ctx.fill(); this.ctx.shadowBlur = 0;
+
+                        // Green circle
+                        this.ctx.fillStyle = gCol;
+                        if (glow === 'green') { this.ctx.shadowBlur = 6; this.ctx.shadowColor = 'green'; }
+                        this.ctx.beginPath(); this.ctx.arc(0, 6, 2.5, 0, Math.PI*2); this.ctx.fill(); this.ctx.shadowBlur = 0;
+
+                        this.ctx.restore();
+                    }
+                } else if (!inter.isArt && a.signPos) {
+                    const sx = a.signPos.x - cx;
+                    const sy = a.signPos.y - cy;
+                    if (sx > -50 && sx < this.canvas.width + 50 && sy > -50 && sy < this.canvas.height + 50) {
+                        // Draw pole
+                        this.ctx.strokeStyle = '#718096';
+                        this.ctx.lineWidth = 2;
+                        this.ctx.beginPath(); this.ctx.moveTo(sx, sy); this.ctx.lineTo(sx, sy + 10); this.ctx.stroke();
+
+                        // Draw stop sign octagon
+                        this.ctx.save();
+                        this.ctx.translate(sx, sy);
+                        this.ctx.rotate(a.angle + Math.PI); // Face oncoming traffic
+
+                        this.ctx.fillStyle = '#c53030';
+                        this.ctx.beginPath();
+                        const r = 9;
+                        for (let i = 0; i < 8; i++) {
+                            const ang = (Math.PI / 4 * i) + Math.PI / 8;
+                            this.ctx.lineTo(Math.cos(ang) * r, Math.sin(ang) * r);
+                        }
+                        this.ctx.closePath();
+                        this.ctx.fill();
+
+                        // White border
+                        this.ctx.strokeStyle = '#fff';
+                        this.ctx.lineWidth = 1;
+                        this.ctx.stroke();
+
+                        // STOP text
+                        this.ctx.fillStyle = '#fff';
+                        this.ctx.font = 'bold 5px Arial';
+                        this.ctx.textAlign = 'center';
+                        this.ctx.textBaseline = 'middle';
+                        this.ctx.fillText("STOP", 0, 0);
+
+                        this.ctx.restore();
+                    }
+                }
+            });
+        });
         this.particles.forEach((p, i) => { p.update(); p.draw(this.ctx, cx, cy); if (p.life <= 0) this.particles.splice(i, 1); });
 
         // Rain

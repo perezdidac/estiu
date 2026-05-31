@@ -109,72 +109,79 @@ class Car {
         this.poly = Utils.getRectCorners(this.x, this.y, this.w, this.h, this.angle + Math.PI / 2);
     }
 
-    checkRedLight(lights) {
+    checkRedLight() {
         if (this.redLightCooldown > 0) { this.redLightCooldown--; return; }
-        for (let l of lights) {
-            // Only check if close enough to intersection center
-            if (Utils.dist(this.x, this.y, l.x, l.y) < 60) {
-                // Determine direction of travel
-                let relevantState = 'GREEN';
-                const isVertical = Math.abs(this.vy) > Math.abs(this.vx);
-
-                if (isVertical) relevantState = l.stateNS;
-                else relevantState = l.stateEW;
-
-                // Use lastAxis if available to judge based on entry direction
-                // This prevents penalty if turning from Green light onto Red light road
-                if (this.lastAxis) {
-                    if (this.lastAxis === 'NS') relevantState = l.stateNS;
-                    else relevantState = l.stateEW;
-                }
-
-                if (relevantState === 'RED' && Math.abs(this.speed) > 1) {
-                    Game.modChill(-30);
-                    Game.spawnText(this.x, this.y, "RED LIGHT!", "#e53e3e");
-                    this.redLightCooldown = 180;
+        for (let inter of Game.intersections) {
+            if (inter.isArt) {
+                for (let a of inter.approaches) {
+                    const dist = Utils.dist(this.x, this.y, a.stopLineCenter.x, a.stopLineCenter.y);
+                    if (dist < 40) {
+                        const headingX = Math.cos(this.angle);
+                        const headingY = Math.sin(this.angle);
+                        const appX = Math.cos(a.angle);
+                        const appY = Math.sin(a.angle);
+                        const dot = headingX * appX + headingY * appY;
+                        if (dot > 0.7) {
+                            const relevantState = a.dominantAxis === 'NS' ? inter.stateNS : inter.stateEW;
+                            if (relevantState === 'RED' && Math.abs(this.speed) > 1) {
+                                Game.modChill(-30);
+                                Game.spawnText(this.x, this.y, "RED LIGHT!", "#e53e3e");
+                                this.redLightCooldown = 180;
+                                return;
+                            }
+                        }
+                    }
                 }
             }
         }
     }
 
-    checkStopSignPenalty(stops) {
+    checkStopSignPenalty() {
         if (this.stopSignCooldown > 0) { this.stopSignCooldown--; return; }
 
-        let nearAnySign = false;
-        const stopZoneRadius = 95; // Increased zone to cover stop lines comfortably
+        let nearAnyApproach = null;
+        const stopZoneRadius = 55;
 
-        for (let s of stops) {
-            const dist = Utils.dist(this.x, this.y, s.x, s.y);
-
-            if (dist < stopZoneRadius) {
-                nearAnySign = true;
-
-                if (this.currentStopSign !== s) {
-                    // Entered new stop zone
-                    this.currentStopSign = s;
-                    this.playerHasStopped = false;
-                }
-
-                // Check for complete stop within zone
-                if (Math.abs(this.speed) < 0.1) {
-                    if (!this.playerHasStopped) {
-                        this.playerHasStopped = true;
-                        // Feedback that stop was good
-                        Game.spawnText(this.x, this.y, "STOP DETECTED", "#48bb78");
+        for (let inter of Game.intersections) {
+            if (!inter.isArt) {
+                for (let a of inter.approaches) {
+                    const dist = Utils.dist(this.x, this.y, a.stopLineCenter.x, a.stopLineCenter.y);
+                    if (dist < stopZoneRadius) {
+                        const headingX = Math.cos(this.angle);
+                        const headingY = Math.sin(this.angle);
+                        const appX = Math.cos(a.angle);
+                        const appY = Math.sin(a.angle);
+                        const dot = headingX * appX + headingY * appY;
+                        if (dot > 0.7) {
+                            nearAnyApproach = a;
+                            break;
+                        }
                     }
+                }
+                if (nearAnyApproach) break;
+            }
+        }
+
+        if (nearAnyApproach) {
+            if (this.currentStopSign !== nearAnyApproach) {
+                this.currentStopSign = nearAnyApproach;
+                this.playerHasStopped = false;
+            }
+
+            if (Math.abs(this.speed) < 0.1) {
+                if (!this.playerHasStopped) {
+                    this.playerHasStopped = true;
+                    Game.spawnText(this.x, this.y, "STOP DETECTED", "#48bb78");
                 }
             }
         }
 
-        // If we were in a zone and left it
-        if (this.currentStopSign && !nearAnySign) {
+        if (this.currentStopSign && !nearAnyApproach) {
             if (!this.playerHasStopped) {
-                // Did not stop!
                 Game.modChill(-15);
                 Game.spawnText(this.x, this.y, "RAN STOP SIGN", "#e53e3e");
                 this.stopSignCooldown = 200;
             }
-            // Reset state
             this.currentStopSign = null;
             this.playerHasStopped = false;
         }
@@ -421,28 +428,30 @@ class Car {
         }
 
         // Traffic Lights
-        for (let l of lights) {
-            const dx = l.x - this.x; const dy = l.y - this.y;
-            if (Math.abs(dx) < 60 && Math.abs(dy) < 60) {
-                const dot = dx * fwdX + dy * fwdY;
-                if (dot > 0 && dot < 60) {
-                    // Check Directional Logic
-                    let relevantState = 'GREEN';
-                    const isVertical = Math.abs(this.angle - (-Math.PI / 2)) < 1.0 || Math.abs(this.angle - (Math.PI / 2)) < 1.0;
-                    if (isVertical) relevantState = l.stateNS;
-                    else relevantState = l.stateEW;
+        for (let inter of Game.intersections) {
+            if (inter.isArt) {
+                for (let a of inter.approaches) {
+                    const dx = a.stopLineCenter.x - this.x;
+                    const dy = a.stopLineCenter.y - this.y;
+                    const dist = Math.hypot(dx, dy);
+                    if (dist < 60) {
+                        const dot = dx * fwdX + dy * fwdY;
+                        const alignment = Math.cos(this.angle) * Math.cos(a.angle) + Math.sin(this.angle) * Math.sin(a.angle);
+                        if (dot > 0 && dot < 60 && alignment > 0.7) {
+                            const relevantState = a.dominantAxis === 'NS' ? inter.stateNS : inter.stateEW;
+                            if (relevantState !== 'GREEN') shouldStop = true;
 
-                    if (relevantState !== 'GREEN') shouldStop = true;
-
-                    if (relevantState === 'GREEN' && this.type === 'TEXTER' && this.distracted && !this.honkedAt) {
-                        shouldStop = true;
-                        this.patience--;
-                        if (this.patience <= 0) {
-                            this.distracted = false;
-                            this.honkedAt = true;
-                            Game.spawnText(this.x, this.y, "Finally!", "#fff");
+                            if (relevantState === 'GREEN' && this.type === 'TEXTER' && this.distracted && !this.honkedAt) {
+                                shouldStop = true;
+                                this.patience--;
+                                if (this.patience <= 0) {
+                                    this.distracted = false;
+                                    this.honkedAt = true;
+                                    Game.spawnText(this.x, this.y, "Finally!", "#fff");
+                                }
+                                if (Math.random() < 0.02) Game.spawnText(this.x, this.y, "Zzz...", "#f56565");
+                            }
                         }
-                        if (Math.random() < 0.02) Game.spawnText(this.x, this.y, "Zzz...", "#f56565");
                     }
                 }
             }
@@ -450,32 +459,47 @@ class Car {
 
         // STOP SIGN LOGIC
         if (this.ignoreStopSignsTimer <= 0) {
-            for (let s of stopSigns) {
-                const dx = s.x - this.x;
-                const dy = s.y - this.y;
-                // Approaching Stop Sign? (Radius match player check)
-                if (Math.abs(dx) < 80 && Math.abs(dy) < 80) {
-                    const dot = dx * fwdX + dy * fwdY;
-                    if (dot > 0 && dot < 80) {
-                        if (!this.hasStoppedAtSign) {
-                            shouldStop = true; // Force stop
-                            if (Math.abs(this.speed) < 0.2) {
-                                this.stopWaitTime++;
-                                if (this.stopWaitTime > 60 + Math.random() * 30) { // Wait 1-1.5s
-                                    this.hasStoppedAtSign = true;
-                                    this.ignoreStopSignsTimer = 300; // Ignore for 5s (cross intersection)
+            for (let inter of Game.intersections) {
+                if (!inter.isArt) {
+                    for (let a of inter.approaches) {
+                        const dx = a.stopLineCenter.x - this.x;
+                        const dy = a.stopLineCenter.y - this.y;
+                        const dist = Math.hypot(dx, dy);
+                        if (dist < 60) {
+                            const dot = dx * fwdX + dy * fwdY;
+                            const alignment = Math.cos(this.angle) * Math.cos(a.angle) + Math.sin(this.angle) * Math.sin(a.angle);
+                            if (dot > 0 && dot < 60 && alignment > 0.7) {
+                                if (!this.hasStoppedAtSign) {
+                                    shouldStop = true;
+                                    if (Math.abs(this.speed) < 0.2) {
+                                        this.stopWaitTime++;
+                                        if (this.stopWaitTime > 60 + Math.random() * 30) {
+                                            this.hasStoppedAtSign = true;
+                                            this.ignoreStopSignsTimer = 300;
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
-                } else {
-                    // Reset state if far
-                    if (this.hasStoppedAtSign && Utils.dist(this.x, this.y, s.x, s.y) > 100) {
-                        this.hasStoppedAtSign = false;
-                        this.stopWaitTime = 0;
+                }
+            }
+        }
+
+        // Reset stop sign state if far
+        let nearAnyStopSign = false;
+        for (let inter of Game.intersections) {
+            if (!inter.isArt) {
+                for (let a of inter.approaches) {
+                    if (Utils.dist(this.x, this.y, a.stopLineCenter.x, a.stopLineCenter.y) < 80) {
+                        nearAnyStopSign = true;
                     }
                 }
             }
+        }
+        if (!nearAnyStopSign) {
+            this.hasStoppedAtSign = false;
+            this.stopWaitTime = 0;
         }
 
         if (shouldStop) {
