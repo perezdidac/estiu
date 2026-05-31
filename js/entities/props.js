@@ -33,26 +33,76 @@ class Prop {
 class Building {
     constructor(x, y, w, h) {
         this.x = x; this.y = y; this.w = w; this.h = h;
-        this.height = Utils.rand(30, 80);
+        this.height = Utils.rand(30, 50); // Slightly shorter houses for cute proportions
         this.colorFace = this.getRandColor();
-        this.colorRoof = '#2d3748';
-        this.details = [];
-        const numDetails = Math.floor(Utils.rand(1, 4));
-        for (let i = 0; i < numDetails; i++) {
-            this.details.push({
-                x: Utils.rand(10, w - 20),
-                y: Utils.rand(10, h - 20),
-                w: Utils.rand(10, 20),
-                h: Utils.rand(10, 20),
-                color: '#4a5568'
+        this.colorRoof = this.getRandRoofColor();
+        this.doorColor = ['#c53030', '#2b6cb0', '#2f855a', '#dd6b20', '#6b46c1'][Math.floor(Math.random() * 5)];
+        this.rect = { left: x, right: x + w, top: y, bottom: y + h };
+
+        // Pre-generate garden items to prevent frame-by-frame flickering
+        this.flowers = [];
+        const numFlowers = Math.floor(Utils.rand(6, 15));
+        for (let i = 0; i < numFlowers; i++) {
+            this.flowers.push({
+                x: Utils.rand(-12, w + 12),
+                y: Utils.rand(-12, h + 12),
+                color: ['#feb2b2', '#fbd38d', '#90cdf4', '#b2f5ea', '#e9d8fd', '#fff'][Math.floor(Math.random() * 6)]
             });
         }
-        this.rect = { left: x, right: x + w, top: y, bottom: y + h };
+
+        this.shrubs = [];
+        const numShrubs = Math.floor(Utils.rand(1, 4));
+        for (let i = 0; i < numShrubs; i++) {
+            this.shrubs.push({
+                x: Utils.rand(-12, w + 12),
+                y: Utils.rand(-12, h + 12),
+                r: Utils.rand(4, 8)
+            });
+        }
+
+        // 30% chance of a small garden tree
+        this.hasGardenTree = Math.random() < 0.3;
+        if (this.hasGardenTree) {
+            this.gardenTree = {
+                x: Math.random() < 0.5 ? Utils.rand(-14, -8) : Utils.rand(w + 8, w + 14),
+                y: Utils.rand(-14, h + 14),
+                r: Utils.rand(7, 12)
+            };
+        }
     }
 
     getRandColor() {
-        const colors = ['#744210', '#718096', '#2c5282', '#702459', '#276749', '#975a16'];
-        return colors[Math.floor(Math.random() * colors.length)];
+        const pastelColors = [
+            '#ffb8b8', // light red/pink
+            '#ffddb0', // peach
+            '#fffdb0', // soft yellow
+            '#c3ffd8', // soft green
+            '#b0e0ff', // light blue
+            '#d2b0ff', // light lavender
+            '#ffd3e8', // rose pink
+            '#e2f0d9'  // sage green
+        ];
+        return pastelColors[Math.floor(Math.random() * pastelColors.length)];
+    }
+
+    getRandRoofColor() {
+        const roofColors = [
+            '#c53030', // red tile
+            '#2b6cb0', // blue slate
+            '#2f855a', // green shingle
+            '#b7791f', // orange terracotta
+            '#4a5568'  // grey slate
+        ];
+        return roofColors[Math.floor(Math.random() * roofColors.length)];
+    }
+
+    darkenColor(hex, percent) {
+        let num = parseInt(hex.replace("#",""), 16),
+        amt = Math.round(2.55 * percent),
+        R = (num >> 16) + amt,
+        G = (num >> 8 & 0x00FF) + amt,
+        B = (num & 0x0000FF) + amt;
+        return "#" + (0x1000000 + (R<255?R<0?0:R:255)*0x10000 + (G<255?G<0?0:G:255)*0x100 + (B<255?B<0?0:B:255)).toString(16).slice(1);
     }
 
     draw(ctx, camX, camY) {
@@ -60,22 +110,171 @@ class Building {
         const screenY = this.y - camY;
         if (screenX > ctx.canvas.width || screenX + this.w < 0 || screenY > ctx.canvas.height || screenY + this.h < 0) return;
         const shift = this.height * 0.4;
-        ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.fillRect(screenX + 10, screenY + 10, this.w, this.h);
-        ctx.fillStyle = this.darken(this.colorFace, -20); ctx.beginPath(); ctx.moveTo(screenX, screenY + this.h); ctx.lineTo(screenX + this.w, screenY + this.h); ctx.lineTo(screenX + this.w, screenY + this.h - shift); ctx.lineTo(screenX, screenY + this.h - shift); ctx.fill();
-        ctx.fillStyle = this.darken(this.colorFace, -40); ctx.beginPath(); ctx.moveTo(screenX + this.w, screenY + this.h); ctx.lineTo(screenX + this.w, screenY + this.h - shift); ctx.lineTo(screenX + this.w, screenY - shift); ctx.lineTo(screenX + this.w, screenY); ctx.fill();
-        ctx.fillStyle = this.colorRoof; ctx.fillRect(screenX, screenY - shift, this.w, this.h);
-        ctx.strokeStyle = '#1a202c'; ctx.lineWidth = 2; ctx.strokeRect(screenX, screenY - shift, this.w, this.h);
-        ctx.fillStyle = '#718096';
-        for (let d of this.details) {
-            ctx.fillRect(screenX + d.x, screenY - shift + d.y, d.w, d.h);
-            ctx.fillStyle = '#4a5568'; ctx.fillRect(screenX + d.x + 2, screenY - shift + d.y + 2, d.w, d.h); ctx.fillStyle = '#718096';
+
+        // 1. Garden Lawn Background
+        ctx.fillStyle = '#48bb78'; // nice grass green
+        ctx.fillRect(screenX - 15, screenY - 15, this.w + 30, this.h + 30);
+        ctx.strokeStyle = '#276749';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(screenX - 15, screenY - 15, this.w + 30, this.h + 30);
+
+        // Walkway path to the bottom (towards street)
+        ctx.fillStyle = '#cbd5e0';
+        const pathW = 8;
+        ctx.fillRect(screenX + this.w / 2 - pathW / 2, screenY + this.h - 15, pathW, 30);
+
+        // 2. Flowers
+        for (let f of this.flowers) {
+            ctx.fillStyle = f.color;
+            ctx.beginPath();
+            ctx.arc(screenX + f.x, screenY + f.y, 2, 0, Math.PI * 2);
+            ctx.fill();
         }
-    }
-    darken(col, amt) {
-        if (col === '#744210') return amt < 0 ? '#553000' : col;
-        if (col === '#718096') return amt < 0 ? '#4a5568' : col;
-        if (col === '#2c5282') return amt < 0 ? '#1a365d' : col;
-        return '#1a202c';
+
+        // 3. Shrubs
+        ctx.fillStyle = '#2f855a';
+        for (let s of this.shrubs) {
+            ctx.beginPath();
+            ctx.arc(screenX + s.x, screenY + s.y, s.r, 0, Math.PI * 2);
+            ctx.fill();
+            // Shrub shade detail
+            ctx.fillStyle = '#276749';
+            ctx.beginPath();
+            ctx.arc(screenX + s.x - 1, screenY + s.y - 1, s.r - 1.5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#2f855a';
+        }
+
+        // 4. Garden Tree
+        if (this.hasGardenTree) {
+            ctx.fillStyle = '#744210'; // trunk
+            ctx.fillRect(screenX + this.gardenTree.x - 2, screenY + this.gardenTree.y, 4, 12);
+            ctx.fillStyle = '#38a169'; // leaves
+            ctx.beginPath();
+            ctx.arc(screenX + this.gardenTree.x, screenY + this.gardenTree.y, this.gardenTree.r, 0, Math.PI * 2);
+            ctx.fill();
+            // Leaf highlight
+            ctx.fillStyle = '#48bb78';
+            ctx.beginPath();
+            ctx.arc(screenX + this.gardenTree.x - 2, screenY + this.gardenTree.y - 2, this.gardenTree.r - 2.5, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // 5. House Drop Shadow (semi-transparent black)
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
+        ctx.fillRect(screenX + 6, screenY + 6, this.w, this.h);
+
+        // 6. Side Wall (Shaded)
+        ctx.fillStyle = this.darkenColor(this.colorFace, -15);
+        ctx.beginPath();
+        ctx.moveTo(screenX + this.w, screenY + this.h);
+        ctx.lineTo(screenX + this.w, screenY + this.h - shift);
+        ctx.lineTo(screenX + this.w, screenY - shift);
+        ctx.lineTo(screenX + this.w, screenY);
+        ctx.closePath();
+        ctx.fill();
+
+        // 7. Front Wall
+        ctx.fillStyle = this.colorFace;
+        ctx.beginPath();
+        ctx.moveTo(screenX, screenY + this.h);
+        ctx.lineTo(screenX + this.w, screenY + this.h);
+        ctx.lineTo(screenX + this.w, screenY + this.h - shift);
+        ctx.lineTo(screenX, screenY + this.h - shift);
+        ctx.closePath();
+        ctx.fill();
+
+        // 8. Front Door
+        const doorW = 10;
+        const doorH = 16;
+        const doorX = screenX + this.w / 2 - doorW / 2;
+        const doorY = screenY + this.h - doorH;
+        ctx.fillStyle = this.doorColor;
+        ctx.fillRect(doorX, doorY, doorW, doorH);
+        ctx.strokeStyle = '#2d3748';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(doorX, doorY, doorW, doorH);
+        ctx.fillStyle = '#ecc94b'; // door knob
+        ctx.beginPath();
+        ctx.arc(doorX + doorW - 2.5, doorY + doorH / 2, 1, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 9. Windows (Glowing Warm Yellow at Night)
+        const winW = 8;
+        const winH = 10;
+        const winY = screenY + this.h - shift + (shift - winH) / 2;
+        const isNight = (typeof Game !== 'undefined' && Game.timeOfDay === 3);
+        ctx.fillStyle = isNight ? '#fefcbf' : '#e2e8f0';
+        ctx.strokeStyle = '#2d3748';
+        ctx.lineWidth = 1;
+        if (this.w > 36) {
+            // Left window
+            ctx.fillRect(screenX + 8, winY, winW, winH);
+            ctx.strokeRect(screenX + 8, winY, winW, winH);
+            ctx.beginPath();
+            ctx.moveTo(screenX + 8 + winW / 2, winY); ctx.lineTo(screenX + 8 + winW / 2, winY + winH);
+            ctx.moveTo(screenX + 8, winY + winH / 2); ctx.lineTo(screenX + 8 + winW, winY + winH / 2);
+            ctx.stroke();
+
+            // Right window
+            ctx.fillRect(screenX + this.w - 8 - winW, winY, winW, winH);
+            ctx.strokeRect(screenX + this.w - 8 - winW, winY, winW, winH);
+            ctx.beginPath();
+            ctx.moveTo(screenX + this.w - 8 - winW / 2, winY); ctx.lineTo(screenX + this.w - 8 - winW / 2, winY + winH);
+            ctx.moveTo(screenX + this.w - 8 - winW, winY + winH / 2); ctx.lineTo(screenX + this.w - 8, winY + winH / 2);
+            ctx.stroke();
+        }
+
+        // 10. Pitched / Gabled Roof
+        const pitch = 10;
+        const midY = screenY - shift + this.h / 2;
+
+        // Back slope
+        ctx.fillStyle = this.colorRoof;
+        ctx.beginPath();
+        ctx.moveTo(screenX, screenY - shift);
+        ctx.lineTo(screenX + this.w, screenY - shift);
+        ctx.lineTo(screenX + this.w, midY - pitch);
+        ctx.lineTo(screenX, midY - pitch);
+        ctx.closePath();
+        ctx.fill();
+
+        // Front slope (slightly darker)
+        ctx.fillStyle = this.darkenColor(this.colorRoof, -12);
+        ctx.beginPath();
+        ctx.moveTo(screenX, midY - pitch);
+        ctx.lineTo(screenX + this.w, midY - pitch);
+        ctx.lineTo(screenX + this.w, screenY - shift + this.h);
+        ctx.lineTo(screenX, screenY - shift + this.h);
+        ctx.closePath();
+        ctx.fill();
+
+        // Left gable triangle
+        ctx.fillStyle = this.colorFace;
+        ctx.beginPath();
+        ctx.moveTo(screenX, screenY - shift);
+        ctx.lineTo(screenX, midY - pitch);
+        ctx.lineTo(screenX, screenY - shift + this.h);
+        ctx.closePath();
+        ctx.fill();
+
+        // Right gable triangle (shaded)
+        ctx.fillStyle = this.darkenColor(this.colorFace, -15);
+        ctx.beginPath();
+        ctx.moveTo(screenX + this.w, screenY - shift);
+        ctx.lineTo(screenX + this.w, midY - pitch);
+        ctx.lineTo(screenX + this.w, screenY - shift + this.h);
+        ctx.closePath();
+        ctx.fill();
+
+        // Outlines & Ridge Line
+        ctx.strokeStyle = '#1a202c';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(screenX, screenY - shift, this.w, this.h);
+        ctx.beginPath();
+        ctx.moveTo(screenX, midY - pitch);
+        ctx.lineTo(screenX + this.w, midY - pitch);
+        ctx.stroke();
     }
 }
 

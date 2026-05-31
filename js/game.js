@@ -1,5 +1,125 @@
 
 
+class Pedestrian {
+    constructor(approach, inter) {
+        this.approach = approach;
+        this.inter = inter;
+        
+        const dx = Math.cos(approach.angle);
+        const dy = Math.sin(approach.angle);
+        const nx = -dy;
+        const ny = dx;
+
+        const startSide = Math.random() < 0.5 ? -1 : 1;
+        const offsetSide = startSide * 40;
+        
+        this.x = approach.crosswalkCenter.x + nx * offsetSide;
+        this.y = approach.crosswalkCenter.y + ny * offsetSide;
+        
+        this.targetX = approach.crosswalkCenter.x - nx * offsetSide;
+        this.targetY = approach.crosswalkCenter.y - ny * offsetSide;
+        
+        this.speed = 0.8 + Math.random() * 0.4;
+        this.state = 'WAITING';
+        this.color = ['#f56565', '#4299e1', '#ed8936', '#9f7aea', '#ecc94b', '#48bb78'][Math.floor(Math.random() * 6)];
+        this.w = 12;
+        this.h = 12;
+        this.walkCycle = Math.random() * 100;
+    }
+
+    update() {
+        this.walkCycle += 0.15;
+        
+        let canCross = false;
+        if (this.inter.isArt) {
+            const relevantState = this.approach.dominantAxis === 'NS' ? this.inter.stateNS : this.inter.stateEW;
+            if (relevantState === 'GREEN') canCross = true;
+        } else {
+            canCross = true;
+        }
+
+        if (this.state === 'WAITING' && canCross) {
+            this.state = 'CROSSING';
+        }
+
+        if (this.state === 'CROSSING') {
+            const dx = this.targetX - this.x;
+            const dy = this.targetY - this.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist < 4) {
+                this.state = 'FINISHED';
+            } else {
+                this.x += (dx / dist) * this.speed;
+                this.y += (dy / dist) * this.speed;
+            }
+        }
+    }
+
+    draw(ctx, camX, camY) {
+        const sx = this.x - camX;
+        const sy = this.y - camY;
+        if (sx < -20 || sx > ctx.canvas.width + 20 || sy < -20 || sy > ctx.canvas.height + 20) return;
+
+        ctx.save();
+        ctx.translate(sx, sy);
+
+        ctx.fillStyle = 'rgba(0,0,0,0.25)';
+        ctx.beginPath();
+        ctx.arc(1, 4, 5, 0, Math.PI*2);
+        ctx.fill();
+
+        ctx.fillStyle = this.color;
+        ctx.beginPath();
+        ctx.arc(0, 0, 5, 0, Math.PI*2);
+        ctx.fill();
+
+        ctx.fillStyle = '#fbd38d';
+        ctx.beginPath();
+        ctx.arc(0, -5, 3.5, 0, Math.PI*2);
+        ctx.fill();
+
+        ctx.fillStyle = '#2d3748';
+        ctx.beginPath();
+        ctx.arc(0, -6, 3, Math.PI, 0);
+        ctx.fill();
+
+        const swing = Math.sin(this.walkCycle) * 3;
+        ctx.strokeStyle = '#2d3748';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(-2, 2); ctx.lineTo(-2 + swing, 6);
+        ctx.moveTo(2, 2); ctx.lineTo(2 - swing, 6);
+        ctx.stroke();
+
+        // Draw Umbrella if raining
+        if (typeof Game !== 'undefined' && Game.isRainy) {
+            ctx.strokeStyle = '#4a5568';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(-2, -5);
+            ctx.lineTo(-6, -15); // Umbrella handle
+            ctx.stroke();
+
+            ctx.fillStyle = this.color; // Match outfit
+            ctx.beginPath();
+            ctx.arc(-6, -15, 8, Math.PI, 0);
+            ctx.fill();
+            ctx.strokeStyle = '#2d3748';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+            
+            // Umbrella tip
+            ctx.strokeStyle = '#4a5568';
+            ctx.beginPath();
+            ctx.moveTo(-6, -23);
+            ctx.lineTo(-6, -25);
+            ctx.stroke();
+        }
+
+        ctx.restore();
+    }
+}
+
 const Game = {
     canvas: null,
     ctx: null,
@@ -25,6 +145,11 @@ const Game = {
     level: 1,
     timeLimit: 60,
     maxCars: 36,
+    upgrades: { tires: false, cupholder: false, fueltank: false, sticker: false },
+    radioStation: 'OFF',
+    pedestrians: [],
+    potholes: [],
+    timeOfDay: 0,
     getNearestDiagonalRoad(x, y) {
         let nearestRoad = null;
         let minDist = Infinity;
@@ -79,6 +204,8 @@ const Game = {
         this.props = [];
         this.trees = [];
         this.textOverlay = [];
+        this.pedestrians = [];
+        this.potholes = [];
 
         const drawRoad = (x1, y1, x2, y2, type, name = null) => {
             if (x1 === x2) { // Vert
@@ -266,6 +393,18 @@ const Game = {
         });
 
         this.generateBuildingsAndTrees();
+
+        // Generate potholes randomly on road tiles
+        this.potholes = [];
+        for (let i = 0; i < 20; i++) {
+            if (this.validSpawnTiles.length > 0) {
+                const t = this.validSpawnTiles[Math.floor(Math.random() * this.validSpawnTiles.length)];
+                this.potholes.push({
+                    x: t.x * TILE_SIZE + Utils.rand(30, TILE_SIZE - 30),
+                    y: t.y * TILE_SIZE + Utils.rand(30, TILE_SIZE - 30)
+                });
+            }
+        }
     },
     generateBuildingsAndTrees() {
         // Moved building gen here for clarity
@@ -370,6 +509,7 @@ const Game = {
         this.level = 1;
         this.score = 0; // Reset total score
         this.gas = 100; // Reset gas
+        this.upgrades = { tires: false, cupholder: false, fueltank: false, sticker: false };
         this.reset();
     },
 
@@ -379,20 +519,127 @@ const Game = {
         this.reset();
     },
 
+    toggleRadio(station) {
+        this.radioStation = station;
+        document.querySelectorAll('.radio-btn').forEach(btn => btn.classList.remove('active'));
+        const viz = document.getElementById('radio-visualizer');
+        if (station === 'OFF') {
+            document.getElementById('radio-off').classList.add('active');
+            document.getElementById('radio-ticker').innerText = "RADIO OFF";
+            AudioSys.setStation('OFF');
+            if (viz) {
+                viz.classList.add('hidden');
+                viz.classList.remove('playing');
+            }
+        } else {
+            if (viz) {
+                viz.classList.remove('hidden');
+                viz.classList.add('playing');
+            }
+            if (station === 'LOFI') {
+                document.getElementById('radio-lofi').classList.add('active');
+                document.getElementById('radio-ticker').innerText = "BALLARD LO-FI";
+                AudioSys.setStation('LOFI');
+            } else if (station === 'GRUNGE') {
+                document.getElementById('radio-grunge').classList.add('active');
+                document.getElementById('radio-ticker').innerText = "CLASSIC GRUNGE";
+                AudioSys.setStation('GRUNGE');
+            } else if (station === 'KEXP') {
+                document.getElementById('radio-kexp').classList.add('active');
+                document.getElementById('radio-ticker').innerText = "KEXP 90.3 FM";
+                AudioSys.setStation('KEXP');
+            }
+        }
+    },
+
+    openGarage() {
+        this.state = 'GARAGE';
+        document.getElementById('win-screen').classList.add('hidden');
+        document.getElementById('garage-screen').classList.remove('hidden');
+        this.updateGarageUI();
+    },
+
+    updateGarageUI() {
+        document.getElementById('garage-bucks').innerText = "ERRAND BUCKS: $" + this.score;
+        const checkUpgrade = (id, key) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            if (this.upgrades[key]) {
+                el.classList.add('owned');
+                el.querySelector('div').innerText = key.toUpperCase() + " - OWNED";
+            } else {
+                el.classList.remove('owned');
+            }
+        };
+        checkUpgrade('shop-tires', 'tires');
+        checkUpgrade('shop-cupholder', 'cupholder');
+        checkUpgrade('shop-fueltank', 'fueltank');
+        checkUpgrade('shop-sticker', 'sticker');
+    },
+
+    buyUpgrade(key, cost) {
+        if (this.upgrades[key]) return;
+        if (this.score >= cost) {
+            this.score -= cost;
+            this.upgrades[key] = true;
+            AudioSys.collect();
+            this.updateGarageUI();
+            this.showNotification("UPGRADE PURCHASED!", "#48bb78");
+        } else {
+            this.showNotification("NOT ENOUGH BUCKS!", "#e53e3e");
+        }
+    },
+
+    closeGarage() {
+        document.getElementById('garage-screen').classList.add('hidden');
+        this.nextLevel();
+    },
+
+    showNotification(text, bgCol = '#3182ce') {
+        const parent = document.getElementById('notifications');
+        if (!parent) return;
+        const el = document.createElement('div');
+        el.className = 'notif';
+        el.style.background = bgCol;
+        el.innerText = text;
+        parent.appendChild(el);
+        setTimeout(() => el.remove(), 2500);
+    },
+
     start() {
+        this.isRainy = Math.random() < 0.5;
+        this.timeOfDay = (this.level - 1) % 4; // Morning, Afternoon, Sunset, Night
         this.generateMap();
         AudioSys.init();
         document.querySelectorAll('.screen').forEach(s => s.classList.add('hidden'));
         this.state = 'PLAYING';
         this.startTime = Date.now();
 
-        // Calculate Difficulty
-        document.getElementById('level-display').innerText = "LEVEL " + this.level;
+        // Update HUD
+        const times = ["🌅 Morning", "☀️ Afternoon", "🌇 Sunset", "🌙 Night"];
+        const weatherText = this.isRainy ? "🌧️ Wet Asphalt" : "🌤️ Dry Roads";
+        document.getElementById('level-display').innerText = "LEVEL " + this.level + " | " + times[this.timeOfDay] + " | " + weatherText;
         document.getElementById('score-hud-display').innerText = this.score;
         this.timeLimit = 60 - (this.level - 1);
         if (this.timeLimit < 20) this.timeLimit = 20; // Min time
 
         this.maxCars = Math.floor(36 * (1 + (this.level - 1) * 0.1));
+
+        // Time of Day and Weather notifications
+        const timeAlerts = [
+            "🌅 SUNRISE: SOFT LIGHT, START OF THE DAY!",
+            "☀️ AFTERNOON: CLEAR SKIES & HIGH VISIBILITY!",
+            "🌇 SUNSET: GOLDEN HOUR LIGHT, WATCH THE AMBIENT SUN!",
+            "🌙 NIGHTFALL: IT IS DARK. HEADLIGHTS ARE ACTIVE!"
+        ];
+        this.showNotification(timeAlerts[this.timeOfDay], "#6b46c1");
+        setTimeout(() => {
+            if (this.isRainy) {
+                this.showNotification("🌧️ WEATHER ALERT: HEAVY RAIN! SLIPPERY ROADS!", "#e53e3e");
+            } else {
+                this.showNotification("☀️ WEATHER ALERT: SUNNY & DRY! GOOD GRIP!", "#38a169");
+            }
+        }, 1200);
 
         let startX = 0, startY = 0, startAngle = 0;
         let validStart = false;
@@ -614,6 +861,9 @@ const Game = {
         // Difficulty Scaling: Drain increases by 10% per level
         if (amt < 0) {
             amt = amt * (1 + (this.level - 1) * 0.1);
+            if (this.upgrades && this.upgrades.cupholder) {
+                amt *= 0.7;
+            }
         }
 
         this.chill += amt; if (this.chill > 100) this.chill = 100;
@@ -668,12 +918,18 @@ const Game = {
         const elapsedSecs = (Date.now() - this.startTime) / 1000;
         const chillScore = Math.floor(this.chill * 10);
         const timeBonus = Math.max(0, Math.floor(2000 - elapsedSecs * 15));
-        const levelScore = chillScore + timeBonus;
+        let levelScore = chillScore + timeBonus;
+
+        let multiplierText = "";
+        if (this.upgrades && this.upgrades.sticker) {
+            levelScore = Math.floor(levelScore * 1.2);
+            multiplierText = " (1.2x Sticker!)";
+        }
 
         this.score += levelScore;
 
         document.getElementById('score-details').innerHTML =
-            `DESTINATION: ${this.currentDestName}<br>CHILL: ${Math.floor(this.chill)}% (+${chillScore})<br>TIME BONUS: +${timeBonus}<br>-----------------<br><span style="color:#63b3ed; font-size:1.5em">SCORE: ${this.score}</span>`;
+            `DESTINATION: ${this.currentDestName}<br>CHILL: ${Math.floor(this.chill)}% (+${chillScore})<br>TIME BONUS: +${timeBonus}${multiplierText}<br>-----------------<br><span style="color:#63b3ed; font-size:1.5em">SCORE: ${this.score}</span>`;
     },
     loop() {
         requestAnimationFrame(() => this.loop());
@@ -697,6 +953,11 @@ const Game = {
                 let drain = (0.02 + (Math.abs(this.player.speed) * 0.01)) * 0.2;
                 // Level scaling (+5% per level)
                 drain *= (1 + (this.level - 1) * 0.05);
+
+                // Extended Fuel tank saves 25% fuel drain
+                if (this.upgrades && this.upgrades.fueltank) {
+                    drain *= 0.75;
+                }
 
                 this.gas -= drain;
 
@@ -755,6 +1016,40 @@ const Game = {
         // Updates
         this.entities.forEach(e => e.update(this.map, this.entities, this.lights, this.stopSigns));
         this.entities = this.entities.filter(e => !e.markedForDeletion);
+
+        // Pedestrians Update & Spawn
+        if (Math.random() < 0.01 && this.pedestrians.length < 8) {
+            if (this.intersections.length > 0) {
+                const inter = this.intersections[Math.floor(Math.random() * this.intersections.length)];
+                if (inter.approaches.length > 0) {
+                    const approach = inter.approaches[Math.floor(Math.random() * inter.approaches.length)];
+                    this.pedestrians.push(new Pedestrian(approach, inter));
+                }
+            }
+        }
+        this.pedestrians.forEach(p => p.update());
+        this.pedestrians = this.pedestrians.filter(p => p.state !== 'FINISHED');
+
+        // Radio Banter Ticker
+        if (this.radioStation !== 'OFF' && Math.floor(Date.now() / 100) % 50 === 0) {
+            const banters = [
+                "DJ: That was Pearl Jam. Next up, local traffic updates...",
+                "DJ: Heavy rain report near 15th Ave NW, drive carefully!",
+                "DJ: Reminder, please yield to pedestrians in Ballard!",
+                "DJ: Support local Seattle KEXP listener radio!",
+                "ALERT: Giant pothole spotted on NW 85th St!",
+                "DJ: That was 'Sunny in Golden Gardens' by Ballard Jazz Trio.",
+                "DJ: Keep calm and hold your lane on Loyal Way NW!",
+                "DJ: Upgrading your car at the Garage is highly recommended!",
+                "DJ: Shouts out to Larsens Bakery for the fresh cardamom buns!",
+                "DJ: Stay chill out there on NW Market St, folks!"
+            ];
+            if (Math.random() < 0.25) {
+                const ticker = document.getElementById('radio-ticker');
+                if (ticker) ticker.innerText = banters[Math.floor(Math.random() * banters.length)];
+            }
+        }
+
         this.props.forEach(p => {
             if (p.type === 'COFFEE' && !p.markedForDeletion && Utils.dist(this.player.x, this.player.y, p.x, p.y) < 30) {
                 p.markedForDeletion = true;
@@ -795,21 +1090,21 @@ const Game = {
                     const tile = this.map[r][c];
                     const x = c * TILE_SIZE - cx; const y = r * TILE_SIZE - cy;
                     if (tile === 0) {
-                        this.ctx.fillStyle = '#9ca3af';
+                        this.ctx.fillStyle = this.isRainy ? '#a0aec0' : '#cbd5e0'; // sidewalk
                         this.ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
-                        this.ctx.fillStyle = '#2d3748';
+                        this.ctx.fillStyle = this.isRainy ? '#22543d' : '#2f855a'; // lawn center
                         this.ctx.fillRect(x + 15, y + 15, TILE_SIZE - 30, TILE_SIZE - 30);
                     } else if (tile === 8 || tile === 9) {
-                        this.ctx.fillStyle = '#9ca3af';
+                        this.ctx.fillStyle = this.isRainy ? '#718096' : '#9ca3af'; // diagonal road sidewalk backing
                         this.ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
                     } else if (tile === 4) {
-                        this.ctx.fillStyle = '#2d3748'; this.ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+                        this.ctx.fillStyle = this.isRainy ? '#1a202c' : '#2d3748'; this.ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
                         const pulse = Math.sin(Date.now() / 200) * 5;
                         this.ctx.strokeStyle = '#48bb78'; this.ctx.lineWidth = 3;
                         this.ctx.strokeRect(x + 10 - pulse, y + 10 - pulse, TILE_SIZE - 20 + pulse * 2, TILE_SIZE - 20 + pulse * 2);
                         this.ctx.fillStyle = '#3182ce'; this.ctx.font = 'bold 12px sans-serif'; this.ctx.fillText(this.currentDestName, x + 15, y + 60);
                     } else if (tile === 5) {
-                        this.ctx.fillStyle = '#2d3748'; this.ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+                        this.ctx.fillStyle = this.isRainy ? '#1a202c' : '#2d3748'; this.ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
                         this.ctx.fillStyle = '#f6ad55';
                         this.ctx.fillRect(x + 20, y + 40, 20, 40);
                         this.ctx.fillRect(x + 80, y + 40, 20, 40);
@@ -822,8 +1117,8 @@ const Game = {
                         this.ctx.beginPath(); this.ctx.arc(x + 10, y + 110, 3, 0, Math.PI * 2); this.ctx.fill();
                         this.ctx.beginPath(); this.ctx.arc(x + 110, y + 110, 3, 0, Math.PI * 2); this.ctx.fill();
                     } else {
-                        this.ctx.fillStyle = '#4a5568'; this.ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
-                        this.ctx.fillStyle = 'rgba(255,255,255,0.05)'; this.ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+                        this.ctx.fillStyle = this.isRainy ? '#2d3748' : '#4a5568'; this.ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE); // road asphalt
+                        this.ctx.fillStyle = this.isRainy ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.05)'; this.ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
 
 
                         if (tile === 1) {
@@ -899,7 +1194,7 @@ const Game = {
                 const ny = ux;
 
                 // 1. Draw Asphalt Base
-                this.ctx.strokeStyle = '#4a5568';
+                this.ctx.strokeStyle = this.isRainy ? '#2d3748' : '#4a5568';
                 this.ctx.lineWidth = TILE_SIZE;
                 this.ctx.lineCap = 'round';
                 this.ctx.beginPath();
@@ -907,7 +1202,7 @@ const Game = {
                 this.ctx.lineTo(x2_w - cx, y2_w - cy);
                 this.ctx.stroke();
 
-                this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+                this.ctx.strokeStyle = this.isRainy ? 'rgba(255, 255, 255, 0.02)' : 'rgba(255, 255, 255, 0.05)';
                 this.ctx.lineWidth = TILE_SIZE;
                 this.ctx.beginPath();
                 this.ctx.moveTo(x1_w - cx, y1_w - cy);
@@ -979,6 +1274,43 @@ const Game = {
             }
         });
 
+        // Draw Potholes on the road
+        this.potholes.forEach(p => {
+            const px = p.x - cx;
+            const py = p.y - cy;
+            if (px > -50 && px < this.canvas.width + 50 && py > -50 && py < this.canvas.height + 50) {
+                // Dark outer ring
+                this.ctx.fillStyle = 'rgba(26, 32, 44, 0.9)'; // Deep dark slate/black hole
+                this.ctx.beginPath();
+                this.ctx.ellipse(px, py, 15, 9, 0, 0, Math.PI * 2);
+                this.ctx.fill();
+
+                // Inner core hole
+                this.ctx.fillStyle = '#0a0f1d';
+                this.ctx.beginPath();
+                this.ctx.ellipse(px + 1, py + 1, 10, 6, 0, 0, Math.PI * 2);
+                this.ctx.fill();
+
+                // Crack shadow highlights
+                this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+                this.ctx.lineWidth = 1;
+                this.ctx.beginPath();
+                this.ctx.ellipse(px, py, 16, 10, 0, 0, Math.PI * 2);
+                this.ctx.stroke();
+
+                // Random jagged cracks going outward
+                this.ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)';
+                this.ctx.lineWidth = 1;
+                for (let i = 0; i < 3; i++) {
+                    const ang = (i * Math.PI * 2 / 3) + 0.5;
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(px + Math.cos(ang) * 12, py + Math.sin(ang) * 7);
+                    this.ctx.lineTo(px + Math.cos(ang) * 19, py + Math.sin(ang) * 11);
+                    this.ctx.stroke();
+                }
+            }
+        });
+
         // Draw Stop Lines and Crosswalks
         this.intersections.forEach(inter => {
             inter.approaches.forEach(a => {
@@ -1041,6 +1373,9 @@ const Game = {
         });
 
         this.props.forEach(p => p.draw(this.ctx, cx, cy));
+
+        // Draw Pedestrians
+        this.pedestrians.forEach(p => p.draw(this.ctx, cx, cy));
 
         this.entities.sort((a, b) => a.y - b.y);
         this.entities.forEach(e => e.draw(this.ctx, cx, cy));
@@ -1134,9 +1469,64 @@ const Game = {
         });
         this.particles.forEach((p, i) => { p.update(); p.draw(this.ctx, cx, cy); if (p.life <= 0) this.particles.splice(i, 1); });
 
-        // Rain
-        this.ctx.strokeStyle = 'rgba(164, 176, 190, 0.3)'; this.ctx.lineWidth = 1; this.ctx.beginPath();
-        for (let i = 0; i < 80; i++) { const rx = Math.random() * this.canvas.width; const ry = Math.random() * this.canvas.height; this.ctx.moveTo(rx, ry); this.ctx.lineTo(rx - 5, ry + 15); }
-        this.ctx.stroke();
+        // --- Ambient Lighting and Weather overlays ---
+        
+        // 1. Time of Day Tints
+        if (this.timeOfDay === 0) { // Morning: soft pink/rose tint
+            this.ctx.fillStyle = 'rgba(255, 150, 150, 0.07)';
+            this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+            this.ctx.fillStyle = 'rgba(255, 220, 150, 0.03)';
+            this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+            // Morning Mist/Fog drifting slowly across screen
+            this.ctx.fillStyle = 'rgba(255, 255, 255, 0.04)';
+            for (let i = 0; i < 5; i++) {
+                const fx = ((Math.sin((Date.now() / 3000) + i) * 120) + (i * 400)) % (this.canvas.width + 300) - 150;
+                const fy = ((Math.cos((Date.now() / 2000) + i) * 60) + (i * 250)) % (this.canvas.height + 300) - 150;
+                this.ctx.beginPath();
+                this.ctx.arc(fx, fy, 160, 0, Math.PI * 2);
+                this.ctx.fill();
+            }
+        } else if (this.timeOfDay === 1) { // Afternoon: bright clear blue tint
+            this.ctx.fillStyle = 'rgba(100, 180, 255, 0.02)';
+            this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        } else if (this.timeOfDay === 2) { // Sunset: deep warm amber golden hour
+            this.ctx.fillStyle = 'rgba(245, 120, 30, 0.12)';
+            this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        } else if (this.timeOfDay === 3) { // Night: dark blue navy nightfall
+            this.ctx.fillStyle = 'rgba(15, 23, 42, 0.65)';
+            this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        }
+
+        // 2. Weather Overlays (Rain & Ripples)
+        if (this.isRainy) {
+            // Dark gray rainy overlay filter
+            this.ctx.fillStyle = 'rgba(74, 85, 104, 0.15)';
+            this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+            // Falling Raindrops
+            this.ctx.strokeStyle = 'rgba(164, 176, 190, 0.35)';
+            this.ctx.lineWidth = 1;
+            this.ctx.beginPath();
+            for (let i = 0; i < 90; i++) {
+                const rx = Math.random() * this.canvas.width;
+                const ry = Math.random() * this.canvas.height;
+                this.ctx.moveTo(rx, ry);
+                this.ctx.lineTo(rx - 5, ry + 15);
+            }
+            this.ctx.stroke();
+
+            // Rain puddles reflections / ground ripples
+            this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.18)';
+            this.ctx.lineWidth = 0.8;
+            for (let i = 0; i < 4; i++) {
+                const rx = Math.random() * this.canvas.width;
+                const ry = Math.random() * this.canvas.height;
+                const rRadius = Math.random() * 8 + 3;
+                this.ctx.beginPath();
+                this.ctx.ellipse(rx, ry, rRadius, rRadius * 0.5, 0, 0, Math.PI * 2);
+                this.ctx.stroke();
+            }
+        }
     }
 };

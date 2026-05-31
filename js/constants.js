@@ -9,4 +9,4 @@ const DESTINATIONS = [
 
 const TILE_SIZE = 120;
 const MAP_W = 42;
-const MAP_H = 32;
+const MAP_H = 42;

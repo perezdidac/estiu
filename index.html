@@ -48,12 +48,32 @@
                     <div style="font-weight: bold; color: #f56565;" id="warning-text"></div>
                 </div>
             </div>
+            
+            <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 10px;">
+                <div class="timer-panel">
+                    <div style="font-size: 10px; color: #a0aec0; letter-spacing: 1px;">TIME LEFT</div>
+                    <div id="timer-display">60</div>
+                    <div style="font-size: 10px; color: #a0aec0; letter-spacing: 1px; margin-top: 10px;">TOTAL SCORE</div>
+                    <div id="score-hud-display">0</div>
+                </div>
 
-            <div class="timer-panel">
-                <div style="font-size: 10px; color: #a0aec0; letter-spacing: 1px;">TIME LEFT</div>
-                <div id="timer-display">60</div>
-                <div style="font-size: 10px; color: #a0aec0; letter-spacing: 1px; margin-top: 10px;">TOTAL SCORE</div>
-                <div id="score-hud-display">0</div>
+                <div class="timer-panel" style="border-right-color: #a29bfe; pointer-events: auto; min-width: 170px; display: flex; flex-direction: column; align-items: flex-end; gap: 4px;">
+                    <div style="font-size: 8px; color: #a0aec0; letter-spacing: 1px; font-weight: bold;">RADIO TUNER</div>
+                    <div style="display: flex; gap: 4px; align-items: center;">
+                        <div id="radio-visualizer" class="visualizer-container hidden">
+                            <span class="bar"></span>
+                            <span class="bar"></span>
+                            <span class="bar"></span>
+                            <span class="bar"></span>
+                            <span class="bar"></span>
+                        </div>
+                        <button class="radio-btn active" onclick="Game.toggleRadio('OFF')" id="radio-off">OFF</button>
+                        <button class="radio-btn" onclick="Game.toggleRadio('LOFI')" id="radio-lofi">LOFI</button>
+                        <button class="radio-btn" onclick="Game.toggleRadio('GRUNGE')" id="radio-grunge">ROCK</button>
+                        <button class="radio-btn" onclick="Game.toggleRadio('KEXP')" id="radio-kexp">KEXP</button>
+                    </div>
+                    <div id="radio-ticker" style="font-size: 8px; font-family: 'Press Start 2P', monospace; color: #a29bfe; margin-top: 4px; overflow: hidden; text-align: right; width: 150px; text-overflow: ellipsis; white-space: nowrap;">RADIO OFF</div>
+                </div>
             </div>
         </div>
 
@@ -94,7 +114,35 @@
             <div id="score-details"
                 style="font-family: 'Press Start 2P'; color: #ecc94b; margin-bottom: 30px; text-align: center; line-height: 1.8;">
             </div>
-            <button class="btn" onclick="Game.nextLevel()">NEXT LEVEL</button>
+            <button class="btn" onclick="Game.openGarage()">NEXT LEVEL</button>
+        </div>
+
+        <!-- Garage Upgrade Shop Screen -->
+        <div id="garage-screen" class="screen hidden">
+            <h1 style="color: #ecc94b;">BALLARD GARAGE</h1>
+            <p style="margin-bottom: 20px; color: #a0aec0; max-width: 450px; text-align: center; line-height: 1.5;">Spend your Errand Bucks on upgrades to survive the Ballard rush hour!</p>
+            <div id="garage-bucks" style="font-family: 'Press Start 2P'; color: #48bb78; font-size: 1.2rem; margin-bottom: 25px;">BUCKS: $0</div>
+            
+            <div style="display: flex; flex-direction: column; gap: 12px; width: 80%; max-width: 500px; margin-bottom: 30px;">
+                <div class="shop-item" id="shop-tires" onclick="Game.buyUpgrade('tires', 1500)">
+                    <div style="font-weight: bold; font-size: 0.9em; pointer-events: none;">PREMIUM TIRES ($1500)</div>
+                    <div style="font-size: 0.7em; color: #a0aec0; margin-top: 4px; pointer-events: none;">Reduces slipping and sliding on rainy wet roads.</div>
+                </div>
+                <div class="shop-item" id="shop-cupholder" onclick="Game.buyUpgrade('cupholder', 2000)">
+                    <div style="font-weight: bold; font-size: 0.9em; pointer-events: none;">COFFEE CUPHOLDER ($2000)</div>
+                    <div style="font-size: 0.7em; color: #a0aec0; margin-top: 4px; pointer-events: none;">Keeps coffee hot, slowing mental stress drain by 30%.</div>
+                </div>
+                <div class="shop-item" id="shop-fueltank" onclick="Game.buyUpgrade('fueltank', 2500)">
+                    <div style="font-weight: bold; font-size: 0.9em; pointer-events: none;">EXTENDED FUEL TANK ($2500)</div>
+                    <div style="font-size: 0.7em; color: #a0aec0; margin-top: 4px; pointer-events: none;">Saves trips to the gas station (25% slower fuel drainage).</div>
+                </div>
+                <div class="shop-item" id="shop-sticker" onclick="Game.buyUpgrade('sticker', 1000)">
+                    <div style="font-weight: bold; font-size: 0.9em; pointer-events: none;">BALLARD BUMPER STICKER ($1000)</div>
+                    <div style="font-size: 0.7em; color: #a0aec0; margin-top: 4px; pointer-events: none;">Show off your local pride! Increases score multiplier.</div>
+                </div>
+            </div>
+            
+            <button class="btn" onclick="Game.closeGarage()">START NEXT TRIP</button>
         </div>
 
         <!-- Mobile Controls -->

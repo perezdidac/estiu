@@ -8,7 +8,9 @@ class Car {
         this.speed = isPlayer ? 0 : 0.5;
         this.isPlayer = isPlayer;
         this.type = 'NORMAL';
-        this.friction = 0.95;
+        const isRainy = (typeof Game !== 'undefined' && Game.isRainy);
+        const hasTires = (typeof Game !== 'undefined' && Game.upgrades && Game.upgrades.tires);
+        this.friction = isRainy ? (hasTires ? 0.94 : 0.965) : 0.92;
         this.turnSpeed = 0.04;
         this.wrongWayTimer = 0;
         this.redLightCooldown = 0;
@@ -21,6 +23,8 @@ class Car {
         this.honkCooldown = 0;
         this.sensorDist = 120;
         this.lastAxis = 'NS'; // Default assumption
+        this.isBraking = false;
+        this.potholeCooldown = 0;
 
         // AI Logic Props
         this.stopWaitTime = 0;
@@ -65,6 +69,8 @@ class Car {
     }
 
     update(map, entities, trafficLights, stopSigns) {
+        this.prevSpeed = this.speed;
+
         if (!this.isPlayer) {
             if (this.x < -100 || this.x > MAP_W * TILE_SIZE + 100 ||
                 this.y < -100 || this.y > MAP_H * TILE_SIZE + 100) {
@@ -77,9 +83,18 @@ class Car {
             this.checkLaneRule();
             this.checkRedLight(trafficLights);
             this.checkStopSignPenalty(stopSigns);
+            this.checkPedestrianNear();
+            this.checkPotholeCollision();
         }
 
         this.speed *= this.friction;
+
+        // Determine if braking
+        if (this.isPlayer) {
+            this.isBraking = (typeof Game !== 'undefined' && Game.keys['ArrowDown'] && this.speed > 0.1);
+        } else {
+            this.isBraking = (this.speed < this.prevSpeed - 0.02 && this.speed > 0.1);
+        }
         this.vx = Math.cos(this.angle) * this.speed;
         this.vy = Math.sin(this.angle) * this.speed;
 
@@ -184,6 +199,46 @@ class Car {
             }
             this.currentStopSign = null;
             this.playerHasStopped = false;
+        }
+    }
+
+    checkPedestrianNear() {
+        if (typeof Game === 'undefined' || !Game.pedestrians) return;
+        for (let p of Game.pedestrians) {
+            if (p.state === 'CROSSING') {
+                const dist = Utils.dist(this.x, this.y, p.x, p.y);
+                if (dist < 35) {
+                    if (dist < 15) {
+                        Game.modChill(-30);
+                        Game.spawnText(this.x, this.y, "PEDESTRIAN COLLISION!", "#e53e3e");
+                        AudioSys.crash();
+                        p.state = 'FINISHED'; // remove pedestrian
+                    } else {
+                        if (Math.floor(Date.now() / 100) % 10 === 0) {
+                            Game.modChill(-1.5);
+                            Game.spawnText(p.x, p.y, "SCARY!", "#e53e3e");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    checkPotholeCollision() {
+        if (typeof Game === 'undefined' || !Game.potholes) return;
+        if (this.potholeCooldown > 0) { this.potholeCooldown--; return; }
+        for (let p of Game.potholes) {
+            const dist = Utils.dist(this.x, this.y, p.x, p.y);
+            if (dist < 20 && Math.abs(this.speed) > 1.5) {
+                // Extended tires reduce pothole chill penalty slightly
+                const hasTires = Game.upgrades && Game.upgrades.tires;
+                const penalty = hasTires ? -3 : -5;
+                Game.modChill(penalty);
+                Game.spawnText(this.x, this.y, "POTHOLE! " + penalty + " CHILL", "#ed8936");
+                AudioSys.potholeThump();
+                this.potholeCooldown = 60; // 1 second cooldown
+                break;
+            }
         }
     }
 
@@ -413,6 +468,23 @@ class Car {
             }
         }
 
+        // Check Pedestrians
+        if (typeof Game !== 'undefined' && Game.pedestrians) {
+            for (let p of Game.pedestrians) {
+                if (p.state === 'CROSSING') {
+                    const dx = p.x - this.x;
+                    const dy = p.y - this.y;
+                    const dot = dx * fwdX + dy * fwdY;
+                    if (dot > 0 && dot < 80) { // check in front
+                        const perpX = -fwdY; const perpY = fwdX;
+                        if (Math.abs(dx * perpX + dy * perpY) < 25) { 
+                            shouldStop = true; 
+                        }
+                    }
+                }
+            }
+        }
+
         if (this.type === 'SPEEDSTER' && shouldStop && blockingCar) {
             if (this.honkCooldown <= 0) {
                 Game.spawnText(this.x, this.y, "HONK!", "#ecc94b");
@@ -520,6 +592,7 @@ class Car {
     }
 
     draw(ctx, camX, camY) {
-        Draw.car(ctx, this.x - camX, this.y - camY, this.angle + Math.PI / 2, this.color, true, this.state === 'DROPOFF');
+        const lightsOn = (typeof Game !== 'undefined') && (Game.timeOfDay === 3 || Game.isRainy);
+        Draw.car(ctx, this.x - camX, this.y - camY, this.angle + Math.PI / 2, this.color, lightsOn, this.state === 'DROPOFF', this.isBraking);
     }
 }
