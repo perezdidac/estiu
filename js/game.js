@@ -729,7 +729,25 @@ const Game = {
         } else { return; }
 
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-        this.lights.forEach(l => l.update());
+        this.intersections.forEach(inter => {
+            if (inter.isArt) {
+                inter.timer++;
+                let t = (inter.timer + inter.cycleOffset) % 900;
+                if (t < 300) {
+                    inter.stateNS = 'GREEN'; inter.stateEW = 'RED';
+                } else if (t < 400) {
+                    inter.stateNS = 'YELLOW'; inter.stateEW = 'RED';
+                } else if (t < 450) {
+                    inter.stateNS = 'RED'; inter.stateEW = 'RED';
+                } else if (t < 750) {
+                    inter.stateNS = 'RED'; inter.stateEW = 'GREEN';
+                } else if (t < 850) {
+                    inter.stateNS = 'RED'; inter.stateEW = 'YELLOW';
+                } else {
+                    inter.stateNS = 'RED'; inter.stateEW = 'RED';
+                }
+            }
+        });
 
         // Spawners
         if (this.entities.length < this.maxCars && Math.random() < 0.02) this.spawnCar();
