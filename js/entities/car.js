@@ -10,7 +10,7 @@ class Car {
         this.type = 'NORMAL';
         const isRainy = (typeof Game !== 'undefined' && Game.isRainy);
         const hasTires = (typeof Game !== 'undefined' && Game.upgrades && Game.upgrades.tires);
-        this.friction = isRainy ? (hasTires ? 0.94 : 0.965) : 0.92;
+        this.friction = isRainy ? (hasTires ? 0.988 : 0.992) : 0.985;
         this.turnSpeed = 0.04;
         this.wrongWayTimer = 0;
         this.redLightCooldown = 0;
@@ -33,8 +33,8 @@ class Car {
 
         if (isPlayer) {
             this.color = '#4299e1';
-            this.maxSpeed = 5.0;
-            this.accel = 0.1;
+            this.maxSpeed = 3.8;
+            this.accel = 0.07;
             // Player tracking for stop signs
             this.currentStopSign = null;
             this.playerHasStopped = false;
@@ -65,7 +65,17 @@ class Car {
                 break;
             case 'RIDESHARE': this.color = '#9f7aea'; this.maxSpeed = 3.0; this.accel = 0.08; this.sensorDist = 110; break;
             case 'STUDENT': this.color = '#f7fafc'; this.maxSpeed = 4.2; this.accel = 0.09; this.sensorDist = 30; break;
+            case 'BIKER':
+                const colors = ['#68d391', '#f687b3', '#63b3ed', '#fbd38d'];
+                this.color = colors[Math.floor(Math.random() * colors.length)];
+                this.maxSpeed = 6.0; // as fast as the yellow car
+                this.accel = 0.15;
+                this.sensorDist = 80;
+                this.w = 10;
+                this.h = 24;
+                break;
         }
+        this.targetSpeed = this.maxSpeed;
     }
 
     update(map, entities, trafficLights, stopSigns) {
@@ -88,6 +98,10 @@ class Car {
         }
 
         this.speed *= this.friction;
+
+        // Cap speed to prevent drag speed inflation
+        if (this.speed > this.maxSpeed) this.speed = this.maxSpeed;
+        if (this.speed < -this.maxSpeed / 2) this.speed = -this.maxSpeed / 2;
 
         // Determine if braking
         if (this.isPlayer) {
@@ -530,7 +544,7 @@ class Car {
         }
 
         // STOP SIGN LOGIC
-        if (this.ignoreStopSignsTimer <= 0) {
+        if (this.type !== 'BIKER' && this.ignoreStopSignsTimer <= 0) {
             for (let inter of Game.intersections) {
                 if (!inter.isArt) {
                     for (let a of inter.approaches) {

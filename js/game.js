@@ -191,10 +191,143 @@ const Game = {
             }
         });
         window.addEventListener('keyup', e => this.keys[e.code] = false);
-        const bind = (id, k) => { const el = document.getElementById(id); if (el) { el.addEventListener('touchstart', e => { e.preventDefault(); this.keys[k] = true; }); el.addEventListener('touchend', e => { e.preventDefault(); this.keys[k] = false; }); } };
-        bind('btn-up', 'ArrowUp'); bind('btn-down', 'ArrowDown'); bind('btn-left', 'ArrowLeft'); bind('btn-right', 'ArrowRight');
-        document.getElementById('btn-honk').addEventListener('touchstart', e => { e.preventDefault(); this.honk(); });
-        if ('ontouchstart' in window) { document.getElementById('mobile-controls').style.display = 'flex'; document.getElementById('honk-area').style.display = 'block'; }
+
+        // Virtual Touch Joystick Implementation
+        const joystickContainer = document.getElementById('joystick-container');
+        const joystickKnob = document.getElementById('joystick-knob');
+        
+        if (joystickContainer && joystickKnob) {
+            let joystickActive = false;
+            let joystickTouchId = null;
+            let centerX = 0;
+            let centerY = 0;
+
+            const handleJoystickStart = (e) => {
+                e.preventDefault();
+                if (joystickActive) return;
+                
+                const touch = e.changedTouches[0];
+                joystickTouchId = touch.identifier;
+                joystickActive = true;
+                
+                const rect = joystickContainer.getBoundingClientRect();
+                centerX = rect.left + rect.width / 2;
+                centerY = rect.top + rect.height / 2;
+                
+                updateJoystickPosition(touch, rect.width);
+            };
+
+            const updateJoystickPosition = (touch, containerWidth) => {
+                const dx = touch.clientX - centerX;
+                const dy = touch.clientY - centerY;
+                const dist = Math.hypot(dx, dy);
+                const maxRadius = (containerWidth - joystickKnob.offsetWidth) / 2 || 40;
+
+                let angle = Math.atan2(dy, dx);
+                let moveX = dx;
+                let moveY = dy;
+
+                if (dist > maxRadius) {
+                    moveX = Math.cos(angle) * maxRadius;
+                    moveY = Math.sin(angle) * maxRadius;
+                }
+
+                // Update knob visual position
+                joystickKnob.style.transform = `translate(calc(-50% + ${moveX}px), calc(-50% + ${moveY}px))`;
+
+                // Calculate normalized vectors
+                const nx = moveX / maxRadius;
+                const ny = moveY / maxRadius;
+
+                // Threshold for activating keys
+                const threshold = 0.25;
+
+                // Set ArrowUp, ArrowDown, ArrowLeft, ArrowRight
+                this.keys['ArrowUp'] = ny < -threshold;
+                this.keys['ArrowDown'] = ny > threshold;
+                this.keys['ArrowLeft'] = nx < -threshold;
+                this.keys['ArrowRight'] = nx > threshold;
+            };
+
+            const handleJoystickMove = (e) => {
+                if (!joystickActive) return;
+                // Find our tracked touch
+                let touch = null;
+                for (let i = 0; i < e.touches.length; i++) {
+                    if (e.touches[i].identifier === joystickTouchId) {
+                        touch = e.touches[i];
+                        break;
+                    }
+                }
+                if (touch) {
+                    e.preventDefault();
+                    const rect = joystickContainer.getBoundingClientRect();
+                    updateJoystickPosition(touch, rect.width);
+                }
+            };
+
+            const handleJoystickEnd = (e) => {
+                if (!joystickActive) return;
+                // Check if our tracked touch ended
+                let touchEnded = false;
+                for (let i = 0; i < e.changedTouches.length; i++) {
+                    if (e.changedTouches[i].identifier === joystickTouchId) {
+                        touchEnded = true;
+                        break;
+                    }
+                }
+                if (touchEnded) {
+                    e.preventDefault();
+                    joystickActive = false;
+                    joystickTouchId = null;
+                    
+                    // Reset knob visual position
+                    joystickKnob.style.transform = 'translate(-50%, -50%)';
+
+                    // Reset keys
+                    this.keys['ArrowUp'] = false;
+                    this.keys['ArrowDown'] = false;
+                    this.keys['ArrowLeft'] = false;
+                    this.keys['ArrowRight'] = false;
+                }
+            };
+
+            joystickContainer.addEventListener('touchstart', handleJoystickStart, { passive: false });
+            window.addEventListener('touchmove', handleJoystickMove, { passive: false });
+            window.addEventListener('touchend', handleJoystickEnd, { passive: false });
+            window.addEventListener('touchcancel', handleJoystickEnd, { passive: false });
+        }
+
+        const honkBtn = document.getElementById('btn-honk');
+        if (honkBtn) {
+            honkBtn.addEventListener('touchstart', e => {
+                e.preventDefault();
+                if (this.state === 'PLAYING') this.honk();
+            });
+        }
+
+        if ('ontouchstart' in window || window.innerWidth < 1024) {
+            const mc = document.getElementById('mobile-controls');
+            const ha = document.getElementById('honk-area');
+            if (mc) mc.style.display = 'flex';
+            if (ha) ha.style.display = 'block';
+        }
+
+        // Setup direct touchstart bindings for menu buttons to bypass click delay/issues on mobile
+        const bindButtonTouch = (selector, action) => {
+            const btns = document.querySelectorAll(selector);
+            btns.forEach(btn => {
+                btn.addEventListener('touchstart', e => {
+                    e.preventDefault();
+                    action();
+                }, { passive: false });
+            });
+        };
+
+        bindButtonTouch('#start-screen .btn', () => this.restartGame());
+        bindButtonTouch('#game-over-screen .btn', () => this.restartGame());
+        bindButtonTouch('#win-screen .btn', () => this.openGarage());
+        bindButtonTouch('#garage-screen .btn', () => this.closeGarage());
     },
     generateMap() {
         this.map = Array(MAP_H).fill(0).map(() => Array(MAP_W).fill(0));
@@ -463,7 +596,58 @@ const Game = {
                             }
                         }
                         if (!overlapsRoad) {
-                            this.buildings.push(new Building(bx, by, bw, bh));
+                            let facing = 'DOWN';
+                            let isApartment = false;
+                            
+                            // Check if a diagonal road is nearby
+                            const centerWorldX = bx + bw / 2;
+                            const centerWorldY = by + bh / 2;
+                            const diagResult = this.getNearestDiagonalRoad(centerWorldX, centerWorldY);
+                            
+                            if (diagResult.road && diagResult.dist < TILE_SIZE * 0.9) {
+                                const x1_w = diagResult.road.x1 * TILE_SIZE + TILE_SIZE / 2;
+                                const y1_w = diagResult.road.y1 * TILE_SIZE + TILE_SIZE / 2;
+                                const x2_w = diagResult.road.x2 * TILE_SIZE + TILE_SIZE / 2;
+                                const y2_w = diagResult.road.y2 * TILE_SIZE + TILE_SIZE / 2;
+                                const closest = Utils.getClosestPointOnSegment(centerWorldX, centerWorldY, x1_w, y1_w, x2_w, y2_w);
+                                
+                                const vx = closest.x - centerWorldX;
+                                const vy = closest.y - centerWorldY;
+                                
+                                if (Math.abs(vx) > Math.abs(vy)) {
+                                    facing = vx > 0 ? 'RIGHT' : 'LEFT';
+                                } else {
+                                    facing = vy > 0 ? 'DOWN' : 'UP';
+                                }
+                                
+                                if (diagResult.road.type === 9) {
+                                    isApartment = true;
+                                }
+                            } else {
+                                // Fallback to standard cardinal neighbor check
+                                const neighbors = [
+                                    { dir: 'DOWN', dx: 0, dy: 1 },
+                                    { dir: 'UP', dx: 0, dy: -1 },
+                                    { dir: 'LEFT', dx: -1, dy: 0 },
+                                    { dir: 'RIGHT', dx: 1, dy: 0 }
+                                ];
+                                
+                                for (let n of neighbors) {
+                                    const nx = x + n.dx;
+                                    const ny = y + n.dy;
+                                    if (nx >= 0 && nx < MAP_W && ny >= 0 && ny < MAP_H) {
+                                        const tileType = this.map[ny][nx];
+                                        if (tileType !== 0 && tileType !== 4 && tileType !== 5) {
+                                            facing = n.dir;
+                                            if (tileType === 6 || tileType === 7 || tileType === 9) {
+                                                isApartment = true;
+                                            }
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                            this.buildings.push(new Building(bx, by, bw, bh, facing, isApartment));
                         }
                     }
                 }
@@ -1066,9 +1250,18 @@ const Game = {
                 if (Utils.dist(a.x, a.y, b.x, b.y) < 60) {
                     if (Utils.polysIntersect(a.poly, b.poly)) {
                         if (a.isPlayer || b.isPlayer) {
+                            const isBikerHit = (a.type === 'BIKER' || b.type === 'BIKER');
+                            const penalty = isBikerHit ? -25 : -15;
+                            const label = isBikerHit ? "OUCH! BIKER!" : "CRASH";
                             a.speed *= -0.5; b.speed *= -0.5;
-                            AudioSys.crash(); this.modChill(-15);
-                            this.spawnText((a.x + b.x) / 2, (a.y + b.y) / 2, "CRASH", "red");
+                            AudioSys.crash();
+                            this.modChill(penalty);
+                            this.spawnText((a.x + b.x) / 2, (a.y + b.y) / 2, label, "red");
+
+                            if (isBikerHit) {
+                                if (a.type === 'BIKER') a.markedForDeletion = true;
+                                if (b.type === 'BIKER') b.markedForDeletion = true;
+                            }
                         }
                     }
                 }
@@ -1207,6 +1400,23 @@ const Game = {
                 this.ctx.beginPath();
                 this.ctx.moveTo(x1_w - cx, y1_w - cy);
                 this.ctx.lineTo(x2_w - cx, y2_w - cy);
+                this.ctx.stroke();
+
+                // 1b. Draw Concrete Curbs along the edges of the diagonal road (width TILE_SIZE/2 = 60px)
+                this.ctx.strokeStyle = this.isRainy ? '#4a5568' : '#cbd5e0';
+                this.ctx.lineWidth = 3;
+                this.ctx.lineCap = 'round';
+
+                // Left curb
+                this.ctx.beginPath();
+                this.ctx.moveTo(x1_w - cx + nx * 60, y1_w - cy + ny * 60);
+                this.ctx.lineTo(x2_w - cx + nx * 60, y2_w - cy + ny * 60);
+                this.ctx.stroke();
+
+                // Right curb
+                this.ctx.beginPath();
+                this.ctx.moveTo(x1_w - cx - nx * 60, y1_w - cy - ny * 60);
+                this.ctx.lineTo(x2_w - cx - nx * 60, y2_w - cy - ny * 60);
                 this.ctx.stroke();
 
                 // 2. Draw Markings
@@ -1468,6 +1678,19 @@ const Game = {
             });
         });
         this.particles.forEach((p, i) => { p.update(); p.draw(this.ctx, cx, cy); if (p.life <= 0) this.particles.splice(i, 1); });
+        // Draw drifting cloud shadows on sunny days
+        if (!this.isRainy && this.timeOfDay !== 3) {
+            this.ctx.fillStyle = 'rgba(0, 0, 0, 0.045)'; // very soft shadow
+            for (let i = 0; i < 3; i++) {
+                const cxCloud = ((Date.now() / 150) + i * 500) % (this.canvas.width + 400) - 200;
+                const cyCloud = (i * 300) % (this.canvas.height + 200) - 100;
+                this.ctx.beginPath();
+                this.ctx.arc(cxCloud, cyCloud, 80, 0, Math.PI * 2);
+                this.ctx.arc(cxCloud + 60, cyCloud - 20, 95, 0, Math.PI * 2);
+                this.ctx.arc(cxCloud + 120, cyCloud, 80, 0, Math.PI * 2);
+                this.ctx.fill();
+            }
+        }
 
         // --- Ambient Lighting and Weather overlays ---
         

@@ -30,6 +30,23 @@ const Draw = {
         } else {
             ctx.fillStyle = '#b91c1c'; ctx.fillRect(-10, 18, 6, 3); ctx.fillRect(4, 18, 6, 3);
         }
+
+        // Draw Tire Water Spray when rainy
+        if (typeof Game !== 'undefined' && Game.isRainy) {
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+            const t = Date.now() / 80;
+            const spray1 = Math.sin(t) * 3;
+            const spray2 = Math.cos(t) * 3;
+            // Left tire spray
+            ctx.beginPath();
+            ctx.ellipse(-7, 21 + spray1, 3, 5 + spray1, 0, 0, Math.PI * 2);
+            ctx.fill();
+            // Right tire spray
+            ctx.beginPath();
+            ctx.ellipse(7, 21 + spray2, 3, 5 + spray2, 0, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
         ctx.restore();
     },
     tree: (ctx, x, y) => {

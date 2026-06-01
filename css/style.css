@@ -151,13 +151,36 @@ canvas {
 .screen {
     position: absolute;
     inset: 0;
-    background: rgba(10, 15, 20, 0.92);
+    background: radial-gradient(circle at 50% 30%, #221138 0%, #080312 100%);
     display: flex;
     flex-direction: column;
     justify-content: center;
     align-items: center;
     z-index: 50;
     transition: opacity 0.3s;
+    overflow: hidden;
+}
+.screen::before {
+    content: "";
+    position: absolute;
+    bottom: 0;
+    left: -50%;
+    width: 200%;
+    height: 60%;
+    background-image: 
+        linear-gradient(to right, rgba(162, 155, 254, 0.1) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(162, 155, 254, 0.1) 1px, transparent 1px);
+    background-size: 50px 50px;
+    transform: perspective(150px) rotateX(60deg);
+    transform-origin: top center;
+    animation: gridScroll 15s linear infinite;
+    mask-image: linear-gradient(to bottom, transparent, rgba(0, 0, 0, 0.85));
+    -webkit-mask-image: linear-gradient(to bottom, transparent, rgba(0, 0, 0, 0.85));
+    pointer-events: none;
+}
+@keyframes gridScroll {
+    0% { background-position: 0 0; }
+    100% { background-position: 0 1000px; }
 }
 
 .hidden {
@@ -338,4 +361,96 @@ h1 {
     0% { height: 2px; }
     100% { height: 12px; }
 }
+
+/* Responsive adjustments for mobile viewports */
+@media (max-width: 1024px) {
+    #mobile-controls {
+        display: flex !important;
+    }
+    #honk-area {
+        display: block !important;
+    }
+}
+
+@media (max-width: 768px) {
+    #ui-layer {
+        top: 10px;
+        left: 10px;
+        right: 10px;
+        gap: 6px;
+    }
+    
+    .hud-left {
+        gap: 6px;
+    }
+    
+    .hud-panel {
+        padding: 6px 10px;
+    }
+    
+    .timer-panel {
+        padding: 6px 12px;
+        min-width: 130px !important;
+    }
+    
+    .meter-bar {
+        width: 120px;
+        height: 10px;
+    }
+    
+    #timer-display {
+        font-size: 1rem;
+    }
+    
+    #score-hud-display {
+        font-size: 0.8rem;
+    }
+    
+    #radio-ticker {
+        width: 110px !important;
+        font-size: 7px !important;
+    }
+    
+    h1 {
+        font-size: 1.5rem;
+        margin-bottom: 15px;
+    }
+    
+    .screen p {
+        font-size: 0.85rem;
+        padding: 0 15px;
+    }
+    
+    .btn {
+        padding: 12px 30px;
+        font-size: 1rem;
+    }
+    
+    #mobile-controls {
+        bottom: 20px;
+        right: 20px;
+    }
+    
+    #honk-area {
+        bottom: 20px;
+        left: 20px;
+    }
+
+    #joystick-container {
+        width: 110px;
+        height: 110px;
+    }
+
+    #joystick-knob {
+        width: 50px;
+        height: 50px;
+    }
+
+    .honk-btn {
+        width: 75px;
+        height: 75px;
+        font-size: 10px;
+    }
+}
+
 

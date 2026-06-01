@@ -5,25 +5,33 @@ const AudioSys = {
     currentStation: 'OFF',
 
     init() { 
-        if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)(); 
-        if (this.ctx && this.ctx.state === 'suspended') {
-            this.ctx.resume();
+        try {
+            if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)(); 
+            if (this.ctx && this.ctx.state === 'suspended') {
+                this.ctx.resume().catch(err => console.warn("Failed to resume AudioContext:", err));
+            }
+        } catch (e) {
+            console.error("AudioContext initialization failed:", e);
         }
     },
 
     playTone(freq, type, dur, vol = 0.1) {
         this.init();
         if (!this.ctx) return;
-        const osc = this.ctx.createOscillator();
-        const g = this.ctx.createGain();
-        osc.type = type;
-        osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
-        g.gain.setValueAtTime(vol, this.ctx.currentTime);
-        g.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + dur);
-        osc.connect(g);
-        g.connect(this.ctx.destination);
-        osc.start();
-        osc.stop(this.ctx.currentTime + dur);
+        try {
+            const osc = this.ctx.createOscillator();
+            const g = this.ctx.createGain();
+            osc.type = type;
+            osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+            g.gain.setValueAtTime(vol, this.ctx.currentTime);
+            g.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + dur);
+            osc.connect(g);
+            g.connect(this.ctx.destination);
+            osc.start();
+            osc.stop(this.ctx.currentTime + dur);
+        } catch (e) {
+            console.warn("Failed to play tone:", e);
+        }
     },
 
     honk(isMe) {
