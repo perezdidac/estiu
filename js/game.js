@@ -4,49 +4,81 @@ class Pedestrian {
     constructor(approach, inter) {
         this.approach = approach;
         this.inter = inter;
-        
+
+        // Perpendicular direction (across the road)
         const dx = Math.cos(approach.angle);
         const dy = Math.sin(approach.angle);
-        const nx = -dy;
+        const nx = -dy;  // sidewalk direction
         const ny = dx;
 
-        const startSide = Math.random() < 0.5 ? -1 : 1;
-        const offsetSide = startSide * 40;
-        
-        this.x = approach.crosswalkCenter.x + nx * offsetSide;
-        this.y = approach.crosswalkCenter.y + ny * offsetSide;
-        
-        this.targetX = approach.crosswalkCenter.x - nx * offsetSide;
-        this.targetY = approach.crosswalkCenter.y - ny * offsetSide;
-        
-        this.speed = 0.8 + Math.random() * 0.4;
-        this.state = 'WAITING';
-        this.color = ['#f56565', '#4299e1', '#ed8936', '#9f7aea', '#ecc94b', '#48bb78'][Math.floor(Math.random() * 6)];
+        // Spawn on one side of the crosswalk, on the SIDEWALK (extra offset beyond curb)
+        this.side = Math.random() < 0.5 ? -1 : 1;
+        const sidewalkOffset = this.side * 48;   // where they start (on pavement edge)
+        const curb = this.side * 38;             // where they wait before crossing
+
+        // Spawn a bit back along the approach so they "walk in" from the side
+        const sidewalkBackOffset = (Math.random() * 40 + 15);
+        this.x = approach.crosswalkCenter.x + nx * sidewalkOffset - dx * sidewalkBackOffset;
+        this.y = approach.crosswalkCenter.y + ny * sidewalkOffset - dy * sidewalkBackOffset;
+
+        // Walk-to-curb target (wait point)
+        this.waitX = approach.crosswalkCenter.x + nx * curb;
+        this.waitY = approach.crosswalkCenter.y + ny * curb;
+
+        // Final crossing target (other side)
+        this.targetX = approach.crosswalkCenter.x - nx * sidewalkOffset;
+        this.targetY = approach.crosswalkCenter.y - ny * sidewalkOffset;
+
+        // Much slower than before (~3.5x slower)
+        this.speed = 0.20 + Math.random() * 0.08;
+        this.state = 'APPROACHING';  // APPROACHING → WAITING → CROSSING → FINISHED
+        this.color = ['#f56565','#4299e1','#ed8936','#9f7aea','#ecc94b','#48bb78'][Math.floor(Math.random()*6)];
         this.w = 12;
         this.h = 12;
         this.walkCycle = Math.random() * 100;
     }
 
     update() {
-        this.walkCycle += 0.15;
-        
-        let canCross = false;
-        if (this.inter.isArt) {
-            const relevantState = this.approach.dominantAxis === 'NS' ? this.inter.stateNS : this.inter.stateEW;
-            if (relevantState === 'GREEN') canCross = true;
-        } else {
-            canCross = true;
+        this.walkCycle += 0.06;  // slower leg animation too
+
+        if (this.state === 'APPROACHING') {
+            const dx = this.waitX - this.x;
+            const dy = this.waitY - this.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist < 3) {
+                this.x = this.waitX;
+                this.y = this.waitY;
+                this.state = 'WAITING';
+            } else {
+                this.x += (dx / dist) * this.speed;
+                this.y += (dy / dist) * this.speed;
+            }
+            return;
         }
 
-        if (this.state === 'WAITING' && canCross) {
-            this.state = 'CROSSING';
+        if (this.state === 'WAITING') {
+            // Check traffic light or stop sign to decide when to cross
+            let canCross = false;
+            if (this.inter.isArt) {
+                const relevantState = this.approach.dominantAxis === 'NS'
+                    ? this.inter.stateNS
+                    : this.inter.stateEW;
+                // Pedestrians cross when the PERPENDICULAR traffic has green
+                // i.e., the traffic going across their path is red
+                if (relevantState === 'RED') canCross = true;
+            } else {
+                // Stop sign intersection — always allowed
+                canCross = true;
+            }
+            if (canCross) this.state = 'CROSSING';
+            return;
         }
 
         if (this.state === 'CROSSING') {
             const dx = this.targetX - this.x;
             const dy = this.targetY - this.y;
             const dist = Math.hypot(dx, dy);
-            if (dist < 4) {
+            if (dist < 3) {
                 this.state = 'FINISHED';
             } else {
                 this.x += (dx / dist) * this.speed;
@@ -63,62 +95,64 @@ class Pedestrian {
         ctx.save();
         ctx.translate(sx, sy);
 
+        // Drop shadow
         ctx.fillStyle = 'rgba(0,0,0,0.25)';
         ctx.beginPath();
         ctx.arc(1, 4, 5, 0, Math.PI*2);
         ctx.fill();
 
+        // Body
         ctx.fillStyle = this.color;
         ctx.beginPath();
         ctx.arc(0, 0, 5, 0, Math.PI*2);
         ctx.fill();
 
+        // Head (skin)
         ctx.fillStyle = '#fbd38d';
         ctx.beginPath();
         ctx.arc(0, -5, 3.5, 0, Math.PI*2);
         ctx.fill();
 
+        // Hair
         ctx.fillStyle = '#2d3748';
         ctx.beginPath();
         ctx.arc(0, -6, 3, Math.PI, 0);
         ctx.fill();
 
-        const swing = Math.sin(this.walkCycle) * 3;
+        // Legs
+        const swing = (this.state === 'WAITING') ? 0 : Math.sin(this.walkCycle) * 3;
         ctx.strokeStyle = '#2d3748';
         ctx.lineWidth = 1.5;
         ctx.beginPath();
         ctx.moveTo(-2, 2); ctx.lineTo(-2 + swing, 6);
-        ctx.moveTo(2, 2); ctx.lineTo(2 - swing, 6);
+        ctx.moveTo(2, 2);  ctx.lineTo(2 - swing, 6);
         ctx.stroke();
 
-        // Draw Umbrella if raining
+        // Umbrella when raining
         if (typeof Game !== 'undefined' && Game.isRainy) {
             ctx.strokeStyle = '#4a5568';
             ctx.lineWidth = 1.5;
             ctx.beginPath();
             ctx.moveTo(-2, -5);
-            ctx.lineTo(-6, -15); // Umbrella handle
+            ctx.lineTo(-6, -15);
             ctx.stroke();
-
-            ctx.fillStyle = this.color; // Match outfit
+            ctx.fillStyle = this.color;
             ctx.beginPath();
             ctx.arc(-6, -15, 8, Math.PI, 0);
             ctx.fill();
             ctx.strokeStyle = '#2d3748';
             ctx.lineWidth = 1;
             ctx.stroke();
-            
-            // Umbrella tip
             ctx.strokeStyle = '#4a5568';
             ctx.beginPath();
-            ctx.moveTo(-6, -23);
-            ctx.lineTo(-6, -25);
+            ctx.moveTo(-6, -23); ctx.lineTo(-6, -25);
             ctx.stroke();
         }
 
         ctx.restore();
     }
 }
+
 
 const Game = {
     canvas: null,
@@ -144,11 +178,12 @@ const Game = {
     player: null,
     level: 1,
     timeLimit: 60,
-    maxCars: 36,
+    maxCars: 200,
     upgrades: { tires: false, cupholder: false, fueltank: false, sticker: false },
     radioStation: 'OFF',
     pedestrians: [],
     potholes: [],
+    puddles: [],
     timeOfDay: 0,
     getNearestDiagonalRoad(x, y) {
         let nearestRoad = null;
@@ -339,6 +374,7 @@ const Game = {
         this.textOverlay = [];
         this.pedestrians = [];
         this.potholes = [];
+        this.puddles = [];
 
         const drawRoad = (x1, y1, x2, y2, type, name = null) => {
             if (x1 === x2) { // Vert
@@ -538,6 +574,20 @@ const Game = {
                 });
             }
         }
+        // Generate puddles randomly on road tiles when it is rainy
+        this.puddles = [];
+        if (this.isRainy) {
+            for (let i = 0; i < 25; i++) {
+                if (this.validSpawnTiles.length > 0) {
+                    const t = this.validSpawnTiles[Math.floor(Math.random() * this.validSpawnTiles.length)];
+                    this.puddles.push({
+                        x: t.x * TILE_SIZE + Utils.rand(30, TILE_SIZE - 30),
+                        y: t.y * TILE_SIZE + Utils.rand(30, TILE_SIZE - 30),
+                        r: Utils.rand(15, 30)
+                    });
+                }
+            }
+        }
     },
     generateBuildingsAndTrees() {
         // Moved building gen here for clarity
@@ -659,7 +709,40 @@ const Game = {
                         this.edgeSpawnTiles.push({ x, y, type: t });
                     }
                     if (Math.random() < 0.03) {
-                        this.props.push(new Prop(x * TILE_SIZE + Utils.rand(20, TILE_SIZE - 20), y * TILE_SIZE + Utils.rand(20, TILE_SIZE - 20), 'COFFEE'));
+                        let propX = x * TILE_SIZE + TILE_SIZE / 2;
+                        let propY = y * TILE_SIZE + TILE_SIZE / 2;
+                        
+                        if (t === 1 || t === 6) { // Vertical lanes
+                            propX = x * TILE_SIZE + (Math.random() < 0.5 ? 35 : 85);
+                            propY = y * TILE_SIZE + Utils.rand(20, TILE_SIZE - 20);
+                        } else if (t === 2 || t === 7) { // Horizontal lanes
+                            propX = x * TILE_SIZE + Utils.rand(20, TILE_SIZE - 20);
+                            propY = y * TILE_SIZE + (Math.random() < 0.5 ? 35 : 85);
+                        } else if (t === 8 || t === 9) { // Diagonal centerline
+                            const result = this.getNearestDiagonalRoad(x * TILE_SIZE + TILE_SIZE / 2, y * TILE_SIZE + TILE_SIZE / 2);
+                            const r = result.road;
+                            if (r) {
+                                const x1_w = r.x1 * TILE_SIZE + TILE_SIZE / 2;
+                                const y1_w = r.y1 * TILE_SIZE + TILE_SIZE / 2;
+                                const x2_w = r.x2 * TILE_SIZE + TILE_SIZE / 2;
+                                const y2_w = r.y2 * TILE_SIZE + TILE_SIZE / 2;
+                                const closest = Utils.getClosestPointOnSegment(
+                                    x * TILE_SIZE + TILE_SIZE / 2,
+                                    y * TILE_SIZE + TILE_SIZE / 2,
+                                    x1_w, y1_w, x2_w, y2_w
+                                );
+                                const dx = x2_w - x1_w;
+                                const dy = y2_w - y1_w;
+                                const len = Math.hypot(dx, dy);
+                                const nx = -dy / len;
+                                const ny = dx / len;
+                                const laneOffset = Math.random() < 0.5 ? 20 : -20;
+                                propX = closest.x + nx * laneOffset;
+                                propY = closest.y + ny * laneOffset;
+                            }
+                        }
+                        const propType = Math.random() < 0.3 ? 'WRENCH' : 'COFFEE';
+                        this.props.push(new Prop(propX, propY, propType));
                     }
                 }
             }
@@ -732,6 +815,10 @@ const Game = {
                 document.getElementById('radio-kexp').classList.add('active');
                 document.getElementById('radio-ticker').innerText = "KEXP 90.3 FM";
                 AudioSys.setStation('KEXP');
+            } else if (station === 'SYNTH') {
+                document.getElementById('radio-synth').classList.add('active');
+                document.getElementById('radio-ticker').innerText = "NEON OUTRUN SYNTH";
+                AudioSys.setStation('SYNTH');
             }
         }
     },
@@ -807,7 +894,7 @@ const Game = {
         this.timeLimit = 60 - (this.level - 1);
         if (this.timeLimit < 20) this.timeLimit = 20; // Min time
 
-        this.maxCars = Math.floor(36 * (1 + (this.level - 1) * 0.1));
+        this.maxCars = Math.floor(200 * (1 + (this.level - 1) * 0.15));
 
         // Time of Day and Weather notifications
         const timeAlerts = [
@@ -896,10 +983,76 @@ const Game = {
         this.player.angle = startAngle;
         this.entities.push(this.player);
 
-        for (let i = 0; i < Math.min(this.maxCars, 12); i++) this.spawnCar(true);
+        // Pre-fill roads across the whole map by shuffling all valid tiles and
+        // placing one car per tile, skipping tiles too close to the player.
+        // This is O(n) and guarantees dense, evenly distributed traffic.
+        const shuffled = [...this.validSpawnTiles].sort(() => Math.random() - 0.5);
+        let spawned = 0;
+        for (const t of shuffled) {
+            if (spawned >= this.maxCars) break;
+            // Skip tiles within 3 tile-lengths of the player (avoid immediate collision)
+            const worldX = t.x * TILE_SIZE + TILE_SIZE / 2;
+            const worldY = t.y * TILE_SIZE + TILE_SIZE / 2;
+            if (Utils.dist(worldX, worldY, this.player.x, this.player.y) < 360) continue;
+            this._spawnCarAtTile(t);
+            spawned++;
+        }
         this.updateHUD();
     },
+
+    // Fast tile-based placement used for initial map fill (no entity proximity check needed)
+    _spawnCarAtTile(t) {
+        const tx = t.x, ty = t.y, tile = t.type;
+        let x, y, angle;
+
+        if (tile === 1) {
+            if (Math.random() > 0.5) { x = tx * 120 + 90; y = ty * 120 + 60; angle = -Math.PI / 2; }
+            else                     { x = tx * 120 + 30; y = ty * 120 + 60; angle =  Math.PI / 2; }
+        } else if (tile === 6) {
+            if (Math.random() > 0.5) { x = tx * 120 + 100; y = ty * 120 + 60; angle = -Math.PI / 2; }
+            else                     { x = tx * 120 +  20; y = ty * 120 + 60; angle =  Math.PI / 2; }
+        } else if (tile === 2) {
+            if (Math.random() > 0.5) { y = ty * 120 + 90; x = tx * 120 + 60; angle = 0; }
+            else                     { y = ty * 120 + 30; x = tx * 120 + 60; angle = Math.PI; }
+        } else if (tile === 7) {
+            if (Math.random() > 0.5) { y = ty * 120 + 100; x = tx * 120 + 60; angle = 0; }
+            else                     { y = ty * 120 +  20; x = tx * 120 + 60; angle = Math.PI; }
+        } else if (tile === 8 || tile === 9) {
+            const result = this.getNearestDiagonalRoad(tx * TILE_SIZE + TILE_SIZE / 2, ty * TILE_SIZE + TILE_SIZE / 2);
+            const r = result.road;
+            if (!r) return;
+            const dx = r.x2 * TILE_SIZE - r.x1 * TILE_SIZE;
+            const dy = r.y2 * TILE_SIZE - r.y1 * TILE_SIZE;
+            const len = Math.hypot(dx, dy);
+            const ux = dx / len, uy = dy / len;
+            const tDir = Math.random() > 0.5 ? 1 : -1;
+            const nx_r = -uy * tDir, ny_r = ux * tDir;
+            const closest = Utils.getClosestPointOnSegment(
+                tx * TILE_SIZE + TILE_SIZE / 2, ty * TILE_SIZE + TILE_SIZE / 2,
+                r.x1 * TILE_SIZE + TILE_SIZE / 2, r.y1 * TILE_SIZE + TILE_SIZE / 2,
+                r.x2 * TILE_SIZE + TILE_SIZE / 2, r.y2 * TILE_SIZE + TILE_SIZE / 2
+            );
+            x = closest.x + nx_r * 30;
+            y = closest.y + ny_r * 30;
+            angle = Math.atan2(uy * tDir, ux * tDir);
+        }
+
+        if (x === undefined) return;
+
+        // Chance to spawn a biker on arterials
+        if ((tile === 6 || tile === 7 || tile === 9) && Math.random() < 0.3) {
+            const biker = new Biker(x, y);
+            biker.angle = angle;
+            this.entities.push(biker);
+        } else {
+            const car = new Car(x, y);
+            car.angle = angle;
+            this.entities.push(car);
+        }
+    },
+
     spawnCar(isInitial = false) {
+
         const pool = isInitial ? this.validSpawnTiles : this.edgeSpawnTiles;
         if (pool.length === 0) return;
 
@@ -908,7 +1061,7 @@ const Game = {
         let valid = false;
         let x, y, angle;
 
-        while (!valid && attempts < 10) {
+        while (!valid && attempts < 30) {
             attempts++;
             const t = pool[Math.floor(Math.random() * pool.length)];
             tx = t.x; ty = t.y; tile = t.type;
@@ -964,7 +1117,7 @@ const Game = {
 
             valid = true;
             for (let e of this.entities) {
-                if (Utils.dist(x, y, e.x, e.y) < 100) { valid = false; break; }
+                if (Utils.dist(x, y, e.x, e.y) < 45) { valid = false; break; }
             }
         }
 
@@ -1032,12 +1185,45 @@ const Game = {
     honk() {
         if (this.state !== 'PLAYING') return;
         AudioSys.honk(true);
-        this.modChill(-2); // Horn penalty applied immediately
+        this.modChill(-1); // minor penalty for base horn use
         this.spawnText(this.player.x, this.player.y - 30, "HONK!", "#63b3ed");
+        
+        // Interaction with other cars
         this.entities.forEach(e => {
-            if (!e.isPlayer && e.type === 'TEXTER' && e.distracted && Utils.dist(e.x, e.y, this.player.x, this.player.y) < 200) {
-                e.distracted = false; e.honkedAt = true; e.targetSpeed = 4;
-                this.spawnText(e.x, e.y - 30, "!!!", "#f56565");
+            if (!e.isPlayer && Utils.dist(e.x, e.y, this.player.x, this.player.y) < 200) {
+                if (e.type === 'TEXTER' && e.distracted) {
+                    e.distracted = false;
+                    e.honkedAt = true;
+                    e.targetSpeed = e.maxSpeed;
+                    this.spawnText(e.x, e.y - 30, "!!!", "#ecc94b");
+                } else if (e.type === 'RIDESHARE' && e.state === 'DROPOFF') {
+                    e.state = 'DRIVE';
+                    e.waitTimer = 0;
+                    this.spawnText(e.x, e.y - 30, "Okay!", "#a29bfe");
+                } else if (e.type === 'GRANDMA') {
+                    e.startleTimer = 120;
+                    e.targetSpeed = e.maxSpeed * 1.5;
+                    e.speed = Math.min(e.speed + 0.6, e.maxSpeed * 1.5);
+                    this.spawnText(e.x, e.y - 30, "Aaah!", "#ed8936");
+                } else if (e.type === 'SPEEDSTER') {
+                    // Aggressive cars honk back!
+                    setTimeout(() => {
+                        if (this.state === 'PLAYING') {
+                            AudioSys.honk(false);
+                            this.spawnText(e.x, e.y - 30, "HONK BACK!", "#ecc94b");
+                            this.modChill(-3); // Stress from confrontation
+                        }
+                    }, 300);
+                }
+            }
+        });
+
+        // Interaction with pedestrians
+        this.pedestrians.forEach(p => {
+            if (p.state === 'CROSSING' && Utils.dist(p.x, p.y, this.player.x, this.player.y) < 160) {
+                p.speed = 2.4; // Startle walk (run!)
+                this.spawnText(p.x, p.y - 20, "WATCH IT!", "#f56565");
+                this.modChill(-2); // extra penalty for startle
             }
         });
     },
@@ -1169,11 +1355,23 @@ const Game = {
                     }
                 }
 
+                // Spawn smoke particles if player is damaged (low Chill)
+                if (this.chill < 50) {
+                    const smokeColor = this.chill < 25 ? '#1a202c' : '#718096';
+                    const emitThreshold = this.chill < 25 ? 0.35 : 0.12;
+                    if (Math.random() < emitThreshold) {
+                        const fwdX = Math.cos(this.player.angle);
+                        const fwdY = Math.sin(this.player.angle);
+                        const hoodX = this.player.x + fwdX * 15;
+                        const hoodY = this.player.y + fwdY * 15;
+                        this.particles.push(new SmokeParticle(hoodX, hoodY, smokeColor));
+                    }
+                }
+
                 this.updateHUD();
             }
         } else { return; }
 
-        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
         this.intersections.forEach(inter => {
             if (inter.isArt) {
                 inter.timer++;
@@ -1201,8 +1399,9 @@ const Game = {
         this.entities.forEach(e => e.update(this.map, this.entities, this.lights, this.stopSigns));
         this.entities = this.entities.filter(e => !e.markedForDeletion);
 
+
         // Pedestrians Update & Spawn
-        if (Math.random() < 0.01 && this.pedestrians.length < 8) {
+        if (Math.random() < 0.10 && this.pedestrians.length < 80) {
             if (this.intersections.length > 0) {
                 const inter = this.intersections[Math.floor(Math.random() * this.intersections.length)];
                 if (inter.approaches.length > 0) {
@@ -1235,11 +1434,35 @@ const Game = {
         }
 
         this.props.forEach(p => {
-            if (p.type === 'COFFEE' && !p.markedForDeletion && Utils.dist(this.player.x, this.player.y, p.x, p.y) < 30) {
-                p.markedForDeletion = true;
-                AudioSys.collect();
-                this.modChill(15);
-                this.spawnText(p.x, p.y, "+15 CHILL", "#48bb78");
+            if (!p.markedForDeletion && Utils.dist(this.player.x, this.player.y, p.x, p.y) < 30) {
+                if (p.type === 'COFFEE') {
+                    p.markedForDeletion = true;
+                    AudioSys.collect();
+                    this.modChill(15);
+                    this.spawnText(p.x, p.y, "+15 CHILL", "#48bb78");
+                    
+                    // Coffee Boost Speed Rush
+                    this.player.coffeeBoostTimer = 180; // 3 seconds
+                    this.player.targetSpeed = this.player.maxSpeed * 1.5;
+                    this.showNotification("☕ COFFEE RUSH! SPEED BOOST!", "#ecc94b");
+                    
+                    // Spark burst particles
+                    for (let i = 0; i < 15; i++) {
+                        const angle = this.player.angle + Math.PI + Utils.rand(-0.5, 0.5);
+                        const spd = Utils.rand(2, 5);
+                        this.particles.push(new SparkParticle(
+                            this.player.x, 
+                            this.player.y,
+                            Math.cos(angle) * spd,
+                            Math.sin(angle) * spd
+                        ));
+                    }
+                } else if (p.type === 'WRENCH') {
+                    p.markedForDeletion = true;
+                    AudioSys.collect();
+                    this.modChill(25);
+                    this.spawnText(p.x, p.y, "+25 REPAIRED", "#63b3ed");
+                }
             }
         });
         this.props = this.props.filter(p => !p.markedForDeletion);
@@ -1516,6 +1739,33 @@ const Game = {
                     this.ctx.beginPath();
                     this.ctx.moveTo(px + Math.cos(ang) * 12, py + Math.sin(ang) * 7);
                     this.ctx.lineTo(px + Math.cos(ang) * 19, py + Math.sin(ang) * 11);
+                    this.ctx.stroke();
+                }
+            }
+        });
+
+        // Draw Puddles on the road
+        this.puddles.forEach(p => {
+            const px = p.x - cx;
+            const py = p.y - cy;
+            if (px > -100 && px < this.canvas.width + 100 && py > -100 && py < this.canvas.height + 100) {
+                // Shiny reflective wet look: light blue semi-transparent ellipse
+                this.ctx.fillStyle = 'rgba(179, 217, 255, 0.25)'; // Light blue reflection
+                this.ctx.beginPath();
+                this.ctx.ellipse(px, py, p.r, p.r * 0.6, 0, 0, Math.PI * 2);
+                this.ctx.fill();
+                
+                this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+                this.ctx.lineWidth = 1.5;
+                this.ctx.beginPath();
+                this.ctx.ellipse(px, py, p.r, p.r * 0.6, 0, 0, Math.PI * 2);
+                this.ctx.stroke();
+
+                // Draw sub-ripples inside puddle occasionally
+                if (Math.floor(Date.now() / 250) % 2 === 0) {
+                    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+                    this.ctx.beginPath();
+                    this.ctx.ellipse(px + 3, py - 2, p.r * 0.4, p.r * 0.4 * 0.6, 0, 0, Math.PI * 2);
                     this.ctx.stroke();
                 }
             }

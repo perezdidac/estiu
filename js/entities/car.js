@@ -30,14 +30,19 @@ class Car {
         this.stopWaitTime = 0;
         this.hasStoppedAtSign = false;
         this.ignoreStopSignsTimer = 0;
+        this.startleTimer = 0;
+        this.coffeeBoostTimer = 0;
+        this.hydroplaneTimer = 0;
 
         if (isPlayer) {
             this.color = '#4299e1';
-            this.maxSpeed = 3.8;
-            this.accel = 0.07;
+            this.maxSpeed = 2.4;
+            this.accel = 0.05;
             // Player tracking for stop signs
             this.currentStopSign = null;
             this.playerHasStopped = false;
+            this.reverseBlocked = false;
+            this.forwardBlocked = false;
         } else {
             const r = Math.random();
             if (r < 0.25) this.setType('GRANDMA');
@@ -53,32 +58,38 @@ class Car {
     setType(type) {
         this.type = type;
         switch (type) {
-            case 'GRANDMA': this.color = '#ed8936'; this.maxSpeed = 1.8; this.accel = 0.03; this.sensorDist = 100; break;
-            case 'SPEEDSTER': this.color = '#ecc94b'; this.maxSpeed = 6.0; this.accel = 0.15; this.sensorDist = 80; break;
+            case 'GRANDMA': this.color = '#ed8936'; this.maxSpeed = 1.2; this.accel = 0.02; this.sensorDist = 100; break;
+            case 'SPEEDSTER': this.color = '#ecc94b'; this.maxSpeed = 3.2; this.accel = 0.08; this.sensorDist = 80; break;
             case 'TEXTER':
                 this.color = '#f56565';
-                this.maxSpeed = 3.5;
-                this.accel = 0.06;
+                this.maxSpeed = 2.0;
+                this.accel = 0.04;
                 this.sensorDist = 120;
                 this.distracted = true;
                 this.patience = Utils.rand(60, 240); // 1-4 seconds delay
                 break;
-            case 'RIDESHARE': this.color = '#9f7aea'; this.maxSpeed = 3.0; this.accel = 0.08; this.sensorDist = 110; break;
-            case 'STUDENT': this.color = '#f7fafc'; this.maxSpeed = 4.2; this.accel = 0.09; this.sensorDist = 30; break;
-            case 'BIKER':
+            case 'RIDESHARE': this.color = '#9f7aea'; this.maxSpeed = 1.8; this.accel = 0.04; this.sensorDist = 110; break;
+            case 'STUDENT': this.color = '#f7fafc'; this.maxSpeed = 2.4; this.accel = 0.05; this.sensorDist = 30; break;
+            case 'BIKER': {
                 const colors = ['#68d391', '#f687b3', '#63b3ed', '#fbd38d'];
                 this.color = colors[Math.floor(Math.random() * colors.length)];
-                this.maxSpeed = 6.0; // as fast as the yellow car
-                this.accel = 0.15;
+                this.maxSpeed = 3.2;
+                this.accel = 0.08;
                 this.sensorDist = 80;
                 this.w = 10;
                 this.h = 24;
                 break;
+            }
         }
         this.targetSpeed = this.maxSpeed;
     }
 
     update(map, entities, trafficLights, stopSigns) {
+        // Guard against NaN values that can cause rendering issues (invisible car)
+        if (isNaN(this.angle) || isNaN(this.speed)) {
+            this.angle = -Math.PI / 2;
+            this.speed = 0;
+        }
         this.prevSpeed = this.speed;
 
         if (!this.isPlayer) {
@@ -95,13 +106,48 @@ class Car {
             this.checkStopSignPenalty(stopSigns);
             this.checkPedestrianNear();
             this.checkPotholeCollision();
+            this.checkPuddleCollision();
+        }
+
+        if (this.startleTimer > 0) {
+            this.startleTimer--;
+            if (this.startleTimer === 0) {
+                this.targetSpeed = this.maxSpeed;
+            }
+        }
+
+        if (this.coffeeBoostTimer > 0) {
+            this.coffeeBoostTimer--;
+            if (this.coffeeBoostTimer === 0) {
+                this.targetSpeed = this.maxSpeed;
+            }
+            if (Math.random() < 0.4 && typeof Game !== 'undefined') {
+                const backX = this.x - Math.cos(this.angle) * 20;
+                const backY = this.y - Math.sin(this.angle) * 20;
+                for (let i = 0; i < 2; i++) {
+                    Game.particles.push(new SparkParticle(backX, backY));
+                }
+            }
+        }
+
+        if (this.hydroplaneTimer > 0) {
+            this.hydroplaneTimer--;
+            if (Math.random() < 0.5 && typeof Game !== 'undefined') {
+                const backX = this.x - Math.cos(this.angle) * 15;
+                const backY = this.y - Math.sin(this.angle) * 15;
+                Game.particles.push(new SplashParticle(backX, backY));
+            }
         }
 
         this.speed *= this.friction;
 
         // Cap speed to prevent drag speed inflation
-        if (this.speed > this.maxSpeed) this.speed = this.maxSpeed;
-        if (this.speed < -this.maxSpeed / 2) this.speed = -this.maxSpeed / 2;
+        let cap = this.startleTimer > 0 ? this.maxSpeed * 1.6 : this.maxSpeed;
+        if (this.coffeeBoostTimer > 0) {
+            cap = this.maxSpeed * 1.5;
+        }
+        if (this.speed > cap) this.speed = cap;
+        if (this.speed < -cap / 2) this.speed = -cap / 2;
 
         // Determine if braking
         if (this.isPlayer) {
@@ -367,9 +413,56 @@ class Car {
     }
 
     handleInput() {
-        if (Game.keys['ArrowUp']) this.speed += this.accel;
-        if (Game.keys['ArrowDown']) this.speed -= this.accel;
-        if (Math.abs(this.speed) > 0.2) {
+        const currentAccel = this.coffeeBoostTimer > 0 ? this.accel * 1.5 : this.accel;
+
+        // Passive decay if no throttle or reverse key is pressed
+        if (!Game.keys['ArrowUp'] && !Game.keys['ArrowDown']) {
+            this.speed *= 0.93;
+            if (Math.abs(this.speed) < 0.02) this.speed = 0;
+        }
+
+        // Handle ArrowUp (Throttle / Reverse Brake)
+        if (Game.keys['ArrowUp']) {
+            if (this.speed < -0.01) {
+                // Brake when reversing
+                this.speed += currentAccel * 2.0;
+                if (this.speed >= -0.01) {
+                    this.speed = 0;
+                    this.forwardBlocked = true; // Lock forward until ArrowUp is released
+                }
+            } else {
+                if (this.forwardBlocked) {
+                    this.speed = 0;
+                } else {
+                    this.speed += currentAccel;
+                }
+            }
+        } else {
+            this.forwardBlocked = false;
+        }
+
+        // Handle ArrowDown (Reverse / Forward Brake)
+        if (Game.keys['ArrowDown']) {
+            if (this.speed > 0.01) {
+                // Brake when going forward
+                this.speed -= currentAccel * 2.0;
+                if (this.speed <= 0.01) {
+                    this.speed = 0;
+                    this.reverseBlocked = true; // Lock reverse until ArrowDown is released
+                }
+            } else {
+                if (this.reverseBlocked) {
+                    this.speed = 0;
+                } else {
+                    this.speed -= currentAccel;
+                }
+            }
+        } else {
+            this.reverseBlocked = false;
+        }
+
+        // Turn only if the car is actually moving and not hydroplaning
+        if (Math.abs(this.speed) > 0.1 && this.hydroplaneTimer <= 0) {
             const dir = this.speed > 0 ? 1 : -1;
             if (Game.keys['ArrowLeft']) this.angle -= this.turnSpeed * dir;
             if (Game.keys['ArrowRight']) this.angle += this.turnSpeed * dir;
@@ -605,8 +698,49 @@ class Car {
         if (isOffRoad) this.angle += Math.PI;
     }
 
+    checkPuddleCollision() {
+        if (typeof Game === 'undefined' || !Game.puddles) return;
+        if (this.hydroplaneTimer > 0) return;
+        
+        for (let p of Game.puddles) {
+            const dist = Utils.dist(this.x, this.y, p.x, p.y);
+            if (dist < p.r && Math.abs(this.speed) > 1.8) {
+                this.hydroplaneTimer = 45; // 0.75 seconds
+                const penalty = -2;
+                Game.modChill(penalty);
+                Game.spawnText(this.x, this.y, "HYDROPLANE! -2 CHILL", "#63b3ed");
+                AudioSys.puddleSplash();
+
+                // Emit splash particles!
+                for (let i = 0; i < 15; i++) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const spd = Utils.rand(1, 4);
+                    Game.particles.push(new SplashParticle(
+                        this.x, 
+                        this.y, 
+                        Math.cos(angle) * spd + Math.cos(this.angle) * this.speed * 0.5,
+                        Math.sin(angle) * spd + Math.sin(this.angle) * this.speed * 0.5
+                    ));
+                }
+
+                // Splash nearby pedestrians!
+                if (Game.pedestrians) {
+                    for (let ped of Game.pedestrians) {
+                        const distToPed = Utils.dist(this.x, this.y, ped.x, ped.y);
+                        if (distToPed < 90) {
+                            Game.modChill(-1);
+                            Game.spawnText(ped.x, ped.y - 20, "SOAKED! -1 CHILL", "#ecc94b");
+                            ped.speed = 2.4; // run!
+                        }
+                    }
+                }
+                break;
+            }
+        }
+    }
+
     draw(ctx, camX, camY) {
         const lightsOn = (typeof Game !== 'undefined') && (Game.timeOfDay === 3 || Game.isRainy);
-        Draw.car(ctx, this.x - camX, this.y - camY, this.angle + Math.PI / 2, this.color, lightsOn, this.state === 'DROPOFF', this.isBraking);
+        Draw.car(ctx, this.x - camX, this.y - camY, this.angle + Math.PI / 2, this.color, lightsOn, this.state === 'DROPOFF', this.isBraking, this.isPlayer ? Game.chill : 100);
     }
 }

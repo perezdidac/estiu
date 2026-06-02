@@ -12,20 +12,82 @@ class Prop {
         const sx = this.x - camX;
         const sy = this.y - camY;
         if (this.type === 'COFFEE') {
-            ctx.fillStyle = '#fff';
-            ctx.fillRect(sx - 8, sy - 10, 16, 20); // Cup
-            ctx.fillStyle = '#78350f';
-            ctx.fillRect(sx - 8, sy - 12, 16, 4); // Lid line
-            ctx.fillStyle = '#b7791f';
-            ctx.fillRect(sx - 6, sy - 2, 12, 8); // Sleeve
+            // Drop Shadow
+            ctx.fillStyle = 'rgba(0,0,0,0.35)';
+            ctx.beginPath();
+            ctx.ellipse(sx, sy + 11, 10, 4, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Black border outline
+            ctx.strokeStyle = '#000000';
+            ctx.lineWidth = 3.5;
+            ctx.lineJoin = 'round';
+            ctx.strokeRect(sx - 9, sy - 13, 18, 24);
+
+            // Cup Body
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(sx - 8, sy - 12, 16, 22);
+
+            // Red Lid (high visibility contrast)
+            ctx.fillStyle = '#e53e3e';
+            ctx.fillRect(sx - 9, sy - 14, 18, 4);
+
+            // Gold/Yellow Sleeve
+            ctx.fillStyle = '#ecc94b';
+            ctx.fillRect(sx - 6, sy - 4, 12, 8);
+
+            // Miniature C label
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 7px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('C', sx, sy);
+
             // Steam
-            ctx.strokeStyle = 'rgba(255,255,255,0.6)';
-            ctx.lineWidth = 2;
+            ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+            ctx.lineWidth = 1.5;
             const t = Date.now() / 200;
             ctx.beginPath();
-            ctx.moveTo(sx - 3, sy - 15); ctx.lineTo(sx - 3 + Math.sin(t) * 3, sy - 25);
-            ctx.moveTo(sx + 3, sy - 15); ctx.lineTo(sx + 3 + Math.sin(t + 1) * 3, sy - 25);
+            ctx.moveTo(sx - 3, sy - 16); ctx.lineTo(sx - 3 + Math.sin(t) * 2, sy - 24);
+            ctx.moveTo(sx + 3, sy - 16); ctx.lineTo(sx + 3 + Math.sin(t + 1) * 2, sy - 24);
             ctx.stroke();
+        } else if (this.type === 'WRENCH') {
+            // Drop Shadow
+            ctx.fillStyle = 'rgba(0,0,0,0.3)';
+            ctx.beginPath();
+            ctx.ellipse(sx, sy + 8, 8, 3, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Outline
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 3.5;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.beginPath();
+            ctx.moveTo(sx - 8, sy + 5); ctx.lineTo(sx + 6, sy - 7);
+            ctx.stroke();
+
+            // Metallic Silver body
+            ctx.strokeStyle = '#cbd5e0';
+            ctx.lineWidth = 2.2;
+            ctx.beginPath();
+            ctx.moveTo(sx - 7, sy + 4); ctx.lineTo(sx + 5, sy - 6);
+            ctx.stroke();
+
+            // Wrench Jaw Left (open jaw)
+            ctx.fillStyle = '#a0aec0';
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 1.2;
+            ctx.beginPath();
+            ctx.arc(sx - 8, sy + 5, 4, Math.PI * 0.25, Math.PI * 1.75);
+            ctx.stroke();
+            ctx.fill();
+
+            // Wrench Jaw Right (ring end)
+            ctx.beginPath();
+            ctx.arc(sx + 6, sy - 7, 3, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.fill();
         }
     }
 }
@@ -642,6 +704,94 @@ class Particle {
         if (this.life <= 0) return;
         ctx.fillStyle = this.color; ctx.globalAlpha = this.life;
         ctx.font = "bold 14px 'Inter'"; ctx.fillText(this.text, this.x - cx, this.y - cy);
+        ctx.globalAlpha = 1;
+    }
+}
+
+class SmokeParticle {
+    constructor(x, y, color = '#a0aec0') {
+        this.x = x;
+        this.y = y;
+        this.vx = Utils.rand(-0.4, 0.4);
+        this.vy = Utils.rand(-1.2, -0.6);
+        this.r = Utils.rand(4, 9);
+        this.life = 1.0;
+        this.decay = Utils.rand(0.015, 0.025);
+        this.color = color;
+    }
+    update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        this.r += 0.15; // Smoke expands
+        this.life -= this.decay;
+    }
+    draw(ctx, cx, cy) {
+        if (this.life <= 0) return;
+        ctx.fillStyle = this.color;
+        ctx.globalAlpha = this.life * 0.4; // Semi-transparent smoke
+        ctx.beginPath();
+        ctx.arc(this.x - cx, this.y - cy, this.r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+    }
+}
+
+class SparkParticle {
+    constructor(x, y, vx = null, vy = null) {
+        this.x = x;
+        this.y = y;
+        this.vx = vx !== null ? vx : Utils.rand(-1, 1);
+        this.vy = vy !== null ? vy : Utils.rand(-1, 1);
+        this.r = Utils.rand(2.5, 5);
+        this.life = 1.0;
+        this.decay = Utils.rand(0.03, 0.05);
+        this.color = Math.random() < 0.5 ? '#ed8936' : '#ecc94b'; // Orange or Yellow spark
+    }
+    update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        this.r = Math.max(0, this.r - 0.08);
+        this.life -= this.decay;
+    }
+    draw(ctx, cx, cy) {
+        if (this.life <= 0 || this.r <= 0) return;
+        ctx.fillStyle = this.color;
+        ctx.globalAlpha = this.life;
+        ctx.shadowBlur = 4;
+        ctx.shadowColor = this.color;
+        ctx.beginPath();
+        ctx.arc(this.x - cx, this.y - cy, this.r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.globalAlpha = 1;
+    }
+}
+
+class SplashParticle {
+    constructor(x, y, vx = null, vy = null) {
+        this.x = x;
+        this.y = y;
+        this.vx = vx !== null ? vx : Utils.rand(-2, 2);
+        this.vy = vy !== null ? vy : Utils.rand(-2, 2);
+        this.r = Utils.rand(3, 7);
+        this.life = 1.0;
+        this.decay = Utils.rand(0.04, 0.07);
+        this.color = Math.random() < 0.3 ? '#ebf8ff' : '#bee3f8'; // Whiteish-blue water
+    }
+    update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        this.vx *= 0.95;
+        this.vy *= 0.95;
+        this.life -= this.decay;
+    }
+    draw(ctx, cx, cy) {
+        if (this.life <= 0) return;
+        ctx.fillStyle = this.color;
+        ctx.globalAlpha = this.life * 0.7;
+        ctx.beginPath();
+        ctx.ellipse(this.x - cx, this.y - cy, this.r, this.r * 0.6, 0, 0, Math.PI * 2);
+        ctx.fill();
         ctx.globalAlpha = 1;
     }
 }

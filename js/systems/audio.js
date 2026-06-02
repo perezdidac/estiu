@@ -163,5 +163,49 @@ const AudioSys = {
                 this.playTone(180, 'sine', 0.04, 0.03);
             }
         }
+        else if (this.currentStation === 'SYNTH') {
+            // Retro Synthwave Outrun
+            const cycleBeat = this.radioStep % 16;
+            
+            // Bassline pump (E, G, D, C progression)
+            const bassRiff = [82.41, 82.41, 98.00, 98.00, 73.42, 73.42, 65.41, 65.41,
+                               82.41, 82.41, 98.00, 98.00, 73.42, 73.42, 110.00, 98.00];
+            const bassFreq = bassRiff[cycleBeat];
+            this.playTone(bassFreq, 'sawtooth', 0.25, 0.06);
+
+            // Fast arpeggiated lead notes
+            const leadArp = [329.63, 392.00, 493.88, 587.33, 392.00, 493.88, 587.33, 659.25,
+                             293.66, 349.23, 440.00, 523.25, 349.23, 440.00, 523.25, 587.33];
+            const leadFreq = leadArp[cycleBeat];
+            this.playTone(leadFreq, 'square', 0.12, 0.015);
+
+            // Outrun drums
+            // Kick drum
+            if (cycleBeat % 4 === 0) {
+                this.playTone(50, 'sine', 0.15, 0.22);
+            }
+            // Snare / Clap
+            if (cycleBeat % 4 === 2) {
+                this.playTone(240, 'triangle', 0.07, 0.07);
+                this.playTone(250, 'sawtooth', 0.05, 0.03);
+            }
+            // Hi-hat ticks
+            if (cycleBeat % 2 === 1) {
+                this.playTone(3500, 'sine', 0.01, 0.015);
+            }
+        }
+    },
+
+    puddleSplash() {
+        this.playTone(120, 'triangle', 0.4, 0.25);
+        setTimeout(() => this.playTone(80, 'sawtooth', 0.3, 0.15), 50);
+        setTimeout(() => this.playTone(60, 'sine', 0.2, 0.1), 100);
+    },
+
+    sirenAlert() {
+        this.playTone(880, 'sine', 0.25, 0.15);
+        setTimeout(() => this.playTone(660, 'sine', 0.25, 0.15), 200);
+        setTimeout(() => this.playTone(880, 'sine', 0.25, 0.15), 400);
+        setTimeout(() => this.playTone(660, 'sine', 0.25, 0.15), 600);
     }
 };
