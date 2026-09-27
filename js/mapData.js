@@ -52,7 +52,11 @@ const MapData = {
         // Loyal Way NW
         { x1: 2, y1: 0, x2: 6, y2: 6, type: 8, name: "Loyal Way NW" },
         // Historic Ballard Ave NW (Historic diagonal)
-        { x1: 18, y1: 38, x2: 24, y2: 41, type: 8, name: "Ballard Ave NW" }
+        { x1: 18, y1: 38, x2: 24, y2: 41, type: 8, name: "Ballard Ave NW" },
+        // Leary Ave NW
+        { x1: 22, y1: 38, x2: 32, y2: 41, type: 9, name: "Leary Ave NW" },
+        // Seaview Ave NW
+        { x1: 0, y1: 20, x2: 6, y2: 41, type: 9, name: "Seaview Ave NW" }
     ],
 
     destinations: [

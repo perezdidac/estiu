@@ -1511,8 +1511,12 @@ const Game = {
                         this.ctx.fillStyle = this.isRainy ? '#22543d' : '#2f855a'; // lawn center
                         this.ctx.fillRect(x + 15, y + 15, TILE_SIZE - 30, TILE_SIZE - 30);
                     } else if (tile === 8 || tile === 9) {
-                        this.ctx.fillStyle = this.isRainy ? '#718096' : '#9ca3af'; // diagonal road sidewalk backing
+                        // Use normal sidewalk background to prevent jagged blocks,
+                        // backing will be drawn smoothly later.
+                        this.ctx.fillStyle = this.isRainy ? '#a0aec0' : '#cbd5e0';
                         this.ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+                        this.ctx.fillStyle = this.isRainy ? '#22543d' : '#2f855a';
+                        this.ctx.fillRect(x + 15, y + 15, TILE_SIZE - 30, TILE_SIZE - 30);
                     } else if (tile === 4) {
                         this.ctx.fillStyle = this.isRainy ? '#1a202c' : '#2d3748'; this.ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
                         const pulse = Math.sin(Date.now() / 200) * 5;
@@ -1608,6 +1612,15 @@ const Game = {
                 const uy = dy / len;
                 const nx = -uy;
                 const ny = ux;
+
+                // 0. Draw Diagonal Sidewalk Backing (Smooth)
+                this.ctx.strokeStyle = this.isRainy ? '#718096' : '#9ca3af';
+                this.ctx.lineWidth = TILE_SIZE + 40;
+                this.ctx.lineCap = 'round';
+                this.ctx.beginPath();
+                this.ctx.moveTo(x1_w - cx, y1_w - cy);
+                this.ctx.lineTo(x2_w - cx, y2_w - cy);
+                this.ctx.stroke();
 
                 // 1. Draw Asphalt Base
                 this.ctx.strokeStyle = this.isRainy ? '#2d3748' : '#4a5568';
