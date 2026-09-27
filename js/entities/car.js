@@ -553,9 +553,13 @@ class Car {
 
                 // Steer towards target point
                 const targetAngle = Math.atan2(targetY - this.y, targetX - this.x);
-                let angleDiff = targetAngle - this.angle;
-                angleDiff = Math.atan2(Math.sin(angleDiff), Math.cos(angleDiff));
-                this.angle += angleDiff * 0.15;
+                let current = this.angle;
+                if (targetAngle === Math.PI && current < 0) current += Math.PI * 2;
+
+                // Normalize targetAngle relative to current angle to prevent full rotations
+                let diff = targetAngle - current;
+                diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+                this.angle += diff * 0.1;
             }
         }
         this.angle += steeringForce;
