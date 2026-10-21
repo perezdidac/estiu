@@ -2,6 +2,8 @@ const Utils = {
     rand: (min, max) => Math.random() * (max - min) + min,
     lerp: (a, b, t) => a + (b - a) * t,
     dist: (x1, y1, x2, y2) => Math.hypot(x2 - x1, y2 - y1),
+    normalizeAngle: (a) => Math.atan2(Math.sin(a), Math.cos(a)),
+    angleDiff: (target, current) => Math.atan2(Math.sin(target - current), Math.cos(target - current)),
     polysIntersect: (poly1, poly2) => {
         const polygons = [poly1, poly2];
         for (let i = 0; i < polygons.length; i++) {
@@ -57,5 +59,24 @@ const Utils = {
         let t = ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy);
         t = Math.max(0, Math.min(1, t));
         return { x: x1 + t * dx, y: y1 + t * dy, t };
+    },
+    segmentIntersection: (x1, y1, x2, y2, x3, y3, x4, y4) => {
+        const dx1 = x2 - x1, dy1 = y2 - y1;
+        const dx2 = x4 - x3, dy2 = y4 - y3;
+        const denom = dx1 * dy2 - dy1 * dx2;
+        if (Math.abs(denom) < 1e-6) return null; // Parallel or collinear
+        const t = ((x3 - x1) * dy2 - (y3 - y1) * dx2) / denom;
+        const u = ((x3 - x1) * dy1 - (y3 - y1) * dx1) / denom;
+        const eps = 0.015;
+        if (t >= -eps && t <= 1 + eps && u >= -eps && u <= 1 + eps) {
+            const tc = Math.max(0, Math.min(1, t));
+            return {
+                x: x1 + tc * dx1,
+                y: y1 + tc * dy1,
+                t: tc,
+                u: Math.max(0, Math.min(1, u))
+            };
+        }
+        return null;
     }
 };

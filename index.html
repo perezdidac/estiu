@@ -41,6 +41,57 @@
                 <div class="hud-panel" style="border-left-color: #f6ad55;">
                     <div id="level-display">LEVEL 1</div>
                     <div style="font-weight: bold;" id="target-name-display">Get to Trader Joe's</div>
+                    <div style="font-size: 10px; color: #fbd38d; margin-top: 2px;" id="target-desc-display">9th Ave NW &amp; NW Market St</div>
+                    <div style="font-size: 10px; color: #4fd1c5; margin-top: 5px; font-weight: bold;" id="current-street-display">📍 Ballard, Seattle</div>
+                </div>
+                <div class="hud-panel debug-panel" style="border-left-color: #38bdf8; pointer-events: auto; min-width: 220px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px;">
+                        <span style="font-size: 9px; color: #38bdf8; letter-spacing: 1px; font-weight: bold;">🛠️ CAMERA &amp; DEBUG</span>
+                        <div style="display: flex; gap: 4px;">
+                            <button class="radio-btn" onclick="Game.resetCameraDebug()" title="Reset Camera Zoom, Tilt &amp; 3D Settings">RESET</button>
+                            <button class="radio-btn" onclick="Game.toggleDebugPanel()" id="dbg-collapse-btn" title="Collapse/Expand Debug Panel">−</button>
+                        </div>
+                    </div>
+                    <div id="debug-panel-body" style="display: flex; flex-direction: column; gap: 5px;">
+                        <div class="dbg-row">
+                            <span class="dbg-label">ZOOM <span id="dbg-zoom-val" style="color:#4fd1c5;">100%</span></span>
+                            <div class="dbg-btns">
+                                <button class="radio-btn" onclick="Game.adjustZoom(-0.2)" title="Zoom Out (Wheel Down / -)">−</button>
+                                <button class="radio-btn" onclick="Game.adjustZoom(0.2)" title="Zoom In (Wheel Up / +)">+</button>
+                                <button class="radio-btn" onclick="Game.setZoom(0.35)" title="Bird's-Eye Neighborhood Zoom">WIDE</button>
+                            </div>
+                        </div>
+                        <div class="dbg-row">
+                            <span class="dbg-label">CAM TILT <span id="dbg-tilt-val" style="color:#ecc94b;">10°</span></span>
+                            <div class="dbg-btns">
+                                <button class="radio-btn" onclick="Game.adjustCameraTilt(-6)" title="Flatten Camera Pitch ([)">−</button>
+                                <button class="radio-btn" onclick="Game.adjustCameraTilt(6)" title="Tilt Camera More Angled (])">+</button>
+                                <button class="radio-btn" onclick="Game.setCameraTilt(38)" title="Angled 2.5D Drone Pitch">DRONE</button>
+                            </div>
+                        </div>
+                        <div class="dbg-row">
+                            <span class="dbg-label">SIDE 3D <span id="dbg-side-val" style="color:#a29bfe;">1.0x</span></span>
+                            <div class="dbg-btns">
+                                <button class="radio-btn" onclick="Game.adjustSideTilt(-0.25)" title="Less Side Perspective Lean">−</button>
+                                <button class="radio-btn" onclick="Game.adjustSideTilt(0.25)" title="More Side Perspective Lean">+</button>
+                            </div>
+                        </div>
+                        <div class="dbg-row">
+                            <span class="dbg-label">3D HEIGHT <span id="dbg-height-val" style="color:#68d391;">1.0x</span></span>
+                            <div class="dbg-btns">
+                                <button class="radio-btn" onclick="Game.adjustBuildingHeight(-0.25)" title="Shorter 3D Buildings">−</button>
+                                <button class="radio-btn" onclick="Game.adjustBuildingHeight(0.25)" title="Taller 3D Buildings">+</button>
+                            </div>
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 3px; padding-top: 5px; border-top: 1px solid rgba(255,255,255,0.12);">
+                            <button class="radio-btn" id="dbg-freecam-btn" onclick="Game.toggleFreeCam()" title="Pan freely with WASD/Arrows or Mouse Drag">🎥 FREE CAM</button>
+                            <button class="radio-btn" id="dbg-god-btn" onclick="Game.toggleGodMode()" title="Infinite Chill, Fuel &amp; Timer">🛡️ GOD MODE</button>
+                            <button class="radio-btn" onclick="Game.toggleWeatherDebug()" title="Toggle Rainy vs Sunny Weather">🌧️ WEATHER</button>
+                            <button class="radio-btn" onclick="Game.cycleTimeOfDayDebug()" title="Cycle Morning / Afternoon / Sunset / Night">🕒 TIME</button>
+                            <button class="radio-btn" id="dbg-traffic-btn" onclick="Game.cycleTrafficDebug()" title="Cycle Traffic Density">🚗 TRAF: 100%</button>
+                            <button class="radio-btn" onclick="Game.pickNewDestinationDebug()" title="Pick a New Ballard Destination">⏭️ NEW DEST</button>
+                        </div>
+                    </div>
                 </div>
                 <div class="hud-panel" style="border-left-color: #63b3ed; opacity: 0; transition: opacity 0.5s;"
                     id="warning-panel">
@@ -57,9 +108,15 @@
                     <div id="score-hud-display">0</div>
                 </div>
 
-                <div class="timer-panel" style="border-right-color: #a29bfe; pointer-events: auto; min-width: 170px; display: flex; flex-direction: column; align-items: flex-end; gap: 4px;">
-                    <div style="font-size: 8px; color: #a0aec0; letter-spacing: 1px; font-weight: bold;">RADIO TUNER</div>
-                    <div style="display: flex; gap: 4px; align-items: center;">
+                <div class="timer-panel" style="border-right-color: #a29bfe; pointer-events: auto; min-width: 195px; display: flex; flex-direction: column; align-items: flex-end; gap: 4px;">
+                    <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
+                        <span style="font-size: 8px; color: #a0aec0; letter-spacing: 1px; font-weight: bold;">SEATTLE RADIO</span>
+                        <div style="display: flex; gap: 3px;">
+                            <button class="radio-btn active" onclick="Game.shuffleRadioStation(true)" id="radio-shuf-btn" title="Shuffle to a random Seattle radio station &amp; song">🔀 SHUF</button>
+                            <button class="radio-btn" style="border-color: #805ad5; color: #d6bcfa;" onclick="AudioSys.generateLyriaTrack()" id="radio-lyria-btn" title="Generate live Seattle track with Google Lyria 3.5">✨ LY3 AI</button>
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 3px; align-items: center; flex-wrap: wrap; justify-content: flex-end;">
                         <div id="radio-visualizer" class="visualizer-container hidden">
                             <span class="bar"></span>
                             <span class="bar"></span>
@@ -67,13 +124,22 @@
                             <span class="bar"></span>
                             <span class="bar"></span>
                         </div>
-                        <button class="radio-btn active" onclick="Game.toggleRadio('OFF')" id="radio-off">OFF</button>
+                        <button class="radio-btn" onclick="Game.toggleRadio('OFF')" id="radio-off">OFF</button>
+                        <button class="radio-btn active" onclick="Game.toggleRadio('KEXP')" id="radio-kexp">KEXP</button>
+                        <button class="radio-btn" onclick="Game.toggleRadio('GRUNGE')" id="radio-grunge">GRUNGE</button>
                         <button class="radio-btn" onclick="Game.toggleRadio('LOFI')" id="radio-lofi">LOFI</button>
-                        <button class="radio-btn" onclick="Game.toggleRadio('GRUNGE')" id="radio-grunge">ROCK</button>
-                        <button class="radio-btn" onclick="Game.toggleRadio('KEXP')" id="radio-kexp">KEXP</button>
                         <button class="radio-btn" onclick="Game.toggleRadio('SYNTH')" id="radio-synth">SYNTH</button>
+                        <button class="radio-btn" onclick="Game.toggleRadio('JAZZ')" id="radio-jazz">JAZZ</button>
                     </div>
-                    <div id="radio-ticker" style="font-size: 8px; font-family: 'Press Start 2P', monospace; color: #a29bfe; margin-top: 4px; overflow: hidden; text-align: right; width: 150px; text-overflow: ellipsis; white-space: nowrap;">RADIO OFF</div>
+                    <div id="radio-ticker" style="font-size: 8px; font-family: 'Press Start 2P', monospace; color: #a29bfe; margin-top: 4px; overflow: hidden; text-align: right; width: 185px; text-overflow: ellipsis; white-space: nowrap;">90.3 KEXP SEATTLE INDIE</div>
+                </div>
+
+                <div class="timer-panel minimap-panel" style="border-right-color: #4fd1c5; padding: 6px 8px; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; pointer-events: auto;">
+                    <div style="display: flex; justify-content: space-between; width: 100%; align-items: center; gap: 6px;">
+                        <span style="font-size: 8px; color: #4fd1c5; letter-spacing: 1px; font-weight: bold;">BALLARD GPS</span>
+                        <button class="radio-btn active" onclick="Game.toggle3DView()" id="view-3d-btn" title="Cycle 3D Top-Down Perspective: MAX / LOW / OFF (Key: V)">3D: MAX</button>
+                    </div>
+                    <canvas id="minimapCanvas" width="168" height="147" style="border: 1px solid #2d3748; border-radius: 3px; background: #0f172a;"></canvas>
                 </div>
             </div>
         </div>
@@ -83,21 +149,50 @@
         <!-- Start Screen -->
         <div id="start-screen" class="screen">
             <h1>BALLARD<br>DRIVER<br>NIGHTMARE</h1>
-            <div style="text-align: center; max-width: 500px; color: #cbd5e0; margin-bottom: 30px; line-height: 1.6;">
-                <p>It's 5:00 PM. It's raining. You need to run errands.</p>
+            <div style="text-align: center; max-width: 640px; width: 92%; color: #cbd5e0; margin-bottom: 18px; line-height: 1.4; z-index: 2;">
+                <p style="font-size: 0.9rem; margin-bottom: 10px;">It's 5:00 PM in Ballard. Navigate every real street from 85th to Salmon Bay.</p>
+
+                <div style="font-size: 10px; color: #4fd1c5; letter-spacing: 1px; font-weight: bold; margin-bottom: 6px; font-family: 'Press Start 2P', monospace;">CHOOSE YOUR BALLARD RIDE</div>
+                <div id="vehicle-selector" class="vehicle-grid">
+                    <div class="vehicle-card selected" data-vehicle="SUBARU" onclick="Game.selectVehicle('SUBARU')">
+                        <div class="vehicle-title" style="color: #63b3ed;">Outback AWD</div>
+                        <div class="vehicle-sub">The Ballard Standard</div>
+                        <div class="vehicle-stats">Grip ★★★★★ | Speed ★★★☆☆</div>
+                        <div class="vehicle-desc">50% better wet grip + roof box</div>
+                    </div>
+                    <div class="vehicle-card" data-vehicle="PRIUS" onclick="Game.selectVehicle('PRIUS')">
+                        <div class="vehicle-title" style="color: #4fd1c5;">Hybrid Hatch</div>
+                        <div class="vehicle-sub">Eco Errand Runner</div>
+                        <div class="vehicle-stats">Fuel ★★★★★ | Turn ★★★★★</div>
+                        <div class="vehicle-desc">Nimble steering &amp; 45% less fuel burn</div>
+                    </div>
+                    <div class="vehicle-card" data-vehicle="VOLVO" onclick="Game.selectVehicle('VOLVO')">
+                        <div class="vehicle-title" style="color: #ecc94b;">Nordic Wagon</div>
+                        <div class="vehicle-sub">Loyal Heights Brick</div>
+                        <div class="vehicle-stats">Armor ★★★★★ | Chill ★★★★★</div>
+                        <div class="vehicle-desc">35% less stress from crashes &amp; potholes</div>
+                    </div>
+                    <div class="vehicle-card" data-vehicle="COUPE" onclick="Game.selectVehicle('COUPE')">
+                        <div class="vehicle-title" style="color: #fc8181;">Espresso GT</div>
+                        <div class="vehicle-sub">Caffeine Rocket</div>
+                        <div class="vehicle-stats">Speed ★★★★★ | Accel ★★★★★</div>
+                        <div class="vehicle-desc">Fastest down 15th Ave NW, watch puddles!</div>
+                    </div>
+                </div>
+
                 <div
-                    style="font-size: 0.8em; margin-top: 15px; color: #a0aec0; text-align: left; display: inline-block;">
+                    style="font-size: 0.75em; margin-top: 10px; color: #a0aec0; text-align: left; display: grid; grid-template-columns: 1fr 1fr; gap: 3px 14px; background: rgba(15, 23, 42, 0.7); padding: 8px 12px; border-radius: 6px; border: 1px solid #2d3748;">
                     <p><span style="color:#ed8936">■</span> Orange: Grandma (Slow)</p>
-                    <p><span style="color:#ecc94b">■</span> Yellow: Aggressive (Honks at everyone)</p>
-                    <p><span style="color:#f56565">■</span> Red: Distracted (Sleeps at green lights)</p>
+                    <p><span style="color:#ecc94b">■</span> Yellow: Aggressive (Honks)</p>
+                    <p><span style="color:#f56565">■</span> Red: Distracted (Sleeps at green)</p>
                     <p><span style="color:#9f7aea">■</span> Purple: Rideshare (Stops randomly)</p>
                     <p><span style="color:#fff">■</span> White: Student (Wobbles/Brakes)</p>
-                    <p><span style="color:#68d391">■</span> Pastel: Bicycle (Fast, Ignores stop signs!)</p>
+                    <p><span style="color:#68d391">■</span> Pastel: Biker (Ignores stop signs!)</p>
                 </div>
-                <p style="margin-top: 20px;">Use SPACE to Honk. Watch your Gas!</p>
-                <p style="margin-top: 10px; color: #e53e3e;">STOP at Red Signs (-15 Chill Penalty)</p>
+                <p style="margin-top: 10px; font-size: 0.8rem;">WASD / Arrows or Touch Joystick to Drive • SPACE to Honk</p>
+                <p style="margin-top: 4px; color: #fc8181; font-size: 0.78rem;">Stop at Red Lights &amp; Stop Signs! Arterials have right-of-way at side streets.</p>
             </div>
-            <button class="btn" onclick="Game.restartGame()">START ENGINE</button>
+            <button class="btn" id="start-btn" onclick="Game.restartGame()">START ENGINE</button>
         </div>
 
         <!-- Game Over -->
@@ -116,7 +211,7 @@
             <div id="score-details"
                 style="font-family: 'Press Start 2P'; color: #ecc94b; margin-bottom: 30px; text-align: center; line-height: 1.8;">
             </div>
-            <button class="btn" onclick="Game.openGarage()">NEXT LEVEL</button>
+            <button class="btn" id="win-next-btn" onclick="Game.openGarage()">NEXT LEVEL</button>
         </div>
 
         <!-- Garage Upgrade Shop Screen -->
@@ -127,24 +222,24 @@
             
             <div style="display: flex; flex-direction: column; gap: 12px; width: 80%; max-width: 500px; margin-bottom: 30px;">
                 <div class="shop-item" id="shop-tires" onclick="Game.buyUpgrade('tires', 1500)">
-                    <div style="font-weight: bold; font-size: 0.9em; pointer-events: none;">PREMIUM TIRES ($1500)</div>
+                    <div class="shop-title" style="font-weight: bold; font-size: 0.9em; pointer-events: none;">PREMIUM TIRES ($1500)</div>
                     <div style="font-size: 0.7em; color: #a0aec0; margin-top: 4px; pointer-events: none;">Reduces slipping and sliding on rainy wet roads.</div>
                 </div>
                 <div class="shop-item" id="shop-cupholder" onclick="Game.buyUpgrade('cupholder', 2000)">
-                    <div style="font-weight: bold; font-size: 0.9em; pointer-events: none;">COFFEE CUPHOLDER ($2000)</div>
+                    <div class="shop-title" style="font-weight: bold; font-size: 0.9em; pointer-events: none;">COFFEE CUPHOLDER ($2000)</div>
                     <div style="font-size: 0.7em; color: #a0aec0; margin-top: 4px; pointer-events: none;">Keeps coffee hot, slowing mental stress drain by 30%.</div>
                 </div>
                 <div class="shop-item" id="shop-fueltank" onclick="Game.buyUpgrade('fueltank', 2500)">
-                    <div style="font-weight: bold; font-size: 0.9em; pointer-events: none;">EXTENDED FUEL TANK ($2500)</div>
+                    <div class="shop-title" style="font-weight: bold; font-size: 0.9em; pointer-events: none;">EXTENDED FUEL TANK ($2500)</div>
                     <div style="font-size: 0.7em; color: #a0aec0; margin-top: 4px; pointer-events: none;">Saves trips to the gas station (25% slower fuel drainage).</div>
                 </div>
                 <div class="shop-item" id="shop-sticker" onclick="Game.buyUpgrade('sticker', 1000)">
-                    <div style="font-weight: bold; font-size: 0.9em; pointer-events: none;">BALLARD BUMPER STICKER ($1000)</div>
+                    <div class="shop-title" style="font-weight: bold; font-size: 0.9em; pointer-events: none;">BALLARD BUMPER STICKER ($1000)</div>
                     <div style="font-size: 0.7em; color: #a0aec0; margin-top: 4px; pointer-events: none;">Show off your local pride! Increases score multiplier.</div>
                 </div>
             </div>
             
-            <button class="btn" onclick="Game.closeGarage()">START NEXT TRIP</button>
+            <button class="btn" id="garage-next-btn" onclick="Game.closeGarage()">START NEXT TRIP</button>
         </div>
 
         <!-- Mobile Controls -->

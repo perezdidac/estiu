@@ -7,7 +7,12 @@ class Biker extends Car {
     draw(ctx, camX, camY) {
         const sx = this.x - camX;
         const sy = this.y - camY;
-        if (sx < -20 || sx > ctx.canvas.width + 20 || sy < -20 || sy > ctx.canvas.height + 20) return;
+        const vb = (typeof Game !== 'undefined' && Game.viewBounds) ? Game.viewBounds : null;
+        const minX = vb ? vb.minX - 25 : -20;
+        const maxX = vb ? vb.maxX + 25 : ctx.canvas.width + 20;
+        const minY = vb ? vb.minY - 25 : -20;
+        const maxY = vb ? vb.maxY + 25 : ctx.canvas.height + 20;
+        if (sx < minX || sx > maxX || sy < minY || sy > maxY) return;
 
         ctx.save();
         ctx.translate(sx, sy);
