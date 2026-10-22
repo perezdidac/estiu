@@ -37,6 +37,15 @@
                         LIVES</div>
                     <div id="lives-display"
                         style="font-family: 'Press Start 2P', cursive; font-size: 10px; color: #f56565;">❤❤❤</div>
+
+                    <div style="margin-top: 8px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.12); display: flex; justify-content: space-between; align-items: center; gap: 6px; pointer-events: auto;">
+                        <span id="cruise-status-text" style="font-size: 9px; color: #a0aec0; font-weight: bold; letter-spacing: 0.5px;">⚡ CRUISE: OFF</span>
+                        <div style="display: flex; gap: 3px;">
+                            <button class="radio-btn" id="cruise-toggle-btn" onclick="Game.toggleCruiseControl()" title="Toggle Constant-Speed Cruise Control (Key: C or Shift)">CRUISE [C]</button>
+                            <button class="radio-btn" onclick="Game.adjustCruiseSpeed(-0.22)" title="Lower Cruise Speed">−</button>
+                            <button class="radio-btn" onclick="Game.adjustCruiseSpeed(0.22)" title="Raise Cruise Speed">+</button>
+                        </div>
+                    </div>
                 </div>
                 <div class="hud-panel" style="border-left-color: #f6ad55;">
                     <div id="level-display">LEVEL 1</div>

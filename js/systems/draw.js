@@ -9,26 +9,50 @@ const Draw = {
         return "#" + (0x1000000 + R * 0x10000 + G * 0x100 + B).toString(16).slice(1);
     },
 
-    car: (ctx, x, y, angle, color, lightsOn, hazardOn, braking = false, chill = 100, isPlayer = false, vehicleId = null, carType = 'NORMAL') => {
+    getShadowVector() {
+        const tod = (typeof Game !== 'undefined' && typeof Game.timeOfDay === 'number') ? Game.timeOfDay : 1;
+        const isRainy = (typeof Game !== 'undefined' && Game.isRainy);
+        if (tod === 0) return { dx: -0.72, dy: 0.34, alpha: isRainy ? 0.16 : 0.27 }; // Morning (long west shadow)
+        if (tod === 2) return { dx: 0.88, dy: 0.40, alpha: isRainy ? 0.19 : 0.33 };  // Sunset (long east golden-hour shadow)
+        if (tod === 3) return { dx: 0.32, dy: 0.32, alpha: 0.26 };                   // Night (moonlight/streetlamp shadow)
+        return { dx: 0.24, dy: 0.28, alpha: isRainy ? 0.17 : 0.29 };                 // Noon (compact crisp shadow)
+    },
+
+    car: (ctx, x, y, angle, color, lightsOn, hazardOn, braking = false, chill = 100, isPlayer = false, vehicleId = null, carType = 'NORMAL', dynamics = null) => {
         const centerX = ctx.canvas.width / 2;
         const centerY = ctx.canvas.height / 2;
+        const dyn = dynamics || {};
+        const steerAngle = dyn.steerAngle || 0;
+        const turnSignal = dyn.turnSignal || 0;
+        const reversing = Boolean(dyn.reversing);
+        const bodyRoll = dyn.bodyRoll || 0;
+        const bodyPitch = dyn.bodyPitch || 0;
+        const suspBounce = dyn.suspBounce || 0;
+        const isRainy = (typeof Game !== 'undefined' && Game.isRainy);
 
         // Compute 3D roof offset in world/screen space, then rotate into car-local space
         const isBus = (carType === 'METRO_BUS');
         const isTruck = (carType === 'DELIVERY_TRUCK');
-        const zHeight = isBus ? 17 : (isTruck ? 16 : 12);
+        const zHeight = Math.max(4, (isBus ? 17 : (isTruck ? 16 : 12)) + suspBounce);
 
-        let roofLocalX = 0;
-        let roofLocalY = -2.5;
+        let roofLocalX = bodyRoll * 0.85;
+        let roofLocalY = -2.5 + bodyPitch * 0.75;
         if (typeof Projection3D !== 'undefined' && Projection3D.enabled) {
             const pRoof = Projection3D.project(x, y, zHeight, centerX, centerY);
             const dxW = pRoof.x - x;
             const dyW = pRoof.y - y;
             const cosA = Math.cos(-angle);
             const sinA = Math.sin(-angle);
-            roofLocalX = Math.max(-8, Math.min(8, dxW * cosA - dyW * sinA));
-            roofLocalY = Math.max(-8, Math.min(8, dxW * sinA + dyW * cosA));
+            roofLocalX = Math.max(-9, Math.min(9, dxW * cosA - dyW * sinA + bodyRoll * 0.85));
+            roofLocalY = Math.max(-9, Math.min(9, dxW * sinA + dyW * cosA + bodyPitch * 0.75));
         }
+
+        // Directional sun/moon shadow in local car coordinates
+        const sh = Draw.getShadowVector();
+        const cosS = Math.cos(-angle);
+        const sinS = Math.sin(-angle);
+        const shLocalX = (sh.dx * cosS - sh.dy * sinS) * 9;
+        const shLocalY = (sh.dx * sinS + sh.dy * cosS) * 9;
 
         ctx.save();
         ctx.translate(x, y);
@@ -41,10 +65,10 @@ const Draw = {
             const rx = roofLocalX;
             const ry = roofLocalY;
 
-            // Ground shadow
-            ctx.fillStyle = 'rgba(0,0,0,0.45)';
+            // Directional ground shadow
+            ctx.fillStyle = `rgba(0,0,0,${(sh.alpha + 0.14).toFixed(2)})`;
             ctx.beginPath();
-            ctx.roundRect(-15, -34, 32, 68, 5);
+            ctx.roundRect(-14.5 + shLocalX * 0.7, -33 + shLocalY * 0.7, 31, 67, 5);
             ctx.fill();
 
             // Lower Bus Chassis (Dark Charcoal & Gold RapidRide Beltline)
@@ -68,6 +92,19 @@ const Draw = {
             ctx.fillStyle = '#0f172a';
             ctx.fillRect(-11 + rx * 0.7, -30 + ry * 0.7, 22, 7);
             ctx.fillRect(-12.5 + rx * 0.7, -20 + ry * 0.7, 25, 44);
+
+            // Animated windshield wipers on Bus in rain
+            if (isRainy) {
+                const wAng = Math.sin(Date.now() / 150) * 0.52;
+                ctx.strokeStyle = 'rgba(226, 232, 240, 0.75)';
+                ctx.lineWidth = 1.1;
+                for (const wx of [-5, 5]) {
+                    ctx.beginPath();
+                    ctx.moveTo(wx + rx * 0.7, -23.5 + ry * 0.7);
+                    ctx.lineTo(wx + rx * 0.7 + Math.sin(wAng) * 5, -28.5 + ry * 0.7);
+                    ctx.stroke();
+                }
+            }
 
             // 3D Elevated Bus Roof (Crimson Red with White HVAC Pods)
             ctx.fillStyle = '#b91c1c';
@@ -116,10 +153,10 @@ const Draw = {
             const rx = roofLocalX;
             const ry = roofLocalY;
 
-            // Ground shadow
-            ctx.fillStyle = 'rgba(0,0,0,0.45)';
+            // Directional ground shadow
+            ctx.fillStyle = `rgba(0,0,0,${(sh.alpha + 0.14).toFixed(2)})`;
             ctx.beginPath();
-            ctx.roundRect(-14.5, -27, 30, 55, 4);
+            ctx.roundRect(-14 + shLocalX * 0.65, -26.5 + shLocalY * 0.65, 29, 54, 4);
             ctx.fill();
 
             // Front Truck Cab (Slate Blue)
@@ -188,16 +225,21 @@ const Draw = {
         // =====================================================================
         // 3D EXTRUDED PASSENGER CAR (SUBARU, VOLVO, PRIUS, COUPE & AI CARS)
         // =====================================================================
-        // Ground shadow
-        ctx.fillStyle = 'rgba(0,0,0,0.45)';
+        // Directional Time-of-Day Ground Shadow
+        ctx.fillStyle = `rgba(0,0,0,${(sh.alpha + 0.14).toFixed(2)})`;
         ctx.beginPath();
-        ctx.roundRect(-14, -22, 30, 46, 5);
+        ctx.roundRect(-13.5 + shLocalX * 0.55, -21.5 + shLocalY * 0.55, 28, 44, 5);
         ctx.fill();
 
-        // 4 Wheels / Tires sticking out slightly from wheel wells
+        // Articulated Front Wheels (rotate with steerAngle!) & Rear Tires
         ctx.fillStyle = '#111827';
-        ctx.fillRect(-13.5, -15, 2.5, 7);
-        ctx.fillRect(11, -15, 2.5, 7);
+        for (const wx of [-12.2, 12.2]) {
+            ctx.save();
+            ctx.translate(wx, -11.5);
+            ctx.rotate(steerAngle);
+            ctx.fillRect(-1.4, -3.6, 2.8, 7.2);
+            ctx.restore();
+        }
         ctx.fillRect(-13.5, 8, 2.5, 7);
         ctx.fillRect(11, 8, 2.5, 7);
 
@@ -236,9 +278,29 @@ const Draw = {
         ctx.roundRect(-10 + gx, -11 + gy, 20, 24, 3);
         ctx.fill();
 
-        // Windshield & rear glass reflections
+        // Windshield & rear glass reflections + diagonal sky glare streak
         ctx.fillStyle = '#334155';
         ctx.fillRect(-8.5 + gx, -9.5 + gy, 17, 5.5);
+        ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(-6 + gx, -9 + gy);
+        ctx.lineTo(-2 + gx, -4.5 + gy);
+        ctx.stroke();
+
+        // Animated dual windshield wipers when raining!
+        if (isRainy && !dyn.isParked) {
+            const wAng = Math.sin(Date.now() / 135) * 0.55;
+            ctx.strokeStyle = 'rgba(226, 232, 240, 0.82)';
+            ctx.lineWidth = 1.0;
+            for (const wx of [-4, 3.5]) {
+                ctx.beginPath();
+                ctx.moveTo(wx + gx, -4.2 + gy);
+                ctx.lineTo(wx + gx + Math.sin(wAng) * 4.2, -8.8 + gy);
+                ctx.stroke();
+            }
+        }
+
         ctx.fillStyle = '#1e293b';
         ctx.fillRect(-8 + gx, 7.5 + gy, 16, 4);
 
@@ -301,7 +363,8 @@ const Draw = {
             ctx.beginPath(); ctx.arc(10, -20, 3, 0, Math.PI * 2); ctx.arc(-10, -20, 3, 0, Math.PI * 2); ctx.fill();
             ctx.globalCompositeOperation = 'screen';
             const grad = ctx.createLinearGradient(0, -20, 0, -150);
-            grad.addColorStop(0, 'rgba(255, 255, 200, 0.45)'); grad.addColorStop(1, 'rgba(255, 255, 200, 0)');
+            grad.addColorStop(0, isRainy ? 'rgba(255, 255, 210, 0.52)' : 'rgba(255, 255, 200, 0.45)');
+            grad.addColorStop(1, 'rgba(255, 255, 200, 0)');
             ctx.fillStyle = grad; ctx.beginPath(); ctx.moveTo(-10, -20); ctx.lineTo(-40, -150); ctx.lineTo(40, -150); ctx.lineTo(10, -20); ctx.fill();
             ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
         }
@@ -313,10 +376,35 @@ const Draw = {
             ctx.fillRect(-10, 18, 6, 3);
             ctx.fillRect(4, 18, 6, 3);
             ctx.shadowBlur = 0;
+            // Wet-asphalt red brake-light specular reflection streak behind car
+            if (isRainy) {
+                ctx.fillStyle = 'rgba(255, 40, 40, 0.24)';
+                ctx.fillRect(-10, 21, 6, 14);
+                ctx.fillRect(4, 21, 6, 14);
+            }
         } else if (hazardOn && Math.floor(Date.now() / 250) % 2 === 0) {
             ctx.fillStyle = '#ed8936'; ctx.fillRect(-12, 18, 6, 3); ctx.fillRect(6, 18, 6, 3); ctx.fillRect(-12, -20, 4, 4); ctx.fillRect(8, -20, 4, 4);
         } else {
-            ctx.fillStyle = '#b91c1c'; ctx.fillRect(-10, 18, 6, 3); ctx.fillRect(4, 18, 6, 3);
+            ctx.fillStyle = dyn.isParked ? '#450a0a' : '#b91c1c'; ctx.fillRect(-10, 18, 6, 3); ctx.fillRect(4, 18, 6, 3);
+        }
+
+        // White Reverse Backup Lights when backing up
+        if (reversing) {
+            ctx.fillStyle = '#f8fafc';
+            ctx.fillRect(-6.5, 18.2, 3, 2.2);
+            ctx.fillRect(3.5, 18.2, 3, 2.2);
+        }
+
+        // Amber Turn Signal Blinkers (Left: turnSignal < 0 | Right: turnSignal > 0)
+        if (!hazardOn && turnSignal !== 0 && Math.floor(Date.now() / 260) % 2 === 0) {
+            ctx.fillStyle = '#f59e0b';
+            if (turnSignal < 0) {
+                ctx.fillRect(-12.2, -19.8, 3.5, 3.2);
+                ctx.fillRect(-12.2, 17.5, 3.5, 3.2);
+            } else {
+                ctx.fillRect(8.7, -19.8, 3.5, 3.2);
+                ctx.fillRect(8.7, 17.5, 3.5, 3.2);
+            }
         }
 
         // Bumper Sticker upgrade overlay for player car
@@ -356,8 +444,8 @@ const Draw = {
         }
 
         // Tire water spray when rainy
-        if (typeof Game !== 'undefined' && Game.isRainy) {
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+        if (isRainy && Math.abs(dyn.speed || 0.5) > 0.25) {
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.22)';
             const t = Date.now() / 80;
             const spray1 = Math.sin(t) * 3;
             const spray2 = Math.cos(t) * 3;
@@ -372,18 +460,20 @@ const Draw = {
         ctx.restore();
     },
 
-    // 3D Layered PNW Douglas Fir / Cedar Tree
+    // 3D Layered PNW Douglas Fir / Cedar Tree with Directional Cast Shadow & Wind Sway
     tree: (ctx, x, y) => {
         const centerX = ctx.canvas.width / 2;
         const centerY = ctx.canvas.height / 2;
-        const p1 = (typeof Projection3D !== 'undefined') ? Projection3D.project(x, y, 9, centerX, centerY) : { x, y };
-        const p2 = (typeof Projection3D !== 'undefined') ? Projection3D.project(x, y, 18, centerX, centerY) : { x, y };
-        const p3 = (typeof Projection3D !== 'undefined') ? Projection3D.project(x, y, 27, centerX, centerY) : { x, y };
+        const sway = Math.sin(Date.now() / 750 + x * 0.03 + y * 0.02) * 1.6;
+        const p1 = (typeof Projection3D !== 'undefined') ? Projection3D.project(x + sway * 0.3, y, 9, centerX, centerY) : { x, y };
+        const p2 = (typeof Projection3D !== 'undefined') ? Projection3D.project(x + sway * 0.7, y, 18, centerX, centerY) : { x, y };
+        const p3 = (typeof Projection3D !== 'undefined') ? Projection3D.project(x + sway, y, 27, centerX, centerY) : { x, y };
 
-        // Ground shadow
-        ctx.fillStyle = 'rgba(0,0,0,0.28)';
+        // Dynamic Time-of-Day Ground Shadow
+        const sh = Draw.getShadowVector();
+        ctx.fillStyle = `rgba(0,0,0,${sh.alpha.toFixed(2)})`;
         ctx.beginPath();
-        ctx.arc(x + 6, y + 6, 13, 0, Math.PI * 2);
+        ctx.ellipse(x + sh.dx * 16, y + sh.dy * 16, 14, 11, 0, 0, Math.PI * 2);
         ctx.fill();
 
         // 3D Trunk
@@ -512,13 +602,15 @@ const Draw = {
     streetTree: (ctx, x, y, variant = 0) => {
         const centerX = ctx.canvas.width / 2;
         const centerY = ctx.canvas.height / 2;
-        const p1 = (typeof Projection3D !== 'undefined') ? Projection3D.project(x, y, 8, centerX, centerY) : { x, y };
-        const p2 = (typeof Projection3D !== 'undefined') ? Projection3D.project(x, y, 15, centerX, centerY) : { x, y };
+        const sway = Math.sin(Date.now() / 680 + variant * 0.7) * 1.1;
+        const p1 = (typeof Projection3D !== 'undefined') ? Projection3D.project(x + sway * 0.5, y, 8, centerX, centerY) : { x, y };
+        const p2 = (typeof Projection3D !== 'undefined') ? Projection3D.project(x + sway, y, 15, centerX, centerY) : { x, y };
 
-        // Ground shadow on planting strip / sidewalk
-        ctx.fillStyle = 'rgba(0,0,0,0.22)';
+        // Dynamic Time-of-Day Ground Shadow on planting strip / sidewalk
+        const sh = Draw.getShadowVector();
+        ctx.fillStyle = `rgba(0,0,0,${(sh.alpha * 0.85).toFixed(2)})`;
         ctx.beginPath();
-        ctx.arc(x + 3.5, y + 3.5, 7.5, 0, Math.PI * 2);
+        ctx.arc(x + sh.dx * 9, y + sh.dy * 9, 7.5, 0, Math.PI * 2);
         ctx.fill();
 
         // Trunk
@@ -548,7 +640,7 @@ const Draw = {
         ctx.fill();
     },
 
-    // Salmon Bay Fishing Trawler, Tugboat, or Sailboat
+    // Salmon Bay Fishing Trawler, Tugboat, or Sailboat with Stern Wake & Navigation Lights
     boat: (ctx, x, y, angle = 0, boatType = 'TRAWLER', hullColor = '#f8fafc') => {
         const centerX = ctx.canvas.width / 2;
         const centerY = ctx.canvas.height / 2;
@@ -563,11 +655,15 @@ const Draw = {
         ctx.translate(x, y + bob);
         ctx.rotate(angle);
 
-        // Water wake ripple ring
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.22)';
-        ctx.lineWidth = 1.2;
+        // V-shaped stern wake foam trail & water ripple ring
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+        ctx.lineWidth = 1.3;
         ctx.beginPath();
         ctx.ellipse(0, 0, 26, 12, 0, 0, Math.PI * 2);
+        ctx.moveTo(-20, -3);
+        ctx.lineTo(-36 - Math.sin(Date.now() / 180) * 3, -11);
+        ctx.moveTo(-20, 3);
+        ctx.lineTo(-36 - Math.cos(Date.now() / 180) * 3, 11);
         ctx.stroke();
 
         // Boat Hull
@@ -603,7 +699,7 @@ const Draw = {
         ctx.fillStyle = '#0f172a';
         ctx.fillRect(3 + dx3 * 0.6, -3.5 + dy3 * 0.6, 2.5, 7);
 
-        // Mast
+        // Mast + Port/Starboard Navigation Lights
         ctx.strokeStyle = '#cbd5e1';
         ctx.lineWidth = 1.5;
         ctx.beginPath();
@@ -611,6 +707,83 @@ const Draw = {
         ctx.lineTo(dx3 * 1.4, dy3 * 1.4 - 4);
         ctx.stroke();
 
+        ctx.fillStyle = '#ef4444';
+        ctx.fillRect(4, -7, 2, 2);
+        ctx.fillStyle = '#22c55e';
+        ctx.fillRect(4, 5, 2, 2);
+
         ctx.restore();
+    },
+
+    // 3D Soaring Puget Sound Seagull with Ground Shadow
+    seagull: (ctx, sx, sy, z, angle, wingPhase) => {
+        const centerX = ctx.canvas.width / 2;
+        const centerY = ctx.canvas.height / 2;
+        const top = (typeof Projection3D !== 'undefined')
+            ? Projection3D.project(sx, sy, z, centerX, centerY)
+            : { x: sx, y: sy - z * 0.4 };
+
+        // Soft drifting shadow on the street/roofs below
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.14)';
+        ctx.beginPath();
+        ctx.ellipse(sx + 10, sy + 8, 5, 2.5, angle, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Elevated 3D Bird Body & Flapping Wings
+        const flap = Math.sin(wingPhase) * 4.5;
+        ctx.save();
+        ctx.translate(top.x, top.y);
+        ctx.rotate(angle);
+
+        ctx.strokeStyle = '#f8fafc';
+        ctx.lineWidth = 2.0;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.quadraticCurveTo(-2, -5 + flap * 0.5, -1, -10 + flap);
+        ctx.moveTo(0, 0);
+        ctx.quadraticCurveTo(-2, 5 - flap * 0.5, -1, 10 - flap);
+        ctx.stroke();
+
+        // Dark charcoal wingtips & yellow beak
+        ctx.fillStyle = '#334155';
+        ctx.fillRect(-2, -10.5 + flap, 2, 2);
+        ctx.fillRect(-2, 8.5 - flap, 2, 2);
+        ctx.fillStyle = '#f59e0b';
+        ctx.fillRect(3, -0.8, 2.5, 1.6);
+
+        ctx.restore();
+    },
+
+    // 3D Ballard Ornamental Streetlamp with Night/Sunset Glow Pool & Wet-Road Reflection
+    streetLamp3D: (ctx, sx, sy, isLit = false, isRainy = false) => {
+        const centerX = ctx.canvas.width / 2;
+        const centerY = ctx.canvas.height / 2;
+        const top = (typeof Projection3D !== 'undefined')
+            ? Projection3D.project(sx, sy, 22, centerX, centerY)
+            : { x: sx, y: sy - 8 };
+
+        if (isLit) {
+            ctx.fillStyle = 'rgba(251, 191, 36, 0.11)';
+            ctx.beginPath();
+            ctx.arc(sx, sy, 28, 0, Math.PI * 2);
+            ctx.fill();
+            if (isRainy) {
+                ctx.fillStyle = 'rgba(251, 191, 36, 0.14)';
+                ctx.fillRect(sx - 2.5, sy + 2, 5, 22);
+            }
+        }
+
+        ctx.strokeStyle = '#334155';
+        ctx.lineWidth = 2.2;
+        ctx.beginPath();
+        ctx.moveTo(sx, sy);
+        ctx.lineTo(top.x, top.y);
+        ctx.stroke();
+
+        ctx.fillStyle = isLit ? '#fde68a' : '#94a3b8';
+        ctx.beginPath();
+        ctx.arc(top.x, top.y, isLit ? 3.2 : 2.4, 0, Math.PI * 2);
+        ctx.fill();
     }
 };

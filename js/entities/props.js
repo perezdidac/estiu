@@ -996,9 +996,22 @@ class Building {
         const isNight = (typeof Game !== 'undefined' && Game.timeOfDay === 3);
         const isRainy = (typeof Game !== 'undefined' && Game.isRainy);
 
-        // Directional ground shadow
-        ctx.fillStyle = isRainy ? 'rgba(0,0,0,0.20)' : 'rgba(0,0,0,0.30)';
-        ctx.fillRect(sx1 + 4, sy1 + 4, sub.w, sub.h);
+        // Dynamic Time-of-Day Height-Proportional Polygon Cast Shadow
+        const sh = (typeof Draw !== 'undefined' && Draw.getShadowVector)
+            ? Draw.getShadowVector()
+            : { dx: 0.25, dy: 0.28, alpha: isRainy ? 0.18 : 0.28 };
+        const shOffX = sh.dx * z * 0.46;
+        const shOffY = sh.dy * z * 0.46;
+        ctx.fillStyle = `rgba(0,0,0,${sh.alpha.toFixed(2)})`;
+        ctx.beginPath();
+        ctx.moveTo(sx1, sy1);
+        ctx.lineTo(sx2, sy1);
+        ctx.lineTo(sx2 + shOffX, sy1 + shOffY);
+        ctx.lineTo(sx2 + shOffX, sy2 + shOffY);
+        ctx.lineTo(sx1 + shOffX, sy2 + shOffY);
+        ctx.lineTo(sx1, sy2);
+        ctx.closePath();
+        ctx.fill();
 
         // Base corners at ground plane (z = 0)
         const bNW = { x: sx1, y: sy1 };
@@ -1551,5 +1564,43 @@ class SplashParticle {
         ctx.ellipse(this.x - cx, this.y - cy, this.r, this.r * 0.6, 0, 0, Math.PI * 2);
         ctx.fill();
         ctx.globalAlpha = 1;
+    }
+}
+
+class LeafParticle {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.vx = Utils.rand(0.35, 1.15);
+        this.vy = Utils.rand(0.25, 0.85);
+        this.angle = Utils.rand(0, Math.PI * 2);
+        this.spin = Utils.rand(-0.08, 0.08);
+        this.swayPhase = Utils.rand(0, Math.PI * 2);
+        this.r = Utils.rand(2.2, 3.8);
+        this.life = 1.0;
+        this.decay = Utils.rand(0.006, 0.011);
+        const palette = ['#ed8936', '#dd6b20', '#c53030', '#ecc94b', '#fbb6ce', '#48bb78'];
+        this.color = palette[Math.floor(Math.random() * palette.length)];
+    }
+    update() {
+        this.swayPhase += 0.09;
+        this.x += this.vx + Math.sin(this.swayPhase) * 0.45;
+        this.y += this.vy + Math.cos(this.swayPhase * 0.7) * 0.25;
+        this.angle += this.spin;
+        this.life -= this.decay;
+    }
+    draw(ctx, cx, cy) {
+        if (this.life <= 0) return;
+        const sx = this.x - cx;
+        const sy = this.y - cy;
+        ctx.save();
+        ctx.translate(sx, sy);
+        ctx.rotate(this.angle);
+        ctx.fillStyle = this.color;
+        ctx.globalAlpha = Math.min(1, this.life * 1.2) * 0.85;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, this.r, this.r * 0.55, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
     }
 }

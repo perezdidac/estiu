@@ -86,8 +86,6 @@ class Car {
             // Player tracking for stop signs
             this.currentStopSign = null;
             this.playerHasStopped = false;
-            this.reverseBlocked = false;
-            this.forwardBlocked = false;
         } else {
             const r = Math.random();
             if (r < 0.28) this.setType('GRANDMA');
@@ -218,8 +216,10 @@ class Car {
         if (this.speed < -cap / 2) this.speed = -cap / 2;
 
         if (this.isPlayer) {
-            const downPressed = typeof Game !== 'undefined' && (Game.keys['ArrowDown'] || Game.keys['KeyS']);
-            this.isBraking = (downPressed && this.speed > 0.1);
+            const upPressed = typeof Game !== 'undefined' && !!(Game.keys['ArrowUp'] || Game.keys['KeyW']);
+            const downPressed = typeof Game !== 'undefined' && !!(Game.keys['ArrowDown'] || Game.keys['KeyS']);
+            const wantDown = downPressed && (!upPressed || Game.lastThrottleDir === -1);
+            this.isBraking = (wantDown && this.speed > 0.1);
         } else {
             this.isBraking = (this.speed < this.prevSpeed - 0.015 && this.speed > 0.1);
         }
@@ -290,32 +290,99 @@ class Car {
         const nextY = this.y + this.vy;
 
         if (this.isPlayer) {
-            let hitBoundary = (nextX < 20 || nextX > MAP_W * TILE_SIZE - 20 ||
-                               nextY < 20 || nextY > MAP_H * TILE_SIZE - 20);
+            let hitBoundary = (nextX < 24 || nextX > MAP_W * TILE_SIZE - 24 ||
+                               nextY < 24 || nextY > MAP_H * TILE_SIZE - 24);
             let hitBuilding = this.checkBuildingCollision(nextX, nextY);
 
             if (!hitBoundary && !hitBuilding) {
                 this.x = nextX;
                 this.y = nextY;
             } else {
-                // Try sliding along X or Y axis so grazing a wall doesn't lock the car
-                if (!hitBoundary && !this.checkBuildingCollision(nextX, this.y)) {
+                // First try smooth wall-sliding along X or Y if only one axis is blocked and we aren't already overlapping at (this.x, this.y)
+                const curOverlap = this.checkBuildingCollision(this.x, this.y);
+                if (!hitBoundary && !curOverlap && Math.abs(this.vx) > 0.15 && !this.checkBuildingCollision(nextX, this.y)) {
                     this.x = nextX;
                     this.speed *= 0.85;
-                } else if (!hitBoundary && !this.checkBuildingCollision(this.x, nextY)) {
+                } else if (!hitBoundary && !curOverlap && Math.abs(this.vy) > 0.15 && !this.checkBuildingCollision(this.x, nextY)) {
                     this.y = nextY;
                     this.speed *= 0.85;
                 } else {
-                    // Hard impact
-                    this.x -= Math.cos(this.angle) * (this.speed >= 0 ? 3 : -3);
-                    this.y -= Math.sin(this.angle) * (this.speed >= 0 ? 3 : -3);
-                    this.speed *= -0.45;
+                    // Hard impact: push the car FAR AWAY from the building/collision point toward the open road
+                    // and stop its velocity (never bounce into reverse so it can't back into another building!)
+                    const colObj = hitBuilding || curOverlap;
+                    let escX = -Math.cos(this.angle) * (this.speed >= 0 ? 1 : -1);
+                    let escY = -Math.sin(this.angle) * (this.speed >= 0 ? 1 : -1);
+
+                    if (colObj && typeof colObj === 'object') {
+                        const dxB = this.x - colObj.cx;
+                        const dyB = this.y - colObj.cy;
+                        const lenB = Math.hypot(dxB, dyB) || 1;
+                        escX = dxB / lenB;
+                        escY = dyB / lenB;
+                    }
+
+                    // Blend escape direction toward the nearest road centerline so we always push onto the street
+                    let roadTarget = null;
+                    if (typeof Game !== 'undefined' && Game.getActiveRoadForCar) {
+                        const rInfo = Game.getActiveRoadForCar(this.x, this.y, this.angle);
+                        if (rInfo && rInfo.road) {
+                            const r = rInfo.road;
+                            const x1_w = r.x1 * TILE_SIZE + TILE_SIZE / 2;
+                            const y1_w = r.y1 * TILE_SIZE + TILE_SIZE / 2;
+                            const x2_w = r.x2 * TILE_SIZE + TILE_SIZE / 2;
+                            const y2_w = r.y2 * TILE_SIZE + TILE_SIZE / 2;
+                            roadTarget = Utils.getClosestPointOnSegment(this.x, this.y, x1_w, y1_w, x2_w, y2_w);
+                            const dxR = roadTarget.x - this.x;
+                            const dyR = roadTarget.y - this.y;
+                            const lenR = Math.hypot(dxR, dyR);
+                            if (lenR > 2) {
+                                escX = escX * 0.55 + (dxR / lenR) * 0.45;
+                                escY = escY * 0.55 + (dyR / lenR) * 0.45;
+                                const norm = Math.hypot(escX, escY) || 1;
+                                escX /= norm;
+                                escY /= norm;
+                            }
+                        }
+                    }
+
+                    const baseEscAngle = Math.atan2(escY, escX);
+                    const testDists = [20, 28, 38, 52, 68];
+                    const angleOffsets = [0, 0.35, -0.35, 0.75, -0.75, 1.2, -1.2, Math.PI];
+                    let foundSafe = false;
+
+                    for (let dIdx = 0; dIdx < testDists.length && !foundSafe; dIdx++) {
+                        const distPush = testDists[dIdx];
+                        for (let aIdx = 0; aIdx < angleOffsets.length; aIdx++) {
+                            const ang = baseEscAngle + angleOffsets[aIdx];
+                            const candX = Math.max(28, Math.min(MAP_W * TILE_SIZE - 28, this.x + Math.cos(ang) * distPush));
+                            const candY = Math.max(28, Math.min(MAP_H * TILE_SIZE - 28, this.y + Math.sin(ang) * distPush));
+                            if (!this.checkBuildingCollision(candX, candY)) {
+                                this.x = candX;
+                                this.y = candY;
+                                foundSafe = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    // Fallback: snap directly onto the nearest road centerline if wedged in a tight corner
+                    if (!foundSafe && roadTarget) {
+                        this.x = roadTarget.x;
+                        this.y = roadTarget.y;
+                    }
+
+                    // Stop momentum completely instead of reversing speed into negative!
+                    this.speed = 0;
+                    this.vx = 0;
+                    this.vy = 0;
+                    this.lateralSlip = 0;
                     this.suspVel = 3.5;
+
                     if (typeof Game !== 'undefined' && Game.triggerScreenShake) Game.triggerScreenShake(8);
                     if (this.crashCooldown <= 0) {
                         AudioSys.crash();
                         Game.modChill(-5 * this.chillShield);
-                        this.crashCooldown = 35;
+                        this.crashCooldown = 45;
                     }
                 }
             }
@@ -462,8 +529,25 @@ class Car {
         }
     }
 
-    checkBuildingCollision(nx, ny) {
-        const nextPoly = Utils.getRectCorners(nx, ny, this.w, this.h, this.angle + Math.PI / 2);
+    checkBuildingCollision(nx, ny, testAngle = this.angle) {
+        // Never trigger a building collision while driving inside a diagonal road carriageway
+        if (typeof MapData !== 'undefined' && MapData.roads) {
+            for (let i = 0; i < MapData.roads.length; i++) {
+                const r = MapData.roads[i];
+                if (r.x1 !== r.x2 && r.y1 !== r.y2) {
+                    const x1_w = r.x1 * TILE_SIZE + TILE_SIZE / 2;
+                    const y1_w = r.y1 * TILE_SIZE + TILE_SIZE / 2;
+                    const x2_w = r.x2 * TILE_SIZE + TILE_SIZE / 2;
+                    const y2_w = r.y2 * TILE_SIZE + TILE_SIZE / 2;
+                    const halfRoad = (r.type === 9) ? 76 : 50;
+                    if (Utils.distToSegment(nx, ny, x1_w, y1_w, x2_w, y2_w) < halfRoad) {
+                        return null;
+                    }
+                }
+            }
+        }
+
+        const nextPoly = Utils.getRectCorners(nx, ny, this.w, this.h, testAngle + Math.PI / 2);
         const tx = Math.floor(nx / TILE_SIZE);
         const ty = Math.floor(ny / TILE_SIZE);
 
@@ -473,20 +557,38 @@ class Car {
                     const b = (Game.buildingGrid && Game.buildingGrid[py])
                         ? Game.buildingGrid[py][px]
                         : Game.buildings.find(b => Math.floor(b.x / TILE_SIZE) === px && Math.floor(b.y / TILE_SIZE) === py);
-                    if (b) {
-                        if (Utils.polysIntersect(nextPoly, [
-                            { x: b.rect.left, y: b.rect.top },
-                            { x: b.rect.right, y: b.rect.top },
-                            { x: b.rect.right, y: b.rect.bottom },
-                            { x: b.rect.left, y: b.rect.bottom }
-                        ])) {
-                            return true;
+                    if (!b) continue;
+
+                    // Collide only against actual 3D building structures (not grassy front/back yards!)
+                    if (b.subStructures && b.subStructures.length > 0) {
+                        for (let sIdx = 0; sIdx < b.subStructures.length; sIdx++) {
+                            const sub = b.subStructures[sIdx];
+                            const left = sub.x + 2;
+                            const right = sub.x + sub.w - 2;
+                            const top = sub.y + 2;
+                            const bottom = sub.y + sub.h - 2;
+                            if (right <= left || bottom <= top) continue;
+                            if (Utils.polysIntersect(nextPoly, [
+                                { x: left, y: top },
+                                { x: right, y: top },
+                                { x: right, y: bottom },
+                                { x: left, y: bottom }
+                            ])) {
+                                return {
+                                    left,
+                                    right,
+                                    top,
+                                    bottom,
+                                    cx: (left + right) * 0.5,
+                                    cy: (top + bottom) * 0.5
+                                };
+                            }
                         }
                     }
                 }
             }
         }
-        return false;
+        return null;
     }
 
     checkLaneRule() {
@@ -585,50 +687,41 @@ class Car {
             return;
         }
         const currentAccel = this.coffeeBoostTimer > 0 ? this.accel * 1.5 : this.accel;
-        const upPressed = Game.keys['ArrowUp'] || Game.keys['KeyW'];
-        const downPressed = Game.keys['ArrowDown'] || Game.keys['KeyS'];
-        const leftPressed = Game.keys['ArrowLeft'] || Game.keys['KeyA'];
-        const rightPressed = Game.keys['ArrowRight'] || Game.keys['KeyD'];
+        const upPressed = !!(Game.keys['ArrowUp'] || Game.keys['KeyW']);
+        const downPressed = !!(Game.keys['ArrowDown'] || Game.keys['KeyS']);
+        const leftPressed = !!(Game.keys['ArrowLeft'] || Game.keys['KeyA']);
+        const rightPressed = !!(Game.keys['ArrowRight'] || Game.keys['KeyD']);
 
-        if (!upPressed && !downPressed) {
+        // If both Forward and Backward are held simultaneously, honor whichever direction was pressed most recently
+        let wantUp = upPressed;
+        let wantDown = downPressed;
+        if (upPressed && downPressed) {
+            if (Game.lastThrottleDir === -1) {
+                wantUp = false;
+                wantDown = true;
+            } else {
+                wantUp = true;
+                wantDown = false;
+            }
+        }
+
+        if (!wantUp && !wantDown) {
             this.speed *= 0.93;
             if (Math.abs(this.speed) < 0.02) this.speed = 0;
-        }
-
-        if (upPressed) {
-            if (this.speed < -0.01) {
-                this.speed += currentAccel * 2.0;
-                if (this.speed >= -0.01) {
-                    this.speed = 0;
-                    this.forwardBlocked = true;
-                }
+        } else if (wantUp) {
+            if (this.speed < 0) {
+                // Smoothly brake from reverse and transition straight into forward acceleration
+                this.speed += currentAccel * 2.4;
             } else {
-                if (this.forwardBlocked) {
-                    this.speed = 0;
-                } else {
-                    this.speed += currentAccel;
-                }
+                this.speed += currentAccel;
             }
-        } else {
-            this.forwardBlocked = false;
-        }
-
-        if (downPressed) {
-            if (this.speed > 0.01) {
-                this.speed -= currentAccel * 2.0;
-                if (this.speed <= 0.01) {
-                    this.speed = 0;
-                    this.reverseBlocked = true;
-                }
+        } else if (wantDown) {
+            if (this.speed > 0) {
+                // Smoothly brake from forward and transition straight into reverse acceleration
+                this.speed -= currentAccel * 2.4;
             } else {
-                if (this.reverseBlocked) {
-                    this.speed = 0;
-                } else {
-                    this.speed -= currentAccel;
-                }
+                this.speed -= currentAccel * 1.15;
             }
-        } else {
-            this.reverseBlocked = false;
         }
 
         let steerInput = 0;
@@ -830,6 +923,14 @@ class Car {
             const targetAngle = Math.atan2(targetY - this.y, targetX - this.x);
             const diff = Utils.angleDiff(targetAngle, this.angle);
             this.angle = Utils.normalizeAngle(this.angle + diff * 0.18);
+            this.steerAngle = Utils.lerp(this.steerAngle || 0, Math.max(-0.38, Math.min(0.38, diff * 1.1)), 0.25);
+            if (Math.abs(diff) > 0.14) {
+                this.turnSignal = diff > 0 ? 1 : -1;
+                this.turnSignalHold = 22;
+            } else if (this.turnSignalHold > 0) {
+                this.turnSignalHold--;
+                if (this.turnSignalHold === 0) this.turnSignal = 0;
+            }
         }
 
         const fwdX = Math.cos(this.angle);
@@ -1057,6 +1158,13 @@ class Car {
                 Game.modChill(penalty);
                 Game.spawnText(this.x, this.y, "HYDROPLANE! " + penalty + " CHILL", "#63b3ed");
                 AudioSys.puddleSplash();
+                // Add slight lateral hydroplane drift impulse & suspension ripple
+                const rightX = -Math.sin(this.angle);
+                const rightY = Math.cos(this.angle);
+                const slideDir = (Math.random() < 0.5 ? -1 : 1) * (1 - gripReduction) * 0.65;
+                this.vx += rightX * slideDir;
+                this.vy += rightY * slideDir;
+                this.suspVel = 1.8;
 
                 for (let i = 0; i < 15; i++) {
                     const angle = Math.random() * Math.PI * 2;
@@ -1082,7 +1190,7 @@ class Car {
         const minY = vb ? vb.minY - 80 : -80;
         const maxY = vb ? vb.maxY + 80 : ctx.canvas.height + 80;
         if (sx < minX || sx > maxX || sy < minY || sy > maxY) return;
-        const lightsOn = (typeof Game !== 'undefined') && (Game.timeOfDay === 3 || Game.isRainy);
+        const lightsOn = (typeof Game !== 'undefined') && (Game.timeOfDay === 3 || Game.isRainy || Game.timeOfDay === 2);
         Draw.car(
             ctx,
             sx,
@@ -1090,12 +1198,21 @@ class Car {
             this.angle + Math.PI / 2,
             this.color,
             lightsOn,
-            this.state === 'DROPOFF',
+            this.state === 'DROPOFF' || this.postCrashTimer > 0,
             this.isBraking,
             this.isPlayer ? Game.chill : 100,
             this.isPlayer,
             this.vehicleId,
-            this.type
+            this.type,
+            {
+                steerAngle: this.steerAngle || 0,
+                turnSignal: this.turnSignal || 0,
+                reversing: this.speed < -0.05,
+                bodyRoll: this.bodyRoll || 0,
+                bodyPitch: this.bodyPitch || 0,
+                suspBounce: this.suspBounce || 0,
+                speed: this.speed || 0
+            }
         );
     }
 }

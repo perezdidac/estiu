@@ -140,6 +140,7 @@ const Game = {
     minimapCanvas: null,
     minimapCtx: null,
     keys: {},
+    lastThrottleDir: 0,
     joystickTurn: 0,
     map: [],
     buildingGrid: [],
@@ -179,6 +180,9 @@ const Game = {
     pedestrians: [],
     potholes: [],
     puddles: [],
+    skidMarks: [],
+    seagulls: [],
+    screenShake: 0,
     timeOfDay: 0,
     zoom: 1.0,
     camTiltDeg: 10,
@@ -189,6 +193,25 @@ const Game = {
     debugCollapsed: false,
     viewBounds: null,
     entityGrid: new Map(),
+
+    addSkidMark(x, y, angle, alpha = 0.3, isWet = false) {
+        if (!this.skidMarks) this.skidMarks = [];
+        if (this.skidMarks.length >= 260) {
+            this.skidMarks.shift();
+        }
+        this.skidMarks.push({
+            x,
+            y,
+            angle,
+            alpha,
+            isWet,
+            life: 1.0
+        });
+    },
+
+    triggerScreenShake(intensity = 6) {
+        this.screenShake = Math.min(14, Math.max(this.screenShake || 0, intensity));
+    },
 
     toggle3DView() {
         if (typeof Projection3D !== 'undefined') {
@@ -569,6 +592,11 @@ const Game = {
     setupInputs() {
         window.addEventListener('keydown', e => {
             this.keys[e.code] = true;
+            if (e.code === 'ArrowUp' || e.code === 'KeyW') {
+                this.lastThrottleDir = 1;
+            } else if (e.code === 'ArrowDown' || e.code === 'KeyS') {
+                this.lastThrottleDir = -1;
+            }
             if (e.code === 'Space') {
                 if (this.state === 'MENU') this.restartGame();
                 else if (this.state === 'GAMEOVER') this.restartGame();
@@ -589,7 +617,14 @@ const Game = {
                 this.toggleFreeCam();
             }
         });
-        window.addEventListener('keyup', e => this.keys[e.code] = false);
+        window.addEventListener('keyup', e => {
+            this.keys[e.code] = false;
+            const upHeld = !!(this.keys['ArrowUp'] || this.keys['KeyW']);
+            const downHeld = !!(this.keys['ArrowDown'] || this.keys['KeyS']);
+            if (upHeld && !downHeld) this.lastThrottleDir = 1;
+            else if (downHeld && !upHeld) this.lastThrottleDir = -1;
+            else if (!upHeld && !downHeld) this.lastThrottleDir = 0;
+        });
 
         // Mouse wheel zoom & drag panning in Free Cam
         window.addEventListener('wheel', e => {
@@ -1159,6 +1194,17 @@ const Game = {
                     if (bw > 20 && bh > 20) {
                         const centerWorldX = bx + bw / 2;
                         const centerWorldY = by + bh / 2;
+                        const parcelPts = [
+                            { x: centerWorldX, y: centerWorldY },
+                            { x: bx, y: by },
+                            { x: bx + bw, y: by },
+                            { x: bx, y: by + bh },
+                            { x: bx + bw, y: by + bh },
+                            { x: centerWorldX, y: by },
+                            { x: centerWorldX, y: by + bh },
+                            { x: bx, y: centerWorldY },
+                            { x: bx + bw, y: centerWorldY }
+                        ];
 
                         let overlapsRoad = false;
                         for (let r of diagRoads) {
@@ -1166,12 +1212,16 @@ const Game = {
                             const y1_w = r.y1 * TILE_SIZE + TILE_SIZE / 2;
                             const x2_w = r.x2 * TILE_SIZE + TILE_SIZE / 2;
                             const y2_w = r.y2 * TILE_SIZE + TILE_SIZE / 2;
-                            const d = Utils.distToSegment(centerWorldX, centerWorldY, x1_w, y1_w, x2_w, y2_w);
-                            const clearDist = (r.type === 9) ? 98 : 74;
-                            if (d < clearDist) {
-                                overlapsRoad = true;
-                                break;
+                            // Keep the entire parcel & all 4 corners well clear of diagonal road carriageways + sidewalks
+                            const clearCornerDist = (r.type === 9) ? 94 : 68;
+                            for (let k = 0; k < parcelPts.length; k++) {
+                                const pt = parcelPts[k];
+                                if (Utils.distToSegment(pt.x, pt.y, x1_w, y1_w, x2_w, y2_w) < clearCornerDist) {
+                                    overlapsRoad = true;
+                                    break;
+                                }
                             }
+                            if (overlapsRoad) break;
                         }
 
                         if (!overlapsRoad) {
@@ -1465,7 +1515,24 @@ const Game = {
     start() {
         this.isRainy = Math.random() < 0.5;
         this.timeOfDay = (this.level - 1) % 4;
+        this.skidMarks = [];
+        this.screenShake = 0;
         this.generateMap();
+
+        // Spawn 28 soaring Puget Sound seagulls wheeling across Ballard
+        this.seagulls = [];
+        for (let i = 0; i < 28; i++) {
+            this.seagulls.push({
+                x: Math.random() * MAP_W * TILE_SIZE,
+                y: Math.random() * MAP_H * TILE_SIZE,
+                z: 44 + Math.random() * 24,
+                angle: Math.random() * Math.PI * 2,
+                speed: 0.75 + Math.random() * 0.55,
+                turnRate: (Math.random() - 0.5) * 0.012,
+                wingPhase: Math.random() * Math.PI * 2
+            });
+        }
+
         AudioSys.init();
         if (this.radioStation && this.radioStation !== 'OFF') {
             // Automatically shuffle to a different Seattle radio station every time you play!
@@ -2189,6 +2256,52 @@ const Game = {
         this.entities = this.entities.filter(e => !e.markedForDeletion);
         this.rebuildEntityGrid();
 
+        // Continuous Speed-Reactive Engine Purr, Wet-Road Tire Spray, Turn-Signal Clicks & Foghorn
+        if (this.player && typeof AudioSys !== 'undefined' && AudioSys.updateEngineAndAmbience) {
+            AudioSys.updateEngineAndAmbience(
+                this.player.speed,
+                this.player.maxSpeed,
+                this.isRainy,
+                this.player.isBraking,
+                this.player.lateralSlip || 0,
+                this.player.turnSignal || 0
+            );
+        }
+
+        // Update Soaring Puget Sound Seagulls & Cruising Salmon Bay Vessels
+        if (this.seagulls) {
+            const mapW = MAP_W * TILE_SIZE;
+            const mapH = MAP_H * TILE_SIZE;
+            for (let i = 0; i < this.seagulls.length; i++) {
+                const g = this.seagulls[i];
+                g.angle += g.turnRate;
+                g.wingPhase += 0.16;
+                g.x = (g.x + Math.cos(g.angle) * g.speed + mapW) % mapW;
+                g.y = (g.y + Math.sin(g.angle) * g.speed + mapH) % mapH;
+            }
+        }
+        if (this.boats) {
+            const mapW = MAP_W * TILE_SIZE;
+            for (let i = 0; i < this.boats.length; i++) {
+                const bt = this.boats[i];
+                const dir = Math.cos(bt.angle) >= 0 ? 1 : -1;
+                bt.x = (bt.x + dir * 0.22 + mapW) % mapW;
+            }
+        }
+
+        // Decay Tire Skid Marks & Spawn Windblown Pacific Northwest Leaves / Petals
+        if (this.skidMarks && this.skidMarks.length > 0) {
+            for (let i = 0; i < this.skidMarks.length; i++) {
+                this.skidMarks[i].life -= 0.0045;
+            }
+            this.skidMarks = this.skidMarks.filter(s => s.life > 0);
+        }
+        if (this.player && typeof LeafParticle !== 'undefined' && Math.random() < 0.12) {
+            const lx = this.player.x + Utils.rand(-520, 520);
+            const ly = this.player.y + Utils.rand(-340, 340);
+            this.particles.push(new LeafParticle(lx, ly));
+        }
+
         // Radio Banter Ticker
         if (this.radioStation !== 'OFF' && Math.floor(Date.now() / 100) % 50 === 0) {
             const banters = [
@@ -2220,6 +2333,7 @@ const Game = {
 
                     this.player.coffeeBoostTimer = 180;
                     this.player.targetSpeed = this.player.maxSpeed * 1.5;
+                    this.triggerScreenShake(5);
                     this.showNotification("☕ COFFEE RUSH! SPEED BOOST!", "#ecc94b");
 
                     for (let i = 0; i < 15; i++) {
@@ -2242,7 +2356,7 @@ const Game = {
         });
         this.props = this.props.filter(p => !p.markedForDeletion);
 
-        // Vehicle-to-Vehicle Collisions with Fast AABB Pre-Filter & Positional Separation
+        // Vehicle-to-Vehicle Collisions with Fast AABB Pre-Filter & Mass-Aware Separation
         for (let i = 0; i < this.entities.length; i++) {
             const a = this.entities[i];
             for (let j = i + 1; j < this.entities.length; j++) {
@@ -2257,22 +2371,29 @@ const Game = {
                             const nx = (aiCar.x - pCar.x) / (dist || 1);
                             const ny = (aiCar.y - pCar.y) / (dist || 1);
 
-                            // Push the AI car cleanly out of the player's path so it never grinds or double-hits!
-                            aiCar.x += nx * 14;
-                            aiCar.y += ny * 14;
+                            // Push the AI car far out of the player's path so it never grinds or double-hits!
+                            aiCar.x += nx * 22;
+                            aiCar.y += ny * 22;
                             aiCar.speed = 0;
                             aiCar.isBraking = true;
                             aiCar.postCrashTimer = 150; // Stay stopped for 2.5s (and until player drives >85px away)
                             aiCar.poly = Utils.getRectCorners(aiCar.x, aiCar.y, aiCar.w, aiCar.h, aiCar.angle + Math.PI / 2);
 
-                            // Only nudge player slightly if it won't push them into a building
-                            const tryPX = pCar.x - nx * 2.5;
-                            const tryPY = pCar.y - ny * 2.5;
-                            if (!pCar.checkBuildingCollision(tryPX, tryPY)) {
-                                pCar.x = tryPX;
-                                pCar.y = tryPY;
-                                pCar.poly = Utils.getRectCorners(pCar.x, pCar.y, pCar.w, pCar.h, pCar.angle + Math.PI / 2);
+                            // Separate player cleanly away from collision point ONLY if the destination spot is building-free
+                            const massRatio = Math.min(1.6, Math.max(0.5, (aiCar.mass || 1.0) / (pCar.mass || 1.0)));
+                            for (const pushDist of [12, 8, 4]) {
+                                const tryPX = pCar.x - nx * pushDist;
+                                const tryPY = pCar.y - ny * pushDist;
+                                if (!pCar.checkBuildingCollision(tryPX, tryPY)) {
+                                    pCar.x = tryPX;
+                                    pCar.y = tryPY;
+                                    pCar.poly = Utils.getRectCorners(pCar.x, pCar.y, pCar.w, pCar.h, pCar.angle + Math.PI / 2);
+                                    break;
+                                }
                             }
+                            pCar.vx = 0;
+                            pCar.vy = 0;
+                            pCar.lateralSlip = 0;
 
                             const isBikerHit = (aiCar.type === 'BIKER');
                             if (pCar.crashCooldown <= 0 && (aiCar.crashGraceTimer || 0) <= 0) {
@@ -2280,8 +2401,10 @@ const Game = {
                                 const penalty = Math.round(basePenalty * (pCar.chillShield || 1.0));
                                 const label = isBikerHit ? "OUCH! BIKER!" : "BUMP!";
 
-                                // Smooth speed reduction instead of violent backward bounce
-                                pCar.speed *= 0.45;
+                                // Smooth speed reduction without ever reversing into negative speed + suspension jolt & camera shake
+                                pCar.speed *= 0.35;
+                                pCar.suspVel = 3.2 * massRatio;
+                                this.triggerScreenShake(7 * massRatio);
                                 aiCar.crashGraceTimer = 210;
                                 pCar.crashCooldown = 90;
 
@@ -2318,7 +2441,7 @@ const Game = {
             }
         }
 
-        // Camera Update (Supports Free Cam Panning, Zoom & Pitch Tilt)
+        // Camera Update (Supports Free Cam Panning, Zoom, Pitch Tilt & Impact Screen Shake)
         const centerX = this.canvas.width / 2;
         const centerY = this.canvas.height / 2;
         const effScaleX = this.zoom || 1.0;
@@ -2336,8 +2459,18 @@ const Game = {
             this.cam.x = Utils.lerp(this.cam.x, targetCamX, 0.12);
             this.cam.y = Utils.lerp(this.cam.y, targetCamY, 0.12);
         }
-        const cx = this.cam.x;
-        const cy = this.cam.y;
+
+        let shakeX = 0, shakeY = 0;
+        if (this.screenShake > 0.15) {
+            shakeX = (Math.random() - 0.5) * this.screenShake * 1.6;
+            shakeY = (Math.random() - 0.5) * this.screenShake * 1.6;
+            this.screenShake *= 0.82;
+        } else {
+            this.screenShake = 0;
+        }
+
+        const cx = this.cam.x + shakeX;
+        const cy = this.cam.y + shakeY;
 
         // Compute visible camera-offset bounds under current Zoom & Pitch Tilt
         const vMinX = centerX - centerX / effScaleX;
@@ -2912,6 +3045,120 @@ const Game = {
             }
         });
 
+        // Road Surface Micro-Details: Manhole Covers (with Steam Wisps), Storm Drains, Tar-Seal Cracks & Bike Stencils
+        for (let r = startR; r <= endR; r++) {
+            for (let c = startC; c <= endC; c++) {
+                const tile = this.map[r][c];
+                if (tile !== 1 && tile !== 2 && tile !== 3 && tile !== 6 && tile !== 7) continue;
+                const x = c * TILE_SIZE - cx;
+                const y = r * TILE_SIZE - cy;
+                const hSeed = (r * 31 + c * 17) % 100;
+
+                // Asphalt tar-seal cracks on older road tiles
+                if (hSeed < 38) {
+                    this.ctx.strokeStyle = 'rgba(15, 23, 42, 0.42)';
+                    this.ctx.lineWidth = 1.1;
+                    this.ctx.beginPath();
+                    const cx0 = x + 32 + (hSeed % 45);
+                    const cy0 = y + 28 + ((hSeed * 3) % 50);
+                    this.ctx.moveTo(cx0, cy0);
+                    this.ctx.lineTo(cx0 + (hSeed % 2 === 0 ? 14 : -12), cy0 + 9);
+                    this.ctx.lineTo(cx0 + (hSeed % 2 === 0 ? 22 : -19), cy0 + 4);
+                    this.ctx.stroke();
+                }
+
+                // Cast-iron sewer manhole covers + rising steam wisps in rain/night
+                if ((r * 7 + c * 13) % 4 === 0) {
+                    const mx = x + TILE_SIZE * 0.5 + ((r % 2 === 0) ? 16 : -16);
+                    const my = y + TILE_SIZE * 0.5 + ((c % 2 === 0) ? -14 : 14);
+                    this.ctx.fillStyle = '#1e293b';
+                    this.ctx.beginPath();
+                    this.ctx.arc(mx, my, 5.5, 0, Math.PI * 2);
+                    this.ctx.fill();
+                    this.ctx.strokeStyle = '#475569';
+                    this.ctx.lineWidth = 1;
+                    this.ctx.stroke();
+                    // Waffle grid pattern inside manhole lid
+                    this.ctx.fillStyle = '#334155';
+                    this.ctx.fillRect(mx - 3, my - 1, 6, 2);
+                    this.ctx.fillRect(mx - 1, my - 3, 2, 6);
+
+                    if (this.isRainy || this.timeOfDay === 3 || this.timeOfDay === 0) {
+                        const steamPhase = (Date.now() / 420 + r * 3 + c * 5) % (Math.PI * 2);
+                        const sxOff = Math.sin(steamPhase) * 4;
+                        const syOff = -((Date.now() / 65 + r * 19 + c * 11) % 14);
+                        this.ctx.fillStyle = 'rgba(226, 232, 240, 0.16)';
+                        this.ctx.beginPath();
+                        this.ctx.arc(mx + sxOff, my + syOff, 4.5 + Math.abs(syOff) * 0.25, 0, Math.PI * 2);
+                        this.ctx.fill();
+                    }
+                }
+
+                // Curbside storm drain grates
+                if ((tile === 1 || tile === 6) && (r + c) % 3 === 0) {
+                    const curbX = (tile === 6) ? x - 16 : x + 14;
+                    this.ctx.fillStyle = '#0f172a';
+                    this.ctx.fillRect(curbX, y + 48, 5, 12);
+                    this.ctx.strokeStyle = '#475569';
+                    this.ctx.lineWidth = 0.8;
+                    this.ctx.strokeRect(curbX, y + 48, 5, 12);
+                }
+
+                // Painted white bicycle lane symbols on arterial protected bike lanes
+                if (tile === 6 && r % 2 === 0) {
+                    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
+                    this.ctx.lineWidth = 1.1;
+                    for (const bxOff of [x - 11, x + TILE_SIZE + 11]) {
+                        const byOff = y + TILE_SIZE * 0.5;
+                        this.ctx.beginPath();
+                        this.ctx.arc(bxOff, byOff - 4, 2.2, 0, Math.PI * 2);
+                        this.ctx.moveTo(bxOff, byOff - 1.5);
+                        this.ctx.lineTo(bxOff, byOff + 2);
+                        this.ctx.stroke();
+                        this.ctx.beginPath();
+                        this.ctx.arc(bxOff, byOff + 4, 2.2, 0, Math.PI * 2);
+                        this.ctx.stroke();
+                    }
+                } else if (tile === 7 && c % 2 === 0) {
+                    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
+                    this.ctx.lineWidth = 1.1;
+                    for (const byOff of [y - 11, y + TILE_SIZE + 11]) {
+                        const bxOff = x + TILE_SIZE * 0.5;
+                        this.ctx.beginPath();
+                        this.ctx.arc(bxOff - 4, byOff, 2.2, 0, Math.PI * 2);
+                        this.ctx.moveTo(bxOff - 1.5, byOff);
+                        this.ctx.lineTo(bxOff + 2, byOff);
+                        this.ctx.stroke();
+                        this.ctx.beginPath();
+                        this.ctx.arc(bxOff + 4, byOff, 2.2, 0, Math.PI * 2);
+                        this.ctx.stroke();
+                    }
+                }
+            }
+        }
+
+        // Persistent Tire Skid Marks & Wet-Asphalt Tire Tracks
+        if (this.skidMarks && this.skidMarks.length > 0) {
+            this.ctx.save();
+            this.ctx.lineWidth = 2.4;
+            this.ctx.lineCap = 'round';
+            for (let i = 0; i < this.skidMarks.length; i++) {
+                const sm = this.skidMarks[i];
+                const sx1 = sm.x1 - cx;
+                const sy1 = sm.y1 - cy;
+                if (sx1 < vMinX - 60 || sx1 > vMaxX + 60 || sy1 < vMinY - 60 || sy1 > vMaxY + 60) continue;
+                const alpha = Math.min(1, sm.life / sm.maxLife) * (sm.isWet ? 0.24 : 0.42);
+                this.ctx.strokeStyle = sm.isWet
+                    ? `rgba(15, 23, 42, ${alpha.toFixed(3)})`
+                    : `rgba(10, 14, 23, ${alpha.toFixed(3)})`;
+                this.ctx.beginPath();
+                this.ctx.moveTo(sx1, sy1);
+                this.ctx.lineTo(sm.x2 - cx, sm.y2 - cy);
+                this.ctx.stroke();
+            }
+            this.ctx.restore();
+        }
+
         // Draw Stop Lines and Crosswalks
         this.intersections.forEach(inter => {
             inter.approaches.forEach(a => {
@@ -3052,13 +3299,81 @@ const Game = {
 
         this.drawNavArrow();
 
-        // Draw 3D Traffic Lights and 3D Stop Signs at corners
+        // Draw 3D Traffic Lights (with Cantilevered Overhead Mast Arms & Wet-Asphalt Reflections), 3D Stop Signs & Corner Streetlamps
         this.intersections.forEach(inter => {
+            // Corner 3D Ornamental Streetlamp, Fire Hydrant & Blue USPS Mailbox at visible intersections
+            const ix = inter.worldX - cx;
+            const iy = inter.worldY - cy;
+            if (ix > vMinX - 110 && ix < vMaxX + 110 && iy > vMinY - 110 && iy < vMaxY + 110) {
+                const cornerDist = inter.hasArterial ? 76 : 48;
+                if (Draw.streetLamp3D) {
+                    Draw.streetLamp3D(this.ctx, ix - cornerDist, iy - cornerDist, Math.PI * 0.25);
+                    if (inter.hasArterial) {
+                        Draw.streetLamp3D(this.ctx, ix + cornerDist, iy + cornerDist, -Math.PI * 0.75);
+                    }
+                }
+                // Red Seattle Fire Hydrant on NE corner
+                const hx = ix + cornerDist - 4;
+                const hy = iy - cornerDist + 4;
+                const hTop = (typeof Projection3D !== 'undefined')
+                    ? Projection3D.project(hx, hy, 7, centerX, centerY)
+                    : { x: hx, y: hy - 5 };
+                this.ctx.strokeStyle = '#dc2626';
+                this.ctx.lineWidth = 3.5;
+                this.ctx.beginPath();
+                this.ctx.moveTo(hx, hy);
+                this.ctx.lineTo(hTop.x, hTop.y);
+                this.ctx.stroke();
+                this.ctx.fillStyle = '#fef2f2';
+                this.ctx.beginPath();
+                this.ctx.arc(hTop.x, hTop.y, 1.8, 0, Math.PI * 2);
+                this.ctx.fill();
+
+                // Blue USPS Corner Mailbox on SW corner of every other intersection
+                if ((Math.round(inter.worldX + inter.worldY) % 240) < 120) {
+                    const mbx = ix - cornerDist + 5;
+                    const mby = iy + cornerDist - 5;
+                    const mbTop = (typeof Projection3D !== 'undefined')
+                        ? Projection3D.project(mbx, mby, 9, centerX, centerY)
+                        : { x: mbx, y: mby - 7 };
+                    this.ctx.strokeStyle = '#1d4ed8';
+                    this.ctx.lineWidth = 5;
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(mbx, mby);
+                    this.ctx.lineTo(mbTop.x, mbTop.y);
+                    this.ctx.stroke();
+                    this.ctx.fillStyle = '#3b82f6';
+                    this.ctx.beginPath();
+                    this.ctx.arc(mbTop.x, mbTop.y, 2.6, 0, Math.PI * 2);
+                    this.ctx.fill();
+                }
+            }
+
             inter.approaches.forEach(a => {
                 if (a.controlType === 'SIGNAL' && a.lightPos) {
                     const lx = a.lightPos.x - cx;
                     const ly = a.lightPos.y - cy;
-                    if (lx > vMinX - 50 && lx < vMaxX + 50 && ly > vMinY - 50 && ly < vMaxY + 50) {
+                    if (lx > vMinX - 80 && lx < vMaxX + 80 && ly > vMinY - 80 && ly < vMaxY + 80) {
+                        const state = this.getApproachSignalState(inter, a);
+                        let rCol = '#330000', yCol = '#333300', gCol = '#003300';
+                        let glow = null;
+                        let reflRgba = 'rgba(0, 255, 100, 0.14)';
+                        if (state === 'RED') { rCol = '#ff0000'; glow = 'red'; reflRgba = 'rgba(239, 68, 68, 0.16)'; }
+                        else if (state === 'YELLOW') { yCol = '#ffff00'; glow = 'yellow'; reflRgba = 'rgba(250, 204, 21, 0.15)'; }
+                        else if (state === 'GREEN') { gCol = '#00ff00'; glow = 'green'; reflRgba = 'rgba(34, 197, 94, 0.15)'; }
+
+                        // Wet-Asphalt Specular Traffic Signal Reflection Shimmer on rainy or night shifts
+                        if (this.isRainy || this.timeOfDay === 3) {
+                            const sxc = a.stopLineCenter.x - cx;
+                            const syc = a.stopLineCenter.y - cy;
+                            this.ctx.save();
+                            this.ctx.fillStyle = reflRgba;
+                            this.ctx.beginPath();
+                            this.ctx.ellipse((lx + sxc) * 0.5, (ly + syc) * 0.5, 18, 10, a.angle, 0, Math.PI * 2);
+                            this.ctx.fill();
+                            this.ctx.restore();
+                        }
+
                         const topL = (typeof Projection3D !== 'undefined')
                             ? Projection3D.project(lx, ly, 26, centerX, centerY)
                             : { x: lx, y: ly };
@@ -3071,24 +3386,32 @@ const Game = {
                         this.ctx.lineTo(topL.x, topL.y);
                         this.ctx.stroke();
 
+                        // 3D Cantilevered Overhead Mast Arm extending over the travel lane
+                        const nx = -Math.sin(a.angle);
+                        const ny = Math.cos(a.angle);
+                        const mastGroundX = lx + nx * (a.isRoadArt ? 38 : 22);
+                        const mastGroundY = ly + ny * (a.isRoadArt ? 38 : 22);
+                        const mastTip = (typeof Projection3D !== 'undefined')
+                            ? Projection3D.project(mastGroundX, mastGroundY, 25, centerX, centerY)
+                            : { x: mastGroundX, y: mastGroundY };
+                        this.ctx.strokeStyle = '#475569';
+                        this.ctx.lineWidth = 2.2;
+                        this.ctx.beginPath();
+                        this.ctx.moveTo(topL.x, topL.y);
+                        this.ctx.lineTo(mastTip.x, mastTip.y);
+                        this.ctx.stroke();
+
                         this.ctx.fillStyle = '#1e293b';
                         this.ctx.beginPath();
                         this.ctx.arc(lx, ly, 3.5, 0, Math.PI * 2);
                         this.ctx.fill();
 
                         this.ctx.save();
-                        this.ctx.translate(topL.x, topL.y);
+                        this.ctx.translate(mastTip.x, mastTip.y);
                         this.ctx.rotate(a.angle + Math.PI);
 
                         this.ctx.fillStyle = '#000';
                         this.ctx.fillRect(-5, -12, 10, 24);
-
-                        const state = this.getApproachSignalState(inter, a);
-                        let rCol = '#330000', yCol = '#333300', gCol = '#003300';
-                        let glow = null;
-                        if (state === 'RED') { rCol = '#ff0000'; glow = 'red'; }
-                        else if (state === 'YELLOW') { yCol = '#ffff00'; glow = 'yellow'; }
-                        else if (state === 'GREEN') { gCol = '#00ff00'; glow = 'green'; }
 
                         this.ctx.fillStyle = rCol;
                         if (glow === 'red') { this.ctx.shadowBlur = 6; this.ctx.shadowColor = 'red'; }
@@ -3157,6 +3480,48 @@ const Game = {
             });
         });
 
+        // 3D Wooden Seattle City Light Utility Poles & Sagging Overhead Power Lines along residential streets
+        if (typeof Projection3D !== 'undefined') {
+            for (let r = startR; r <= endR; r++) {
+                for (let c = startC; c <= endC; c++) {
+                    const tile = this.map[r][c];
+                    if (tile === 1 && r % 2 === 0 && c % 2 === 1) {
+                        const px = c * TILE_SIZE - cx + 10;
+                        const py = r * TILE_SIZE - cy + 20;
+                        const topP = Projection3D.project(px, py, 28, centerX, centerY);
+                        this.ctx.strokeStyle = '#5c4033';
+                        this.ctx.lineWidth = 2.4;
+                        this.ctx.beginPath();
+                        this.ctx.moveTo(px, py);
+                        this.ctx.lineTo(topP.x, topP.y);
+                        this.ctx.stroke();
+                        // Wooden crossbar
+                        this.ctx.lineWidth = 1.6;
+                        this.ctx.beginPath();
+                        this.ctx.moveTo(topP.x - 5, topP.y);
+                        this.ctx.lineTo(topP.x + 5, topP.y);
+                        this.ctx.stroke();
+
+                        // Connect overhead sagging power wire to next utility pole down the block if also local road
+                        if (r + 2 < MAP_H && this.map[r + 1][c] === 1 && this.map[r + 2][c] === 1) {
+                            const nyPole = (r + 2) * TILE_SIZE - cy + 20;
+                            const nextTop = Projection3D.project(px, nyPole, 28, centerX, centerY);
+                            const midGroundY = (py + nyPole) * 0.5;
+                            const sagMid = Projection3D.project(px, midGroundY, 23, centerX, centerY);
+                            this.ctx.strokeStyle = 'rgba(15, 23, 42, 0.38)';
+                            this.ctx.lineWidth = 0.9;
+                            this.ctx.beginPath();
+                            this.ctx.moveTo(topP.x - 4, topP.y);
+                            this.ctx.quadraticCurveTo(sagMid.x - 4, sagMid.y, nextTop.x - 4, nextTop.y);
+                            this.ctx.moveTo(topP.x + 4, topP.y);
+                            this.ctx.quadraticCurveTo(sagMid.x + 4, sagMid.y, nextTop.x + 4, nextTop.y);
+                            this.ctx.stroke();
+                        }
+                    }
+                }
+            }
+        }
+
         // Update & draw particles safely without mutating during iteration
         for (let i = 0; i < this.particles.length; i++) {
             const p = this.particles[i];
@@ -3164,6 +3529,18 @@ const Game = {
             p.draw(this.ctx, cx, cy);
         }
         this.particles = this.particles.filter(p => p.life > 0);
+
+        // 3D Soaring Puget Sound Seagulls wheeling high above Ballard
+        if (this.seagulls && Draw.seagull) {
+            for (let i = 0; i < this.seagulls.length; i++) {
+                const g = this.seagulls[i];
+                const gx = g.x - cx;
+                const gy = g.y - cy;
+                if (gx > vMinX - 80 && gx < vMaxX + 80 && gy > vMinY - 80 && gy < vMaxY + 80) {
+                    Draw.seagull(this.ctx, gx, gy, g.z, g.angle, g.wingPhase);
+                }
+            }
+        }
 
         // Restore world camera Zoom & Pitch transform before drawing screen-space overlays
         this.ctx.restore();
@@ -3225,6 +3602,40 @@ const Game = {
                 this.ctx.stroke();
             }
         }
+
+        // High-Speed / Coffee Boost Radial Speed-Streak Lines & Subtle Atmospheric Edge Vignette
+        const speedRatio = this.player ? Math.abs(this.player.speed) / Math.max(3.5, this.player.maxSpeed || 3.5) : 0;
+        const boostActive = this.player && this.player.coffeeBoostTimer > 0;
+        if (speedRatio > 0.82 || boostActive) {
+            const streakAlpha = boostActive ? 0.22 : Math.min(0.16, (speedRatio - 0.82) * 0.65);
+            this.ctx.save();
+            this.ctx.strokeStyle = boostActive
+                ? `rgba(251, 191, 36, ${streakAlpha.toFixed(3)})`
+                : `rgba(226, 232, 240, ${streakAlpha.toFixed(3)})`;
+            this.ctx.lineWidth = 1.4;
+            const numStreaks = boostActive ? 18 : 10;
+            const timeTick = Math.floor(Date.now() / 45);
+            this.ctx.beginPath();
+            for (let i = 0; i < numStreaks; i++) {
+                const ang = ((i * 137.5 + timeTick * 23) % 360) * Math.PI / 180;
+                const rInner = Math.min(centerX, centerY) * (0.68 + ((i * 19) % 18) * 0.01);
+                const rOuter = Math.max(centerX, centerY) * 1.18;
+                this.ctx.moveTo(centerX + Math.cos(ang) * rInner, centerY + Math.sin(ang) * rInner);
+                this.ctx.lineTo(centerX + Math.cos(ang) * rOuter, centerY + Math.sin(ang) * rOuter);
+            }
+            this.ctx.stroke();
+            this.ctx.restore();
+        }
+
+        // Subtle Atmospheric Cinematic Vignette around screen edges
+        const vigGrad = this.ctx.createRadialGradient(
+            centerX, centerY, Math.min(centerX, centerY) * 0.65,
+            centerX, centerY, Math.hypot(centerX, centerY)
+        );
+        vigGrad.addColorStop(0, 'rgba(0, 0, 0, 0)');
+        vigGrad.addColorStop(1, this.timeOfDay === 3 ? 'rgba(2, 6, 23, 0.42)' : 'rgba(15, 23, 42, 0.22)');
+        this.ctx.fillStyle = vigGrad;
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
         // Update Ballard GPS Minimap
         this.drawMinimap();
