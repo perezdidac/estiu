@@ -120,6 +120,9 @@ class Car {
 
     setType(type) {
         this.type = type;
+        this.w = 20;
+        this.h = 36;
+        this.distracted = false;
         switch (type) {
             case 'GRANDMA': this.color = '#ed8936'; this.maxSpeed = 1.35; this.accel = 0.028; this.sensorDist = 120; this.mass = 1.1; break;
             case 'SPEEDSTER': this.color = '#ecc94b'; this.maxSpeed = 2.45; this.accel = 0.052; this.sensorDist = 135; this.mass = 0.95; break;
@@ -1522,14 +1525,15 @@ class Car {
             }
         }
 
-        // Rideshares & Metro Buses only stop for curb drop-offs on open blocks, NEVER inside or right at an intersection!
+        // Rideshares & Metro Buses only stop for curb drop-offs on open multi-lane blocks, NEVER inside an intersection or blocking a single-lane narrow yield street!
         if (this.type === 'RIDESHARE' || this.type === 'METRO_BUS') {
-            if (this.state === 'DRIVE' && !nearAnyIntersection && !this.narrowYieldState && Math.random() < 0.0012) {
+            const onNarrow = Boolean(this.currentRoad && Car.isNarrowResidentialRoad(this.currentRoad));
+            if (this.state === 'DRIVE' && !nearAnyIntersection && !onNarrow && !this.narrowYieldState && Math.random() < 0.0012) {
                 this.state = 'DROPOFF';
                 this.waitTimer = 110;
             }
             if (this.state === 'DROPOFF') {
-                if (nearAnyIntersection || this.narrowYieldState) {
+                if (nearAnyIntersection || onNarrow || this.narrowYieldState) {
                     this.state = 'DRIVE';
                     this.waitTimer = 0;
                 } else {
@@ -2087,6 +2091,25 @@ class Car {
                 }
                 this.honkCooldown = 180;
             } else { this.honkCooldown--; }
+        }
+
+        // 4C. Yield to Pedestrians Actively Crossing on a Green Walk Signal at Signalized Crosswalks
+        if (!shouldStop && !isBackingUp && nearestInter && nearestInter.hasSignal && minInterDist < 105 &&
+            typeof Game !== 'undefined' && Game.pedestrians && Game.pedestrians.length > 0) {
+            for (let pIdx = 0; pIdx < Game.pedestrians.length; pIdx++) {
+                const ped = Game.pedestrians[pIdx];
+                if (!ped || ped.state !== 'CROSSING') continue;
+                const pdx = ped.x - this.x;
+                const pdy = ped.y - this.y;
+                if (Math.abs(pdx) > 56 || Math.abs(pdy) > 56) continue;
+                const pDot = pdx * fwdX + pdy * fwdY;
+                const pPerp = Math.abs(pdx * perpX + pdy * perpY);
+                if (pDot > 0 && pDot < 52 && pPerp < 20) {
+                    shouldStop = true;
+                    this.isWaitingAtRedLight = true;
+                    break;
+                }
+            }
         }
 
         // 5. Traffic Signals & Polite Turn-Taking Stop Signs (Lateral-Independent Stop-Bar Braking + Conflict-Box Protection!)

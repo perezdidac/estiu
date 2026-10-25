@@ -84,8 +84,8 @@ const sandbox = {
         innerHeight: 800,
         devicePixelRatio: 1,
         addEventListener() {},
-        AudioContext: function() {},
-        webkitAudioContext: function() {}
+        AudioContext: null,
+        webkitAudioContext: null
     },
     document: {
         getElementById() {
@@ -136,9 +136,12 @@ vm.runInContext(`
     this.MapData = MapData;
     this.Car = Car;
     this.Game = Game;
+    this.Projection3D = Projection3D;
+    this.AudioSys = AudioSys;
+    this.Pedestrian = Pedestrian;
 `, sandbox);
 
-const { TILE_SIZE, MAP_W, MAP_H, Utils, MapData, Car, Game } = sandbox;
+const { TILE_SIZE, MAP_W, MAP_H, Utils, MapData, Car, Game, Projection3D, AudioSys, Pedestrian } = sandbox;
 
 // Initialize map & game state
 Game.init();
@@ -146,32 +149,32 @@ Game.start();
 
 // Helper to set up a clean, isolated narrow East-West residential street testbed
 function setupNarrowHorizontalCorridor(parkedConfig) {
-    // Pick a long local East-West residential road segment (e.g., NW 62nd St) away from intersections
-    const road = MapData.roads.find(r =>
-        r.type === 2 &&
-        Car.isNarrowResidentialRoad(r) &&
-        Math.abs(r.x2 - r.x1) >= 20
-    );
-    assert(road, 'Expected to find a narrow East-West residential road segment');
-
-    // Find a 5-tile stretch along `road` that has no intersections on those tiles
-    const ry = road.y1;
-    let baseTx = Math.min(road.x1, road.x2) + 4;
-    for (let tx = Math.min(road.x1, road.x2) + 3; tx <= Math.max(road.x1, road.x2) - 6; tx++) {
-        let hasInter = false;
-        for (let checkX = tx - 2; checkX <= tx + 3; checkX++) {
-            const worldX = checkX * TILE_SIZE + TILE_SIZE / 2;
-            const worldY = ry * TILE_SIZE + TILE_SIZE / 2;
-            if (Game.intersections.some(it => Utils.dist(worldX, worldY, it.worldX, it.worldY) < 90)) {
-                hasInter = true;
+    // Pick a long local East-West residential road segment (e.g., NW 62nd St) with a 6-tile stretch away from intersections
+    let road = null;
+    let baseTx = 0;
+    for (const r of MapData.roads) {
+        if (r.type !== 2 || !Car.isNarrowResidentialRoad(r) || Math.abs(r.x2 - r.x1) < 20) continue;
+        const ryCandidate = r.y1;
+        for (let tx = Math.min(r.x1, r.x2) + 3; tx <= Math.max(r.x1, r.x2) - 6; tx++) {
+            let hasInter = false;
+            for (let checkX = tx - 2; checkX <= tx + 3; checkX++) {
+                const worldX = checkX * TILE_SIZE + TILE_SIZE / 2;
+                const worldY = ryCandidate * TILE_SIZE + TILE_SIZE / 2;
+                if (Game.intersections.some(it => Utils.dist(worldX, worldY, it.worldX, it.worldY) < 90)) {
+                    hasInter = true;
+                    break;
+                }
+            }
+            if (!hasInter) {
+                road = r;
+                baseTx = tx;
                 break;
             }
         }
-        if (!hasInter) {
-            baseTx = tx;
-            break;
-        }
+        if (road) break;
     }
+    assert(road, 'Expected to find a narrow East-West residential road segment away from intersections');
+    const ry = road.y1;
 
     const centerX = baseTx * TILE_SIZE + TILE_SIZE / 2;
     const centerY = ry * TILE_SIZE + TILE_SIZE / 2;
@@ -304,7 +307,7 @@ console.log('===================================================================
     Game.entities = [car];
 
     let hitParked = false;
-    for (let f = 0; f < 100; f++) {
+    for (let f = 0; f < 115; f++) {
         stepSimulation(1);
         if (car.checkParkedCarCollision(car.x, car.y, car.angle)) hitParked = true;
     }
@@ -764,5 +767,383 @@ console.log('===================================================================
     assert(avg < 45, `Average frame time ${avg.toFixed(1)}ms exceeds budget (was ~60ms before optimisation)`);
 }
 
-console.log('\nALL 9 NARROW-STREET YIELD, KINEMATICS, TRAFFIC SIGNAL & PERFORMANCE TEST SUITES PASSED! ✨');
+// ============================================================================
+// TEST 10: Olympic Manor & Ballard Street Network Realism Audit
+//          (No phantom Jones Ave NW between 24th & 23rd Ave NW near NW 95th St)
+// ============================================================================
+{
+    const SX = (typeof MAP_SCALE_X !== 'undefined') ? MAP_SCALE_X : 3;
+    const SY = (typeof MAP_SCALE_Y !== 'undefined') ? MAP_SCALE_Y : 1.5;
+    const OX = (typeof BASE_OFFSET_X !== 'undefined') ? BASE_OFFSET_X : 6;
+    const OY = (typeof BASE_OFFSET_Y !== 'undefined') ? BASE_OFFSET_Y : 16;
+
+    // Convert base coordinates (x=24, y=-12 near NW 95th St between 24th Ave x=22 and 23rd Ave x=26)
+    const jonesX = Math.round((24 + OX) * SX);
+    const nw95Y = Math.round((-12 + OY) * SY);
+    const nw92Y = Math.round((-8 + OY) * SY);
+
+    const vRoadAt95 = Game.getVertRoadAt(jonesX, nw95Y);
+    const vRoadAt92 = Game.getVertRoadAt(jonesX, nw92Y);
+    assert.strictEqual(vRoadAt95, null, 'There must be NO Jones Ave NW between 24th & 23rd Ave NW near NW 95th St in Olympic Manor');
+    assert.strictEqual(vRoadAt92, null, 'There must be NO Jones Ave NW at NW 92nd St in Olympic Manor');
+
+    // Verify true Jones Ave NW exists south of NW 85th St (base y=0..46)
+    const nw80Y = Math.round((6 + OY) * SY);
+    const trueJonesRoad = Game.getVertRoadAt(jonesX, nw80Y);
+    assert(trueJonesRoad && trueJonesRoad.name === 'Jones Ave NW', 'True Jones Ave NW must exist south of NW 85th St (Crown Hill / Loyal Heights)');
+
+    // Verify real Olympic Manor roads (23rd Ave NW at x=26, 22nd Ave NW at x=28, NW 95th St at y=-12)
+    const ave23X = Math.round((26 + OX) * SX);
+    const ave23Road = Game.getVertRoadAt(ave23X, nw95Y);
+    assert(ave23Road && ave23Road.name === '23rd Ave NW', '23rd Ave NW must exist in Olympic Manor');
+
+    console.log(`[PASS] Test 10 (Olympic Manor Street Realism): No phantom Jones Ave NW at NW 95th St (vRoadAt95=${vRoadAt95}), true Jones Ave NW south of 85th verified (${trueJonesRoad.name}), Olympic Manor 23rd Ave NW verified!`);
+}
+
+// ============================================================================
+// TEST 11: GPS Destination Polyline Toggle (Show / Hide Route)
+// ============================================================================
+{
+    assert.strictEqual(Game.showGPSRoute, true, 'GPS route polyline should default to visible (true)');
+    const afterHide = Game.toggleGPSRoute();
+    assert.strictEqual(afterHide, false, 'First toggleGPSRoute() should hide the GPS polyline');
+    assert.strictEqual(Game.showGPSRoute, false, 'Game.showGPSRoute should be false after hiding');
+    const afterShow = Game.toggleGPSRoute();
+    assert.strictEqual(afterShow, true, 'Second toggleGPSRoute() should show the GPS polyline again');
+    assert.strictEqual(Game.showGPSRoute, true, 'Game.showGPSRoute should be true after re-enabling');
+    console.log(`[PASS] Test 11 (GPS Route Polyline Toggle): showGPSRoute toggled ON -> OFF -> ON cleanly!`);
+}
+
+// ============================================================================
+// TEST 12: Business Names on Top of Commercial / Restaurant / Major Buildings
+// ============================================================================
+{
+    assert(Array.isArray(MapData.businesses) && MapData.businesses.length >= 60, `Expected >= 60 real Ballard businesses, got ${MapData.businesses ? MapData.businesses.length : 0}`);
+    assert(MapData.businessesByTile && Object.keys(MapData.businessesByTile).length >= 55, 'MapData.businessesByTile lookup must be populated');
+
+    let labeledBuildingCount = 0;
+    const sampleNames = [];
+    for (let r = 0; r < MAP_H; r++) {
+        const bRow = Game.buildingGrid[r];
+        if (!bRow) continue;
+        for (let c = 0; c < MAP_W; c++) {
+            const b = bRow[c];
+            if (b && b.buildingName) {
+                labeledBuildingCount++;
+                if (sampleNames.length < 6 && !sampleNames.includes(b.buildingName)) {
+                    sampleNames.push(`${b.buildingName} [${b.businessCategory || 'COMMERCIAL'}]`);
+                }
+            }
+        }
+    }
+    assert(labeledBuildingCount >= 40, `Expected >= 40 commercial/restaurant buildings with rooftop business names on the map, got ${labeledBuildingCount}`);
+    console.log(`[PASS] Test 12 (Rooftop Business Signs): ${labeledBuildingCount} labeled buildings across Ballard (e.g. ${sampleNames.join(', ')})!`);
+}
+
+// ============================================================================
+// TEST 13: Camera-Relative 2.5D Terrain Elevation Effect
+//          (Constant camera height relative to player car; higher terrain appears taller)
+// ============================================================================
+{
+    const carElevM = 42; // e.g., driving at 42m elevation
+    Projection3D.beginFrame(carElevM);
+    assert.strictEqual(Projection3D.refElevation, 42, 'Projection3D.refElevation must track player car elevation');
+
+    const boostAtCar = Projection3D.getTerrainZBoost(carElevM);
+    assert.strictEqual(boostAtCar, 0, 'Terrain Z-boost at player car elevation must be 0 so camera stays at a constant height relative to the car');
+
+    const boostHigherHill = Projection3D.getTerrainZBoost(carElevM + 25); // 25m uphill (e.g., Phinney Ridge / Crown Hill)
+    const boostLowerWaterfront = Projection3D.getTerrainZBoost(carElevM - 10); // 10m downhill (e.g., Shilshole / Market St)
+    assert(boostHigherHill > 20, `Higher terrain (+25m) must receive positive 2.5D height boost, got ${boostHigherHill}`);
+    assert(boostLowerWaterfront < -10, `Lower terrain (-10m) must sit lower relative to camera plane, got ${boostLowerWaterfront}`);
+
+    console.log(`[PASS] Test 13 (Camera-Relative 2.5D Terrain Elevation): refElev=${carElevM}m -> boostAtCar=${boostAtCar}px, boostUphill(+25m)=+${boostHigherHill.toFixed(1)}px, boostDownhill(-10m)=${boostLowerWaterfront.toFixed(1)}px!`);
+}
+
+// ============================================================================
+// TEST 14: GTA Multi-Stage Errands System, Cash Wallet & Living World Improvements
+// ============================================================================
+{
+    assert(Array.isArray(MapData.errands) && MapData.errands.length >= 8, 'Expected >= 8 multi-stage GTA errands in MapData.errands');
+    const errand0 = MapData.errands[0];
+    Game.cash = 100;
+    Game.startNewErrand(0);
+
+    assert.strictEqual(Game.currentErrand.id, errand0.id, 'Game.currentErrand should match started errand');
+    assert.strictEqual(Game.errandStepIndex, 0, 'Errand should start at step 0');
+    assert.strictEqual(Game.currentStepType, errand0.steps[0].type, 'Step 0 type should match errand definition');
+    assert.strictEqual(Game.currentDestName, errand0.steps[0].targetName, 'Current destination name should match step 0 target');
+
+    // Advance through all steps of the errand and verify cash payout on completion
+    const totalSteps = errand0.steps.length;
+    for (let s = 0; s < totalSteps - 1; s++) {
+        Game.advanceErrandStep();
+        assert.strictEqual(Game.errandStepIndex, s + 1, `Should advance to step ${s + 1}`);
+    }
+    const cashBeforeFinal = Game.cash;
+    Game.advanceErrandStep(); // Completes final step -> pays rewardCash and starts next errand
+    assert.strictEqual(Game.cash, cashBeforeFinal + errand0.rewardCash, `Completing errand must award $${errand0.rewardCash} to player wallet`);
+    assert(Game.sideHustles && Game.sideHustles.length >= 10, 'Expected street side-hustle cash pickups on map');
+    assert(Game.pedestrians && Game.pedestrians.length > 0, 'Expected living Ballard pedestrians spawned along sidewalks');
+
+    console.log(`[PASS] Test 14 (GTA Multi-Stage Errands & Living World): completed "${errand0.title}" (${totalSteps} steps, +$${errand0.rewardCash} -> wallet $${Game.cash}), sideHustles=${Game.sideHustles.length}, activePedestrians=${Game.pedestrians.length}!`);
+}
+
+// ============================================================================
+// TEST 15: Studio Music Engine, 32-Bar Song Architecture & 20 Composed Songs
+// ============================================================================
+{
+    function makeAudioParam(initVal = 0) {
+        return {
+            value: initVal,
+            setValueAtTime(v) { this.value = v; },
+            linearRampToValueAtTime(v) { this.value = v; },
+            exponentialRampToValueAtTime(v) { this.value = v; },
+            setTargetAtTime(v) { this.value = v; }
+        };
+    }
+    function makeAudioNode(extra = {}) {
+        return Object.assign({
+            connect(dest) { return dest; },
+            disconnect() {},
+            start() {},
+            stop() {}
+        }, extra);
+    }
+
+    let synthNoteCount = 0;
+    AudioSys.ctx = {
+        currentTime: 10.0,
+        sampleRate: 44100,
+        state: 'running',
+        destination: makeAudioNode(),
+        resume() {},
+        createGain() { return makeAudioNode({ gain: makeAudioParam(1.0) }); },
+        createOscillator() {
+            synthNoteCount++;
+            return makeAudioNode({ type: 'sine', frequency: makeAudioParam(440), detune: makeAudioParam(0) });
+        },
+        createBiquadFilter() {
+            return makeAudioNode({ type: 'lowpass', frequency: makeAudioParam(1000), Q: makeAudioParam(1), gain: makeAudioParam(0) });
+        },
+        createDynamicsCompressor() {
+            return makeAudioNode({
+                threshold: makeAudioParam(-14),
+                knee: makeAudioParam(12),
+                ratio: makeAudioParam(3.5),
+                attack: makeAudioParam(0.006),
+                release: makeAudioParam(0.18)
+            });
+        },
+        createDelay() { return makeAudioNode({ delayTime: makeAudioParam(0.3) }); },
+        createConvolver() { return makeAudioNode({ buffer: null }); },
+        createWaveShaper() { return makeAudioNode({ curve: null, oversample: '2x' }); },
+        createStereoPanner() { return makeAudioNode({ pan: makeAudioParam(0) }); },
+        createBuffer(channels, length, sampleRate) {
+            const chData = [];
+            for (let c = 0; c < channels; c++) chData.push(new Float32Array(length));
+            return {
+                numberOfChannels: channels,
+                length,
+                sampleRate,
+                getChannelData(c) { return chData[c]; }
+            };
+        },
+        createBufferSource() {
+            return makeAudioNode({ buffer: null, loop: false, playbackRate: makeAudioParam(1.0) });
+        }
+    };
+
+    AudioSys._setupStudioChain();
+    assert(AudioSys.masterGain && AudioSys.radioBus && AudioSys.reverbNode && AudioSys.delayNode, 'Studio mastering chain (masterGain, radioBus, stereo Convolver reverbNode, tape delayNode) must be initialized');
+    assert(AudioSys.noiseBuffer && AudioSys.pinkNoiseBuffer, 'White and pink noise buffers must be generated');
+
+    const stations = ['KEXP', 'GRUNGE', 'LOFI', 'SYNTH', 'JAZZ'];
+    let verifiedSongs = 0;
+    const prevShuffle = Game.radioShuffle;
+    Game.radioShuffle = false;
+
+    for (const st of stations) {
+        AudioSys.currentStation = st;
+        const meta = AudioSys.stationMeta[st];
+        assert(meta && Array.isArray(meta.tracks) && meta.tracks.length === 4, `Station ${st} must have 4 track titles in stationMeta`);
+        for (let v = 0; v < 4; v++) {
+            const { song, MOTIFS } = AudioSys._getSongCatalog(st, v);
+            assert(song && song.rootMidi >= 36 && song.rootMidi <= 72, `Station ${st} variation ${v} must have valid rootMidi`);
+            assert(song.bpm >= 70 && song.bpm <= 150, `Station ${st} variation ${v} BPM must be realistic, got ${song.bpm}`);
+            assert(Array.isArray(song.verseChords) && song.verseChords.length === 4, `Station ${st} variation ${v} must have 4 verse chords`);
+            assert(Array.isArray(song.preChords) && song.preChords.length === 4, `Station ${st} variation ${v} must have 4 pre-chorus chords`);
+            assert(Array.isArray(song.chorusChords) && song.chorusChords.length === 4, `Station ${st} variation ${v} must have 4 chorus chords`);
+            assert(Array.isArray(song.bridgeChords) && song.bridgeChords.length === 4, `Station ${st} variation ${v} must have 4 bridge chords`);
+            assert(MOTIFS && Array.isArray(MOTIFS.CH_HOOK_1) && MOTIFS.CH_HOOK_1.length >= 4, `Station ${st} must have expressive melodic motifs`);
+            assert(Array.isArray(MOTIFS.SOLO_1) && MOTIFS.SOLO_1.length >= 5, `Station ${st} must have virtuosic solo motifs`);
+            verifiedSongs++;
+        }
+
+        // Simulate playing an entire 32-bar (512-step) multi-section arrangement on this station
+        AudioSys.songVariation = 0;
+        AudioSys.radioStep = 0;
+        AudioSys._lastScheduledFreq = 0;
+        const { song: song0 } = AudioSys._getSongCatalog(st, 0);
+        const stepDur = (60 / song0.bpm) / 4;
+        for (let step = 0; step < 512; step++) {
+            AudioSys.tickRadio(stepDur, 10.0 + step * stepDur);
+        }
+        assert.strictEqual(AudioSys.radioStep, 512, `Station ${st} must advance cleanly through all 512 steps (32 bars)`);
+        assert.strictEqual(AudioSys.songVariation, 1, `Station ${st} must advance to next composed song variation after 32 bars (512 steps)`);
+    }
+    Game.radioShuffle = prevShuffle;
+
+    assert.strictEqual(verifiedSongs, 20, 'Expected 20 distinct composed multi-section songs (4 per station across 5 stations)');
+    assert(synthNoteCount > 4000, `Expected rich polyphonic multi-instrument synthesis across 5 full 32-bar songs, synthesized ${synthNoteCount} oscillators`);
+
+    console.log(`[PASS] Test 15 (Studio Music Engine & 32-Bar Song Catalog): verified ${verifiedSongs} multi-section songs across 5 stations (Verse/Pre-Chorus/Chorus/Bridge Solo/Finale) & synthesized ${synthNoteCount} studio oscillator voices!`);
+}
+
+// ============================================================================
+// TEST 16: Green-Walk-Only Pedestrian Crossing & Horizon-Ring World Population
+// ============================================================================
+{
+    Game.populateInitialPedestrians();
+    assert(Game.pedestrians.length >= 220, `Expected >= 220 pedestrians populated across the big area around the player, got ${Game.pedestrians.length}`);
+
+    const focusX = Game.player.x;
+    const focusY = Game.player.y;
+    let horizonRingCount = 0;
+    let sidewalkCount = 0;
+    for (const p of Game.pedestrians) {
+        const d = Utils.dist(p.x, p.y, focusX, focusY);
+        assert(d >= 150, `Initial pedestrians must not spawn on top of the player car (min dist 150px, got ${d.toFixed(1)}px)`);
+        if (d >= 740 && d <= 2950) horizonRingCount++;
+        if (p.state === 'SIDEWALK') sidewalkCount++;
+    }
+    assert(horizonRingCount >= 140, `Expected >= 140 pedestrians distributed across the large 740px-2900px horizon ring, got ${horizonRingCount}`);
+    assert(sidewalkCount >= 80, `Expected >= 80 pedestrians strolling along block sidewalks, got ${sidewalkCount}`);
+
+    // Verify dynamic gameplay spawns (preferHorizonRing = true) NEVER spawn close to the player (< 740px)
+    const beforeLen = Game.pedestrians.length;
+    for (let i = 0; i < 25; i++) {
+        Game.spawnPedestrian(true, false);
+    }
+    for (let i = beforeLen; i < Game.pedestrians.length; i++) {
+        const p = Game.pedestrians[i];
+        const d = Utils.dist(p.x, p.y, focusX, focusY);
+        assert(d >= 700, `Horizon-ring pedestrian spawn must be off-screen (>=700px from player), got ${d.toFixed(1)}px`);
+    }
+
+    // Verify Pedestrians ONLY cross when the pedestrian WALK signal is GREEN for them!
+    const sigInter = Game.intersections.find(it =>
+        it.hasSignal &&
+        it.approaches.some(a => a.controlType === 'SIGNAL' && (a.signalGroup === 'NS' || a.dominantAxis === 'NS')) &&
+        it.approaches.some(a => a.controlType === 'SIGNAL' && (a.signalGroup === 'EW' || a.dominantAxis === 'EW'))
+    );
+    assert(sigInter, 'Expected a signalized NS/EW intersection');
+    const nsApp = sigInter.approaches.find(a => a.controlType === 'SIGNAL' && (a.signalGroup === 'NS' || a.dominantAxis === 'NS'));
+
+    const ped = new Pedestrian(nsApp, sigInter);
+    ped.x = ped.waitX;
+    ped.y = ped.waitY;
+    ped.state = 'WAITING';
+
+    // 1. Cars on NS have GREEN -> Pedestrian Walk across NS must be RED (false) -> Pedestrian MUST wait!
+    sigInter.stateNS = 'GREEN';
+    sigInter.stateEW = 'RED';
+    assert.strictEqual(Game.isPedestrianWalkGreen(sigInter, nsApp), false, 'Walk signal across NS must be FALSE when NS cars have GREEN');
+    for (let f = 0; f < 30; f++) ped.update();
+    assert.strictEqual(ped.state, 'WAITING', 'Pedestrian must stay WAITING on curb while NS cars have GREEN');
+
+    // 2. Cars on NS have YELLOW -> Walk signal still FALSE -> Pedestrian MUST wait!
+    sigInter.stateNS = 'YELLOW';
+    sigInter.stateEW = 'RED';
+    assert.strictEqual(Game.isPedestrianWalkGreen(sigInter, nsApp), false, 'Walk signal across NS must be FALSE when NS cars have YELLOW');
+    for (let f = 0; f < 20; f++) ped.update();
+    assert.strictEqual(ped.state, 'WAITING', 'Pedestrian must stay WAITING on curb while NS cars have YELLOW');
+
+    // 3. Cars on NS have RED, but EW is YELLOW (clearance interval before NS turns GREEN) -> Walk signal FALSE -> Pedestrian MUST wait!
+    sigInter.stateNS = 'RED';
+    sigInter.stateEW = 'YELLOW';
+    assert.strictEqual(Game.isPedestrianWalkGreen(sigInter, nsApp), false, 'Walk signal across NS must be FALSE during EW YELLOW clearance');
+    for (let f = 0; f < 20; f++) ped.update();
+    assert.strictEqual(ped.state, 'WAITING', 'Pedestrian must not start crossing during yellow clearance');
+
+    // 4. Cars on NS have RED AND parallel EW traffic has GREEN -> Pedestrian Walk signal is GREEN (true) -> Pedestrian CROSSES!
+    sigInter.stateNS = 'RED';
+    sigInter.stateEW = 'GREEN';
+    assert.strictEqual(Game.isPedestrianWalkGreen(sigInter, nsApp), true, 'Walk signal across NS must be TRUE when NS is RED and parallel EW is GREEN');
+    ped.update();
+    assert.strictEqual(ped.state, 'CROSSING', 'Pedestrian must begin CROSSING immediately when walk signal is GREEN');
+
+    // Advance until pedestrian finishes crossing and transitions seamlessly onto the connected block's SIDEWALK
+    for (let f = 0; f < 260 && ped.state === 'CROSSING'; f++) {
+        ped.update();
+    }
+    assert.strictEqual(ped.completedCrossings, 1, 'Pedestrian should complete the crosswalk traversal');
+    assert.strictEqual(ped.state, 'SIDEWALK', `Pedestrian should continue strolling on SIDEWALK after crossing instead of vanishing, got ${ped.state}`);
+
+    console.log(`[PASS] Test 16 (Green-Walk-Only Crossings & Horizon Pedestrian World): totalPeds=${Game.pedestrians.length}, horizonRing=${horizonRingCount}, sidewalkStrollers=${sidewalkCount}, greenWalkOnlyVerified=true!`);
+}
+
+// ============================================================================
+// TEST 17: 3D SDOT Overhead Mast-Arm Street Signs, Block-Numbered Stencils, Named Parks & Ballard Ave Landmarks
+// ============================================================================
+{
+    // 1. Verify Seattle 100-Block Number calculation accuracy
+    const SX = 3, SY = 1.5, OX = 6, OY = 16;
+    const marketY = (40 + OY) * SY * TILE_SIZE;
+    const st65Y   = (20 + OY) * SY * TILE_SIZE;
+    const st85Y   = (0  + OY) * SY * TILE_SIZE;
+    const ave15X  = (44 + OX) * SX * TILE_SIZE;
+    const ave24X  = (22 + OX) * SX * TILE_SIZE;
+
+    assert.strictEqual(Game.getSeattleBlockNumber(ave15X, marketY, true), 5400, 'Expected 5400 block at NW Market St on N-S avenues');
+    assert.strictEqual(Game.getSeattleBlockNumber(ave15X, st65Y,   true), 6500, 'Expected 6500 block at NW 65th St on N-S avenues');
+    assert.strictEqual(Game.getSeattleBlockNumber(ave15X, st85Y,   true), 8500, 'Expected 8500 block at NW 85th St on N-S avenues');
+    assert.strictEqual(Game.getSeattleBlockNumber(ave15X, marketY, false), 1500, 'Expected 1500 block at 15th Ave NW on E-W streets');
+    assert.strictEqual(Game.getSeattleBlockNumber(ave24X, marketY, false), 2500, 'Expected 2400-2500 block at 24th Ave NW on E-W streets');
+
+    // 2. Verify every signalized & stop-controlled intersection approach has streetName, crossStreetName, and blockNum metadata
+    let signalSignCount = 0;
+    let stopSignCount = 0;
+    for (const inter of Game.intersections) {
+        assert(typeof inter.labelName === 'string' && inter.labelName.length > 0, 'Expected intersection labelName');
+        for (const a of inter.approaches) {
+            assert(typeof a.streetName === 'string' && a.streetName.length > 0, 'Approach must have streetName');
+            assert(typeof a.crossStreetName === 'string' && a.crossStreetName.length > 0, 'Approach must have crossStreetName');
+            assert(Number.isFinite(a.blockNum) && a.blockNum >= 600, 'Approach must have valid Seattle blockNum');
+            if (a.controlType === 'SIGNAL') signalSignCount++;
+            if (a.controlType === 'STOP') stopSignCount++;
+        }
+    }
+    assert(signalSignCount >= 140, `Expected >= 140 signal mast-arm street-name signs across Ballard, got ${signalSignCount}`);
+    assert(stopSignCount >= 180, `Expected >= 180 stop-post street-name blades across Ballard, got ${stopSignCount}`);
+
+    // 3. Verify dense, intersection-clear pavement street-name + block-number stencils (including short segments)
+    assert(Game.textOverlay.length >= 260, `Expected >= 260 pavement street-name & block-number stencils across Ballard, got ${Game.textOverlay.length}`);
+    for (const t of Game.textOverlay) {
+        assert(typeof t.blockText === 'string' && t.blockText.includes('BLK'), `Expected blockText on pavement stencil for ${t.text}`);
+        for (const inter of Game.intersections) {
+            const d = Math.hypot(t.x - inter.worldX, t.y - inter.worldY);
+            assert(d >= 64, `Pavement street label '${t.text}' must not overlap intersection center (dist=${d.toFixed(1)}px)`);
+        }
+    }
+
+    // 4. Verify live HUD street + block number + upcoming cross street locator
+    Game.player.x = ave15X + TILE_SIZE * 0.5;
+    Game.player.y = marketY + TILE_SIZE * 2.2;
+    Game.player.angle = -Math.PI / 2; // Heading North on 15th Ave NW toward NW Market St
+    Game.updateHUD();
+    assert(Game.currentStreetName.includes('15th Ave NW') && Game.currentStreetName.includes('Blk'), `Expected live HUD street & block readout, got '${Game.currentStreetName}'`);
+
+    // 5. Render full frames over Historic Ballard Ave NW (bistro string lights + Bergen Place + Ballard Commons) and 15th Ave NW (Ballard Bridge)
+    Game.player.x = (28 + OX) * SX * TILE_SIZE;
+    Game.player.y = (43 + OY) * SY * TILE_SIZE;
+    Game.loop();
+    Game.player.x = (44 + OX) * SX * TILE_SIZE;
+    Game.player.y = (50 + OY) * SY * TILE_SIZE;
+    Game.loop();
+
+    console.log(`[PASS] Test 17 (SDOT Overhead Street Signs, Block Stencils, Named Parks & Ballard Ave Landmarks): signalSigns=${signalSignCount}, stopSigns=${stopSignCount}, pavementStencils=${Game.textOverlay.length}, hud='${Game.currentStreetName}'!`);
+}
+
+console.log('\nALL 17 BALLARD GTA, STREET REALISM, 2.5D TERRAIN, STUDIO MUSIC, PEDESTRIANS, KINEMATICS & PERFORMANCE TEST SUITES PASSED! ✨');
 process.exit(0);

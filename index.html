@@ -47,11 +47,19 @@
                         </div>
                     </div>
                 </div>
-                <div class="hud-panel" style="border-left-color: #f6ad55;">
-                    <div id="level-display">LEVEL 1</div>
-                    <div style="font-weight: bold;" id="target-name-display">Get to Trader Joe's</div>
-                    <div style="font-size: 10px; color: #fbd38d; margin-top: 2px;" id="target-desc-display">9th Ave NW &amp; NW Market St</div>
-                    <div style="font-size: 10px; color: #4fd1c5; margin-top: 5px; font-weight: bold;" id="current-street-display">📍 Ballard, Seattle</div>
+                <div class="hud-panel" style="border-left-color: #f6ad55; pointer-events: auto; min-width: 225px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; gap: 6px;">
+                        <div id="level-display">ERRAND #1</div>
+                        <span id="errand-steps-display" style="font-size: 9px; background: rgba(246, 173, 85, 0.2); color: #fbd38d; border: 1px solid #f6ad55; padding: 1px 5px; border-radius: 3px; font-weight: bold;">STEP 1/2</span>
+                    </div>
+                    <div id="errand-title-display" style="font-size: 10px; color: #f6ad55; font-weight: 800; letter-spacing: 0.6px; margin-top: 2px;">DANISH PASTRY RUN</div>
+                    <div id="errand-client-display" style="font-size: 9px; color: #cbd5e0; margin-bottom: 3px;">👤 Client: Sven @ Nordic Museum</div>
+                    <div style="font-weight: bold; font-size: 12px; color: #ffffff;" id="target-name-display">📦 Pick up @ LARSEN'S BAKERY</div>
+                    <div style="font-size: 10px; color: #fbd38d; margin-top: 2px; line-height: 1.3;" id="target-desc-display">Pick up fresh Danish Kringle trays at Larsen's Bakery</div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px; padding-top: 4px; border-top: 1px solid rgba(255,255,255,0.12);">
+                        <div style="font-size: 10px; color: #4fd1c5; font-weight: bold;" id="current-street-display">📍 Ballard, Seattle</div>
+                        <button class="radio-btn" onclick="Game.skipErrandDebug()" title="Switch to Next Ballard Errand">⏭️ ERRAND</button>
+                    </div>
                 </div>
                 <div class="hud-panel debug-panel" style="border-left-color: #38bdf8; pointer-events: auto; min-width: 220px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px;">
@@ -98,7 +106,7 @@
                             <button class="radio-btn" onclick="Game.toggleWeatherDebug()" title="Toggle Rainy vs Sunny Weather">🌧️ WEATHER</button>
                             <button class="radio-btn" onclick="Game.cycleTimeOfDayDebug()" title="Cycle Morning / Afternoon / Sunset / Night">🕒 TIME</button>
                             <button class="radio-btn" id="dbg-traffic-btn" onclick="Game.cycleTrafficDebug()" title="Cycle Traffic Density">🚗 TRAF: 100%</button>
-                            <button class="radio-btn" onclick="Game.pickNewDestinationDebug()" title="Pick a New Ballard Destination">⏭️ NEW DEST</button>
+                            <button class="radio-btn" onclick="Game.pickNewDestinationDebug()" title="Pick a New Ballard Errand">⏭️ NEW ERRAND</button>
                         </div>
                     </div>
                 </div>
@@ -113,7 +121,9 @@
                 <div class="timer-panel">
                     <div style="font-size: 10px; color: #a0aec0; letter-spacing: 1px;">TIME LEFT</div>
                     <div id="timer-display">60</div>
-                    <div style="font-size: 10px; color: #a0aec0; letter-spacing: 1px; margin-top: 10px;">TOTAL SCORE</div>
+                    <div style="font-size: 10px; color: #68d391; letter-spacing: 1px; margin-top: 8px; font-weight: bold;">BALLARD CASH</div>
+                    <div id="cash-hud-display" style="font-family: 'Press Start 2P', monospace; font-size: 14px; color: #48bb78; margin-top: 2px;">$0</div>
+                    <div style="font-size: 10px; color: #a0aec0; letter-spacing: 1px; margin-top: 8px;">TOTAL SCORE</div>
                     <div id="score-hud-display">0</div>
                 </div>
 
@@ -144,13 +154,21 @@
                 </div>
 
                 <div class="timer-panel minimap-panel" style="border-right-color: #4fd1c5; padding: 6px 8px; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; pointer-events: auto;">
-                    <div style="display: flex; justify-content: space-between; width: 100%; align-items: center; gap: 6px;">
+                    <div style="display: flex; justify-content: space-between; width: 100%; align-items: center; gap: 4px;">
                         <span style="font-size: 8px; color: #4fd1c5; letter-spacing: 1px; font-weight: bold;">BALLARD GPS</span>
-                        <button class="radio-btn active" onclick="Game.toggle3DView()" id="view-3d-btn" title="Cycle 3D Top-Down Perspective: MAX / LOW / OFF (Key: V)">3D: MAX</button>
+                        <div style="display: flex; gap: 3px;">
+                            <button class="radio-btn active" onclick="Game.toggleGPSRoute()" id="gps-route-btn" title="Show/Hide GPS Destination Polyline on Road &amp; Minimap (Key: G)">ROUTE: ON [G]</button>
+                            <button class="radio-btn active" onclick="Game.toggle3DView()" id="view-3d-btn" title="Cycle 3D Top-Down Perspective: MAX / LOW / OFF (Key: V)">3D: MAX</button>
+                        </div>
                     </div>
                     <canvas id="minimapCanvas" width="168" height="147" style="border: 1px solid #2d3748; border-radius: 3px; background: #0f172a;"></canvas>
                 </div>
             </div>
+        </div>
+
+        <div id="gta-mission-banner" style="position: absolute; top: 18%; left: 50%; transform: translate(-50%, -50%) scale(0.92); pointer-events: none; z-index: 45; opacity: 0; transition: opacity 0.35s ease, transform 0.35s ease; text-align: center; background: rgba(15, 23, 42, 0.88); border-top: 3px solid #f6ad55; border-bottom: 3px solid #f6ad55; padding: 14px 36px; border-radius: 6px; box-shadow: 0 12px 32px rgba(0,0,0,0.65);">
+            <div id="gta-banner-title" style="font-family: 'Press Start 2P', monospace; font-size: 20px; color: #f6ad55; text-shadow: 2px 2px 0 #000; letter-spacing: 1.5px;">ERRAND PASSED!</div>
+            <div id="gta-banner-sub" style="font-size: 12px; color: #68d391; font-weight: 800; margin-top: 6px; letter-spacing: 1px;">RESPECT + • +$350 CASH</div>
         </div>
 
         <div id="notifications"></div>

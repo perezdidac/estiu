@@ -10,6 +10,24 @@ const Projection3D = {
     tiltY: 0.065,     // Overhead south-to-north camera pitch at screen center
     sideTiltScale: 1.0, // Multiplier for radial side tilt (debug adjustable)
     heightScale: 1.0,   // Multiplier for 3D building/tree heights (debug adjustable)
+    refElevation: 35,   // Camera reference ground elevation (tracks player car elevation so camera stays at constant height above the car)
+    terrainScale: 1.35, // 2.5D height boost per meter of elevation difference relative to player car
+    _drawnLabelsThisFrame: new Set(),
+
+    beginFrame(playerElevationM) {
+        if (typeof playerElevationM === 'number' && !Number.isNaN(playerElevationM)) {
+            this.refElevation = playerElevationM;
+        }
+        this._drawnLabelsThisFrame.clear();
+    },
+
+    // Computes the 2.5D height offset for terrain at `localElevM` relative to the camera's constant height above the car (`refElevation`).
+    // Objects at higher elevation than the car project taller (+z), while objects downhill project shorter (-z).
+    getTerrainZBoost(localElevM) {
+        if (!this.enabled || typeof localElevM !== 'number') return 0;
+        const deltaM = localElevM - (this.refElevation || 0);
+        return Math.max(-18, Math.min(46, deltaM * this.terrainScale));
+    },
 
     cycleMode() {
         if (this.mode === 'DRAMATIC') {
@@ -171,18 +189,48 @@ class Building {
         this.hasStreetEdge = Boolean(this.edges.N || this.edges.S || this.edges.W || this.edges.E || this.edges.diag);
 
         // Look up real OpenStreetMap building footprints mapped to this parcel tile "tx,ty"
-        // Format: [[rx, ry, wMeters, hMeters, category, levels, optionalName], ...]
+        // Format: [[rx, ry, wMeters, hMeters, category, levels, optionalName, optionalSubInfo], ...]
         const osmList = (typeof OSMBuildings !== 'undefined' && OSMBuildings) ? OSMBuildings[`${tx},${ty}`] : null;
         this.osmList = osmList || null;
-        this.buildingName = null;
+
+        // Look up curated Ballard Business directory for this parcel tile ("tx,ty")
+        const bizTile = (typeof MapData !== 'undefined' && MapData.businessesByTile)
+            ? MapData.businessesByTile[`${tx},${ty}`]
+            : null;
+        this.businessInfo = bizTile || null;
+        this.buildingName = bizTile ? bizTile.name : null;
+        this.businessCategory = bizTile ? (bizTile.category || 'SHOP') : null;
+
+        let osmSubInfo = '';
         if (this.osmList) {
             for (let i = 0; i < this.osmList.length; i++) {
-                if (this.osmList[i][6]) {
+                if (!osmSubInfo && this.osmList[i][7] && !/^\d+/.test(String(this.osmList[i][7]))) {
+                    osmSubInfo = String(this.osmList[i][7]);
+                }
+                if (!this.buildingName && this.osmList[i][6]) {
                     this.buildingName = this.osmList[i][6];
-                    break;
                 }
             }
         }
+        if (this.buildingName && !this.businessCategory) {
+            const n = this.buildingName.toLowerCase();
+            const si = osmSubInfo.toLowerCase();
+            if (si === 'restaurant' || si === 'fast_food' || /pizza|burger|bbq|ramen|taco|matador|boathouse|coney|kitchen|grill|diner|bistro|wendy|pagliacci|un bien|walrus|hattie/i.test(n)) {
+                this.businessCategory = 'RESTAURANT';
+            } else if (si === 'cafe' || si === 'bakery' || /cafe|coffee|bakery|donut|cupcake|ice cream|salt & straw|hot cakes|umbria|larsen/i.test(n)) {
+                this.businessCategory = 'CAFE';
+            } else if (si === 'bar' || si === 'pub' || si === 'nightclub' || /brew|tavern|pub|hop|taproom|hardware|tractor|sloop/i.test(n)) {
+                this.businessCategory = 'BREWERY';
+            } else if (si === 'supermarket' || /market|trader joe|safeway|qfc|fred meyer|grocery/i.test(n)) {
+                this.businessCategory = 'MARKET';
+            } else if (si === 'pharmacy' || si === 'retail' || /records|books|nursery|walgreens|petco|hardware|shop|store|bank|credit union|usps|post office/i.test(n)) {
+                this.businessCategory = 'SHOP';
+            } else {
+                this.businessCategory = 'LANDMARK';
+            }
+        }
+
+        const isCommercialOsmSub = /^(restaurant|fast_food|cafe|bakery|bar|pub|nightclub|supermarket|pharmacy|cinema|retail|bank|post_office|theatre)$/.test(osmSubInfo);
 
         this.ox = ox;
         this.oy = oy;
@@ -205,7 +253,7 @@ class Building {
         const nearMarketCore = (oy >= 38.5 && oy <= 41.5 && ox >= 16 && ox <= 46);
         const nearBreweryDistrict = (oy >= 45 && ox >= 42 && ox <= 58);
         const nearCrownHillCommercial = isApartment && (oy >= -16 && oy <= 1 && ox >= 42 && ox <= 62);
-        const inOlympicManor = (oy >= -10.8 && oy < -0.2 && ox >= 11 && ox <= 31.5);
+        const inOlympicManor = (oy >= -10.8 && oy < -0.2 && ox >= 11 && ox <= 31.5) && !this.businessInfo;
         const nearBlueRidgeBluff = (oy <= -6 && ox <= 24 && !inOlympicManor);
         const nearArterialNode = isApartment && (
             (Math.abs(oy - 40) < 1.2 && (Math.abs(ox - 22) < 2 || Math.abs(ox - 44) < 2)) ||
@@ -216,9 +264,15 @@ class Building {
         const primaryOsm = (this.osmList && this.osmList.length > 0) ? this.osmList[0] : null;
         const osmCat = primaryOsm ? primaryOsm[4] : null;
 
-        if (!this.hasStreetEdge) {
+        if (!this.hasStreetEdge && !this.businessInfo) {
             this.archStyle = 'BACKYARD_GREENSPACE';
             this.isUrban = false;
+        } else if (this.businessInfo && this.businessCategory === 'BREWERY' && nearBreweryDistrict) {
+            this.archStyle = 'BREWERY_INDUSTRIAL';
+            this.isUrban = true;
+        } else if (this.businessInfo || isCommercialOsmSub) {
+            this.archStyle = (this.businessCategory === 'MARKET' || osmCat === 'O') ? 'OFFICE_BUILDING' : 'HISTORIC_BRICK';
+            this.isUrban = true;
         } else if (osmCat === 'O') {
             // Real OpenStreetMap Office, Medical Plaza, Bank & Civic Buildings (Ballard Building, Kress Building, Tallman, Greenfire, etc.)
             this.archStyle = 'OFFICE_BUILDING';
@@ -1030,6 +1084,16 @@ class Building {
                 });
             }
         }
+
+        // Ensure primary substructure carries the business/building name & category for rooftop signage
+        if (this.buildingName && this.subStructures.length > 0) {
+            if (!this.subStructures[0].label) {
+                this.subStructures[0].label = this.buildingName;
+            }
+            if (this.businessCategory && !this.subStructures[0].businessCategory) {
+                this.subStructures[0].businessCategory = this.businessCategory;
+            }
+        }
     }
 
     _addResidentialHouse(hx, hy, hw, hh, houseFacing, idx, sRand, craftWalls, craftRoofs, doorPalette, osmH) {
@@ -1569,7 +1633,16 @@ class Building {
         const sy1 = sub.y - camY;
         const sx2 = sx1 + sub.w;
         const sy2 = sy1 + sub.h;
-        const z = sub.zHeight;
+
+        // Camera-relative 2.5D terrain elevation:
+        // The camera remains at a constant height relative to the player's car (`Projection3D.refElevation`).
+        // Buildings on higher ground than the car project taller (`terrainBoost > 0`), while downhill buildings sit lower (`terrainBoost < 0`).
+        const terrainBoost = Projection3D.getTerrainZBoost(this.elevationM);
+        const z = Math.max(6, sub.zHeight + terrainBoost);
+        const effectiveFoundationH = Math.max(
+            sub.foundationH || 0,
+            terrainBoost > 1.5 ? Math.min(14, Math.round(terrainBoost * 0.45)) : 0
+        );
 
         const isNight = (typeof Game !== 'undefined' && Game.timeOfDay === 3);
         const isRainy = (typeof Game !== 'undefined' && Game.isRainy);
@@ -1738,14 +1811,14 @@ class Building {
                 }
             }
 
-            // 4b. 3D Stepped Concrete Hillside Foundation on sloped Ballard terrain (Olympic Manor, Sunset Hill, North Beach, Crown Hill)
-            if (sub.foundationH && sub.foundationH >= 2 && !sub.isGarage) {
-                const fv = Math.min(0.26, sub.foundationH / Math.max(14, sub.zHeight || 18));
+            // 4b. 3D Stepped Concrete Hillside Foundation on sloped/elevated Ballard terrain (Olympic Manor, Sunset Hill, North Beach, Crown Hill)
+            if (effectiveFoundationH >= 2 && !sub.isGarage) {
+                const fv = Math.min(0.32, effectiveFoundationH / Math.max(14, z));
                 const f00 = lerpPt(0.0, 0.0);
                 const f10 = lerpPt(1.0, 0.0);
                 const f11 = lerpPt(1.0, fv);
                 const f01 = lerpPt(0.0, fv);
-                ctx.fillStyle = '#64748b';
+                ctx.fillStyle = terrainBoost > 4 ? '#475569' : '#64748b';
                 ctx.beginPath();
                 ctx.moveTo(f00.x, f00.y);
                 ctx.lineTo(f10.x, f10.y);
@@ -2057,23 +2130,47 @@ class Building {
             }
         }
 
-        // Architectural nameplate for real OpenStreetMap named offices, commercial buildings, schools & landmarks
-        if (sub.label && sx1 > -40 && sx2 < ctx.canvas.width + 40 && sy1 > -40 && sy2 < ctx.canvas.height + 40) {
-            const lblPos = Projection3D.project((sx1 + sx2) / 2, (sy1 + sy2) / 2, z + 5, centerX, centerY);
-            const shortName = sub.label.length > 22 ? (sub.label.slice(0, 20) + '…') : sub.label;
-            ctx.save();
-            ctx.font = 'bold 8.5px "Inter", sans-serif';
-            const tw = ctx.measureText(shortName).width + 8;
-            ctx.fillStyle = 'rgba(15, 23, 42, 0.82)';
-            ctx.fillRect(lblPos.x - tw / 2, lblPos.y - 6, tw, 12);
-            ctx.strokeStyle = sub.isOffice ? '#38bdf8' : '#cbd5e1';
-            ctx.lineWidth = 0.8;
-            ctx.strokeRect(lblPos.x - tw / 2, lblPos.y - 6, tw, 12);
-            ctx.fillStyle = '#f8fafc';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(shortName, lblPos.x, lblPos.y);
-            ctx.restore();
+        // Architectural rooftop sign for Ballard businesses (restaurants, cafes, breweries, markets, shops & landmarks)
+        if (sub.label && sx1 > -60 && sx2 < ctx.canvas.width + 60 && sy1 > -60 && sy2 < ctx.canvas.height + 60) {
+            const normKey = sub.label.toUpperCase();
+            if (!Projection3D._drawnLabelsThisFrame.has(normKey)) {
+                Projection3D._drawnLabelsThisFrame.add(normKey);
+                const roofZ = z + (sub.pitch || 0) + 6;
+                const lblPos = Projection3D.project((sx1 + sx2) / 2, (sy1 + sy2) / 2, roofZ, centerX, centerY);
+                const cat = sub.businessCategory || this.businessCategory || (sub.isOffice ? 'LANDMARK' : 'SHOP');
+                let borderCol = '#38bdf8';
+                let dotCol = '#38bdf8';
+                if (cat === 'RESTAURANT') { borderCol = '#fb923c'; dotCol = '#f97316'; }
+                else if (cat === 'CAFE')  { borderCol = '#facc15'; dotCol = '#eab308'; }
+                else if (cat === 'BREWERY') { borderCol = '#fbbf24'; dotCol = '#f59e0b'; }
+                else if (cat === 'MARKET')  { borderCol = '#34d399'; dotCol = '#10b981'; }
+                else if (cat === 'LANDMARK') { borderCol = '#60a5fa'; dotCol = '#3b82f6'; }
+
+                const shortName = sub.label.length > 22 ? (sub.label.slice(0, 20) + '…') : sub.label;
+                ctx.save();
+                ctx.font = 'bold 8.5px "Inter", sans-serif';
+                const textW = ctx.measureText(shortName).width;
+                const tw = textW + 16;
+                const th = 13;
+                const bx = lblPos.x - tw / 2;
+                const by = lblPos.y - th / 2;
+
+                // Signboard backing with category accent stripe
+                ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+                ctx.fillRect(bx, by, tw, th);
+                ctx.fillStyle = dotCol;
+                ctx.fillRect(bx, by, 3.5, th);
+
+                ctx.strokeStyle = borderCol;
+                ctx.lineWidth = 0.95;
+                ctx.strokeRect(bx, by, tw, th);
+
+                ctx.fillStyle = '#f8fafc';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(shortName, lblPos.x + 1.5, lblPos.y + 0.5);
+                ctx.restore();
+            }
         }
     }
 

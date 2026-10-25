@@ -461,14 +461,20 @@ const Draw = {
         ctx.restore();
     },
 
-    // 3D Layered PNW Douglas Fir / Cedar Tree with Directional Cast Shadow & Wind Sway
-    tree: (ctx, x, y) => {
+    // 3D Layered PNW Douglas Fir / Cedar Tree with Directional Cast Shadow, Wind Sway & Camera-Relative Terrain Height
+    tree: (ctx, x, y, localElevM) => {
         const centerX = ctx.canvas.width / 2;
         const centerY = ctx.canvas.height / 2;
         const sway = Math.sin(Date.now() / 750 + x * 0.03 + y * 0.02) * 1.6;
-        const p1 = (typeof Projection3D !== 'undefined') ? Projection3D.project(x + sway * 0.3, y, 9, centerX, centerY) : { x, y };
-        const p2 = (typeof Projection3D !== 'undefined') ? Projection3D.project(x + sway * 0.7, y, 18, centerX, centerY) : { x, y };
-        const p3 = (typeof Projection3D !== 'undefined') ? Projection3D.project(x + sway, y, 27, centerX, centerY) : { x, y };
+        const tBoost = (typeof Projection3D !== 'undefined' && typeof localElevM === 'number')
+            ? Projection3D.getTerrainZBoost(localElevM) * 0.65
+            : 0;
+        const z1 = Math.max(4, 9 + tBoost * 0.5);
+        const z2 = Math.max(8, 18 + tBoost * 0.8);
+        const z3 = Math.max(12, 27 + tBoost);
+        const p1 = (typeof Projection3D !== 'undefined') ? Projection3D.project(x + sway * 0.3, y, z1, centerX, centerY) : { x, y };
+        const p2 = (typeof Projection3D !== 'undefined') ? Projection3D.project(x + sway * 0.7, y, z2, centerX, centerY) : { x, y };
+        const p3 = (typeof Projection3D !== 'undefined') ? Projection3D.project(x + sway, y, z3, centerX, centerY) : { x, y };
 
         // Dynamic Time-of-Day Ground Shadow
         const sh = Draw.getShadowVector();
@@ -559,19 +565,51 @@ const Draw = {
         ctx.textAlign = 'start';
     },
 
-    // 3D Destination Floating Beacon & Marquee Arch
-    destinationBeacon3D: (ctx, tileScreenX, tileScreenY, destName) => {
+    // 3D Destination Floating Beacon, GTA Contact NPC & Marquee Arch
+    destinationBeacon3D: (ctx, tileScreenX, tileScreenY, destName, stepType = 'DELIVER', stepBadge = '') => {
         const centerX = ctx.canvas.width / 2;
         const centerY = ctx.canvas.height / 2;
         const cx = tileScreenX + TILE_SIZE / 2;
         const cy = tileScreenY + TILE_SIZE / 2;
         const pulse = Math.sin(Date.now() / 180) * 4;
         const z = 28 + pulse;
+        const isPickup = (stepType === 'PICKUP');
+        const accentCol = isPickup ? '#fbbf24' : '#48bb78';
+        const pillarCol = isPickup ? 'rgba(251, 191, 36, 0.72)' : 'rgba(72, 187, 120, 0.68)';
 
         const top = Projection3D.project(cx, cy - 28, z, centerX, centerY);
 
+        // Waving GTA Errand Contact NPC waiting on the curb with package/clipboard
+        const npcX = cx + 34;
+        const npcY = cy + 16;
+        const wave = Math.sin(Date.now() / 140) * 4.5;
+        ctx.fillStyle = 'rgba(0,0,0,0.35)';
+        ctx.beginPath();
+        ctx.ellipse(npcX, npcY + 5, 6, 3, 0, 0, Math.PI * 2);
+        ctx.fill();
+        // NPC Torso
+        ctx.fillStyle = isPickup ? '#d97706' : '#0284c7';
+        ctx.beginPath();
+        ctx.arc(npcX, npcY, 5.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#0f172a';
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+        // Waving arm + package/flag
+        ctx.strokeStyle = '#fde68a';
+        ctx.lineWidth = 2.2;
+        ctx.beginPath();
+        ctx.moveTo(npcX + 3, npcY - 1);
+        ctx.lineTo(npcX + 8, npcY - 7 + wave * 0.5);
+        ctx.stroke();
+        // NPC Head
+        ctx.fillStyle = '#fde68a';
+        ctx.beginPath();
+        ctx.arc(npcX, npcY - 2, 3.6, 0, Math.PI * 2);
+        ctx.fill();
+
         // Glowing vertical holo-pillars at the back of the parking apron
-        ctx.strokeStyle = 'rgba(72, 187, 120, 0.65)';
+        ctx.strokeStyle = pillarCol;
         ctx.lineWidth = 2.5;
         ctx.beginPath();
         ctx.moveTo(cx - 38, cy - 28);
@@ -582,17 +620,20 @@ const Draw = {
 
         // Elevated 3D Signboard
         ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
-        ctx.strokeStyle = '#48bb78';
+        ctx.strokeStyle = accentCol;
         ctx.lineWidth = 2.2;
         ctx.beginPath();
-        ctx.roundRect(top.x - 56, top.y - 18, 112, 32, 6);
+        ctx.roundRect(top.x - 62, top.y - 19, 124, 34, 6);
         ctx.fill();
         ctx.stroke();
 
-        ctx.fillStyle = '#48bb78';
+        ctx.fillStyle = accentCol;
         ctx.font = 'bold 9px sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText('★ ARRIVE HERE ★', top.x, top.y - 6);
+        const headerTxt = stepBadge
+            ? `${isPickup ? '📦 PICKUP' : '🏁 DROP-OFF'} • ${stepBadge}`
+            : (isPickup ? '📦 PICK UP CARGO ★' : '★ ARRIVE HERE ★');
+        ctx.fillText(headerTxt, top.x, top.y - 6);
         ctx.fillStyle = '#ffffff';
         ctx.font = 'bold 10px sans-serif';
         ctx.fillText(destName, top.x, top.y + 8);
@@ -600,12 +641,15 @@ const Draw = {
     },
 
     // 3D Seattle Boulevard Street Tree (Cherry Blossom, Autumn Maple, or Pacific NW Green)
-    streetTree: (ctx, x, y, variant = 0) => {
+    streetTree: (ctx, x, y, variant = 0, localElevM) => {
         const centerX = ctx.canvas.width / 2;
         const centerY = ctx.canvas.height / 2;
         const sway = Math.sin(Date.now() / 680 + variant * 0.7) * 1.1;
-        const p1 = (typeof Projection3D !== 'undefined') ? Projection3D.project(x + sway * 0.5, y, 8, centerX, centerY) : { x, y };
-        const p2 = (typeof Projection3D !== 'undefined') ? Projection3D.project(x + sway, y, 15, centerX, centerY) : { x, y };
+        const tBoost = (typeof Projection3D !== 'undefined' && typeof localElevM === 'number')
+            ? Projection3D.getTerrainZBoost(localElevM) * 0.55
+            : 0;
+        const p1 = (typeof Projection3D !== 'undefined') ? Projection3D.project(x + sway * 0.5, y, Math.max(4, 8 + tBoost * 0.5), centerX, centerY) : { x, y };
+        const p2 = (typeof Projection3D !== 'undefined') ? Projection3D.project(x + sway, y, Math.max(7, 15 + tBoost), centerX, centerY) : { x, y };
 
         // Dynamic Time-of-Day Ground Shadow on planting strip / sidewalk
         const sh = Draw.getShadowVector();

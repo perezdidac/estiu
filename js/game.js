@@ -1,37 +1,288 @@
 class Pedestrian {
-    constructor(approach, inter) {
+    static getSidewalkOffset(road) {
+        if (!road) return 52;
+        const isArt = (road.type === 6 || road.type === 7 || road.type === 9);
+        if (isArt) {
+            const lanes = road.lanes || 4;
+            return lanes >= 3 ? 76 : 64;
+        }
+        if (road.isCollector || road.isBoulevard) return 58;
+        return 52;
+    }
+
+    static getCurbOffset(approach) {
+        if (!approach) return 45;
+        const road = approach.road;
+        const isArt = Boolean(approach.isRoadArt || (road && (road.type === 6 || road.type === 7 || road.type === 9)));
+        if (isArt) {
+            const lanes = approach.roadLanes || (road && road.lanes) || 4;
+            return lanes >= 3 ? 62 : 54;
+        }
+        if (road && (road.isCollector || road.isBoulevard)) return 50;
+        return 45;
+    }
+
+    constructor(approach = null, inter = null, opts = null) {
+        this.w = 12;
+        this.h = 12;
+        this.walkCycle = Math.random() * 100;
+        this.baseSpeed = 0.42 + Math.random() * 0.16;
+        this.speed = this.baseSpeed;
+        this.color = ['#f56565', '#4299e1', '#ed8936', '#9f7aea', '#ecc94b', '#48bb78', '#38b2ac', '#ed64a6'][Math.floor(Math.random() * 8)];
+        this.hairColor = ['#2d3748', '#744210', '#975a16', '#1a202c', '#d69e2e'][Math.floor(Math.random() * 5)];
+        this.hasCoffee = Math.random() < 0.28;
+        this.hasBackpack = Math.random() < 0.35;
+        this.hasDog = !this.hasCoffee && Math.random() < 0.14;
+        this.dogColor = Math.random() < 0.5 ? '#d69e2e' : '#744210';
+        this.heading = 0;
+        this.completedCrossings = 0;
+        this.lastInter = null;
+        this._interCheckCooldown = Math.floor(Math.random() * 8);
+        this.curbJitter = (Math.random() - 0.5) * 9;
+
+        if (opts && opts.road) {
+            this._initOnSidewalk(opts.road, opts.side, opts.walkDir, opts.alongFraction);
+        } else if (approach && inter) {
+            const startSide = (opts && (opts.side === 1 || opts.side === -1)) ? opts.side : (Math.random() < 0.5 ? -1 : 1);
+            this._setupCrosswalk(approach, inter, startSide, true);
+        } else {
+            this.x = 0;
+            this.y = 0;
+            this.state = 'FINISHED';
+        }
+    }
+
+    _initOnSidewalk(road, side = null, walkDir = null, alongFraction = null) {
+        this.road = road;
+        this.inter = null;
+        this.approach = null;
+        this.side = (side === 1 || side === -1) ? side : (Math.random() < 0.5 ? -1 : 1);
+        this.walkDir = (walkDir === 1 || walkDir === -1) ? walkDir : (Math.random() < 0.5 ? -1 : 1);
+
+        const x1_w = road.x1 * TILE_SIZE + TILE_SIZE / 2;
+        const y1_w = road.y1 * TILE_SIZE + TILE_SIZE / 2;
+        const x2_w = road.x2 * TILE_SIZE + TILE_SIZE / 2;
+        const y2_w = road.y2 * TILE_SIZE + TILE_SIZE / 2;
+        const dx = x2_w - x1_w;
+        const dy = y2_w - y1_w;
+        const len = Math.hypot(dx, dy) || 1;
+        const ux = dx / len;
+        const uy = dy / len;
+        const nx = -uy;
+        const ny = ux;
+
+        const frac = (typeof alongFraction === 'number') ? alongFraction : (0.08 + Math.random() * 0.84);
+        this.along = Math.max(24, Math.min(len - 24, len * frac));
+        const swOffset = Pedestrian.getSidewalkOffset(road);
+
+        this.x = x1_w + ux * this.along + nx * (this.side * swOffset);
+        this.y = y1_w + uy * this.along + ny * (this.side * swOffset);
+        this.heading = Math.atan2(uy * this.walkDir, ux * this.walkDir);
+        this.state = 'SIDEWALK';
+    }
+
+    _setupCrosswalk(approach, inter, startSide = 1, applyBackOffset = true) {
         this.approach = approach;
         this.inter = inter;
+        this.side = (startSide === 1 || startSide === -1) ? startSide : (Math.random() < 0.5 ? -1 : 1);
 
         const dx = Math.cos(approach.angle);
         const dy = Math.sin(approach.angle);
         const nx = -dy;
         const ny = dx;
 
-        this.side = Math.random() < 0.5 ? -1 : 1;
-        const sidewalkOffset = this.side * 48;
-        const curb = this.side * 38;
+        const curbDist = Pedestrian.getCurbOffset(approach);
+        const swDist = Pedestrian.getSidewalkOffset(approach.road);
+        const sidewalkOffset = this.side * swDist;
+        const curb = this.side * curbDist;
 
-        const sidewalkBackOffset = (Math.random() * 35 + 12);
-        this.x = approach.crosswalkCenter.x + nx * sidewalkOffset - dx * sidewalkBackOffset;
-        this.y = approach.crosswalkCenter.y + ny * sidewalkOffset - dy * sidewalkBackOffset;
+        if (applyBackOffset) {
+            const sidewalkBackOffset = Math.random() * 32 + 12;
+            this.x = approach.crosswalkCenter.x + nx * sidewalkOffset - dx * sidewalkBackOffset;
+            this.y = approach.crosswalkCenter.y + ny * sidewalkOffset - dy * sidewalkBackOffset;
+        }
 
-        this.waitX = approach.crosswalkCenter.x + nx * curb;
-        this.waitY = approach.crosswalkCenter.y + ny * curb;
+        this.waitX = approach.crosswalkCenter.x + nx * curb + dx * (this.curbJitter * 0.35);
+        this.waitY = approach.crosswalkCenter.y + ny * curb + dy * (this.curbJitter * 0.35);
 
         this.targetX = approach.crosswalkCenter.x - nx * sidewalkOffset;
         this.targetY = approach.crosswalkCenter.y - ny * sidewalkOffset;
 
-        this.speed = 0.22 + Math.random() * 0.08;
         this.state = 'APPROACHING';
-        this.color = ['#f56565', '#4299e1', '#ed8936', '#9f7aea', '#ecc94b', '#48bb78'][Math.floor(Math.random() * 6)];
-        this.w = 12;
-        this.h = 12;
-        this.walkCycle = Math.random() * 100;
+        this.heading = Math.atan2(this.waitY - this.y, this.waitX - this.x);
+    }
+
+    _transitionCornerToSidewalk(inter, avoidRoad = null) {
+        if (!inter || !Array.isArray(inter.connectedRoads) || inter.connectedRoads.length === 0) {
+            if (this.road) {
+                this.walkDir *= -1;
+                this.state = 'SIDEWALK';
+                return;
+            }
+            this.state = 'FINISHED';
+            return;
+        }
+
+        // Find the sidewalk ray (road, side, walkDir) whose starting corner point is closest to our current corner
+        // and walks away from the intersection without stepping into any asphalt roadway!
+        let bestChoice = null;
+        let bestScore = Infinity;
+
+        for (let rIdx = 0; rIdx < inter.connectedRoads.length; rIdx++) {
+            const r = inter.connectedRoads[rIdx];
+            const x1_w = r.x1 * TILE_SIZE + TILE_SIZE / 2;
+            const y1_w = r.y1 * TILE_SIZE + TILE_SIZE / 2;
+            const x2_w = r.x2 * TILE_SIZE + TILE_SIZE / 2;
+            const y2_w = r.y2 * TILE_SIZE + TILE_SIZE / 2;
+            const dx = x2_w - x1_w;
+            const dy = y2_w - y1_w;
+            const len = Math.hypot(dx, dy) || 1;
+            if (len < 110) continue;
+
+            const ux = dx / len;
+            const uy = dy / len;
+            const nx = -uy;
+            const ny = ux;
+            const interAlong = (inter.worldX - x1_w) * ux + (inter.worldY - y1_w) * uy;
+            const swOff = Pedestrian.getSidewalkOffset(r);
+            const cornerClear = inter.hasArterial ? 78 : 54;
+
+            for (const wDir of [-1, 1]) {
+                const startAlong = interAlong + wDir * cornerClear;
+                if (startAlong < 24 || startAlong > len - 24) continue;
+                for (const sSide of [-1, 1]) {
+                    const cx = x1_w + ux * startAlong + nx * (sSide * swOff);
+                    const cy = y1_w + uy * startAlong + ny * (sSide * swOff);
+                    const dCorner = Math.hypot(cx - this.x, cy - this.y);
+                    // Prefer turning onto an intersecting block's sidewalk at the same corner quadrant
+                    const penalty = (r === avoidRoad) ? 28 : 0;
+                    const score = dCorner + penalty + Math.random() * 8;
+                    if (score < bestScore) {
+                        bestScore = score;
+                        bestChoice = { road: r, side: sSide, walkDir: wDir, along: startAlong, x: cx, y: cy, ux, uy };
+                    }
+                }
+            }
+        }
+
+        if (bestChoice && bestScore < 135) {
+            this.road = bestChoice.road;
+            this.side = bestChoice.side;
+            this.walkDir = bestChoice.walkDir;
+            this.along = bestChoice.along;
+            this.x = bestChoice.x;
+            this.y = bestChoice.y;
+            this.heading = Math.atan2(bestChoice.uy * this.walkDir, bestChoice.ux * this.walkDir);
+            this.lastInter = inter;
+            this.state = 'SIDEWALK';
+        } else if (this.road) {
+            this.walkDir *= -1;
+            this.lastInter = inter;
+            this.state = 'SIDEWALK';
+        } else {
+            this.state = 'FINISHED';
+        }
     }
 
     update() {
-        this.walkCycle += 0.06;
+        this.walkCycle += (this.state === 'WAITING') ? 0.015 : 0.068;
+
+        if (this.state === 'SIDEWALK') {
+            const r = this.road;
+            if (!r) {
+                this.state = 'FINISHED';
+                return;
+            }
+            const x1_w = r.x1 * TILE_SIZE + TILE_SIZE / 2;
+            const y1_w = r.y1 * TILE_SIZE + TILE_SIZE / 2;
+            const x2_w = r.x2 * TILE_SIZE + TILE_SIZE / 2;
+            const y2_w = r.y2 * TILE_SIZE + TILE_SIZE / 2;
+            const dx = x2_w - x1_w;
+            const dy = y2_w - y1_w;
+            const len = Math.hypot(dx, dy) || 1;
+            const ux = dx / len;
+            const uy = dy / len;
+            const nx = -uy;
+            const ny = ux;
+            const swOffset = Pedestrian.getSidewalkOffset(r);
+
+            this.along += this.walkDir * this.speed;
+            if (this.along <= 20) {
+                this.along = 20;
+                this.walkDir = 1;
+                this.lastInter = null;
+            } else if (this.along >= len - 20) {
+                this.along = len - 20;
+                this.walkDir = -1;
+                this.lastInter = null;
+            }
+
+            this.x = x1_w + ux * this.along + nx * (this.side * swOffset);
+            this.y = y1_w + uy * this.along + ny * (this.side * swOffset);
+            this.heading = Math.atan2(uy * this.walkDir, ux * this.walkDir);
+
+            // Check if arriving at an intersection corner along this sidewalk
+            if (this._interCheckCooldown > 0) {
+                this._interCheckCooldown--;
+                return;
+            }
+            this._interCheckCooldown = 5;
+
+            if (typeof Game !== 'undefined' && Game.getNearbyIntersections) {
+                const nearInters = Game.getNearbyIntersections(this.x, this.y);
+                for (let i = 0; i < nearInters.length; i++) {
+                    const inter = nearInters[i];
+                    if (!inter || inter === this.lastInter) continue;
+
+                    const roadCenterX = x1_w + ux * this.along;
+                    const roadCenterY = y1_w + uy * this.along;
+                    const toInterX = inter.worldX - roadCenterX;
+                    const toInterY = inter.worldY - roadCenterY;
+                    const fwdDist = toInterX * (ux * this.walkDir) + toInterY * (uy * this.walkDir);
+                    const perpDist = Math.abs(toInterX * nx + toInterY * ny);
+                    const cornerStop = inter.hasArterial ? 78 : 54;
+
+                    if (perpDist < 42 && fwdDist > 16 && fwdDist < cornerStop + 14) {
+                        this.lastInter = inter;
+                        // At signalized intersections, pedestrians can approach the corner crosswalk curb and wait for the GREEN walk signal!
+                        if (inter.hasSignal && inter.approaches && inter.approaches.length > 0 && Math.random() < 0.78) {
+                            const candidates = [];
+                            for (let aIdx = 0; aIdx < inter.approaches.length; aIdx++) {
+                                const app = inter.approaches[aIdx];
+                                if (!app || app.controlType !== 'SIGNAL' || !app.crosswalkCenter) continue;
+                                const adx = Math.cos(app.angle);
+                                const ady = Math.sin(app.angle);
+                                const anx = -ady;
+                                const any = adx;
+                                const curbDist = Pedestrian.getCurbOffset(app);
+                                for (const sSide of [-1, 1]) {
+                                    const rampX = app.crosswalkCenter.x + anx * (sSide * curbDist);
+                                    const rampY = app.crosswalkCenter.y + any * (sSide * curbDist);
+                                    const dRamp = Math.hypot(rampX - this.x, rampY - this.y);
+                                    if (dRamp < 66) {
+                                        const isGreenNow = Game.isPedestrianWalkGreen ? Game.isPedestrianWalkGreen(inter, app) : false;
+                                        candidates.push({ app, side: sSide, dRamp, isGreenNow });
+                                    }
+                                }
+                            }
+                            if (candidates.length > 0) {
+                                // Prefer a crosswalk at this corner that already has a GREEN walk signal, or pick the closest corner curb ramp
+                                candidates.sort((a, b) => (b.isGreenNow ? 1 : 0) - (a.isGreenNow ? 1 : 0) || (a.dRamp - b.dRamp));
+                                const chosen = candidates[0];
+                                this._setupCrosswalk(chosen.app, inter, chosen.side, false);
+                                return;
+                            }
+                        }
+
+                        // At unsignalized intersections (no green walk signal!), pedestrians NEVER jaywalk across the roadway:
+                        // they turn 90° around the sidewalk corner onto the intersecting block's sidewalk!
+                        this._transitionCornerToSidewalk(inter, r);
+                        return;
+                    }
+                }
+            }
+            return;
+        }
 
         if (this.state === 'APPROACHING') {
             const dx = this.waitX - this.x;
@@ -41,34 +292,60 @@ class Pedestrian {
                 this.x = this.waitX;
                 this.y = this.waitY;
                 this.state = 'WAITING';
+                this.heading = Math.atan2(this.targetY - this.y, this.targetX - this.x);
             } else {
                 this.x += (dx / dist) * this.speed;
                 this.y += (dy / dist) * this.speed;
+                this.heading = Math.atan2(dy, dx);
             }
             return;
         }
 
         if (this.state === 'WAITING') {
-            let canCross = false;
-            if (this.approach.controlType === 'SIGNAL') {
-                const relevantState = Game.getApproachSignalState(this.inter, this.approach);
-                if (relevantState === 'RED') canCross = true;
-            } else {
-                canCross = true;
+            // Pedestrians ONLY cross when the pedestrian WALK signal is GREEN for them!
+            const canCross = (typeof Game !== 'undefined' && Game.isPedestrianWalkGreen)
+                ? Game.isPedestrianWalkGreen(this.inter, this.approach)
+                : false;
+            if (canCross) {
+                this.state = 'CROSSING';
+                this.heading = Math.atan2(this.targetY - this.y, this.targetX - this.x);
+            } else if (!this.inter || (!this.inter.hasSignal && (!this.approach || this.approach.controlType !== 'SIGNAL'))) {
+                // If placed at an unsignalized intersection with no traffic signal, turn back onto the sidewalk instead of crossing
+                this._transitionCornerToSidewalk(this.inter, this.approach ? this.approach.road : null);
             }
-            if (canCross) this.state = 'CROSSING';
             return;
         }
 
         if (this.state === 'CROSSING') {
+            const walkGreen = (typeof Game !== 'undefined' && Game.isPedestrianWalkGreen)
+                ? Game.isPedestrianWalkGreen(this.inter, this.approach)
+                : false;
+
+            // If the light turned GREEN for cars on this approach while the pedestrian has barely stepped off the curb, step right back onto the curb!
+            if (!walkGreen && this.inter && this.approach && typeof Game !== 'undefined' && Game.getApproachSignalState) {
+                const carSig = Game.getApproachSignalState(this.inter, this.approach);
+                if (carSig !== 'RED' && Math.hypot(this.x - this.waitX, this.y - this.waitY) < 16) {
+                    this.x = this.waitX;
+                    this.y = this.waitY;
+                    this.state = 'WAITING';
+                    return;
+                }
+            }
+
             const dx = this.targetX - this.x;
             const dy = this.targetY - this.y;
             const dist = Math.hypot(dx, dy);
-            if (dist < 3) {
-                this.state = 'FINISHED';
+            // Walk briskly while crossing; if the parallel light enters yellow clearance (!walkGreen), hurry across so the crosswalk is 100% clear before perpendicular cars get GREEN!
+            const crossSpeed = walkGreen ? Math.max(this.speed * 1.35, 0.66) : Math.max(this.speed * 2.1, 1.25);
+            if (dist <= Math.max(3, crossSpeed * 1.05)) {
+                this.x = this.targetX;
+                this.y = this.targetY;
+                this.completedCrossings++;
+                this._transitionCornerToSidewalk(this.inter, this.approach ? this.approach.road : null);
             } else {
-                this.x += (dx / dist) * this.speed;
-                this.y += (dy / dist) * this.speed;
+                this.x += (dx / dist) * crossSpeed;
+                this.y += (dy / dist) * crossSpeed;
+                this.heading = Math.atan2(dy, dx);
             }
         }
     }
@@ -76,38 +353,84 @@ class Pedestrian {
     draw(ctx, camX, camY) {
         const sx = this.x - camX;
         const sy = this.y - camY;
-        if (sx < -20 || sx > ctx.canvas.width + 20 || sy < -20 || sy > ctx.canvas.height + 20) return;
+        const vb = (typeof Game !== 'undefined' && Game.viewBounds) ? Game.viewBounds : null;
+        const minX = vb ? vb.minX - 35 : -30;
+        const maxX = vb ? vb.maxX + 35 : ctx.canvas.width + 30;
+        const minY = vb ? vb.minY - 35 : -30;
+        const maxY = vb ? vb.maxY + 35 : ctx.canvas.height + 30;
+        if (sx < minX || sx > maxX || sy < minY || sy > maxY) return;
 
         ctx.save();
         ctx.translate(sx, sy);
 
-        ctx.fillStyle = 'rgba(0,0,0,0.25)';
+        // Optional Ballard dog on a leash walking slightly ahead on the sidewalk
+        if (this.hasDog && this.state === 'SIDEWALK') {
+            const dogX = Math.cos(this.heading) * 9;
+            const dogY = Math.sin(this.heading) * 9 + 2;
+            ctx.strokeStyle = 'rgba(203, 213, 224, 0.7)';
+            ctx.lineWidth = 0.9;
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(dogX, dogY);
+            ctx.stroke();
+
+            ctx.fillStyle = this.dogColor;
+            ctx.beginPath();
+            ctx.ellipse(dogX, dogY, 3.2, 2.1, this.heading, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(dogX + Math.cos(this.heading) * 2.6, dogY + Math.sin(this.heading) * 2.6 - 1, 1.8, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // Ground shadow
+        ctx.fillStyle = 'rgba(0,0,0,0.28)';
         ctx.beginPath();
         ctx.arc(1, 4, 5, 0, Math.PI * 2);
         ctx.fill();
 
+        // Backpack
+        if (this.hasBackpack) {
+            ctx.fillStyle = '#1a202c';
+            ctx.beginPath();
+            ctx.arc(-Math.cos(this.heading) * 3.2, -Math.sin(this.heading) * 2.2, 3.2, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // Coat / torso
         ctx.fillStyle = this.color;
         ctx.beginPath();
         ctx.arc(0, 0, 5, 0, Math.PI * 2);
         ctx.fill();
 
+        // Head
         ctx.fillStyle = '#fbd38d';
         ctx.beginPath();
         ctx.arc(0, -5, 3.5, 0, Math.PI * 2);
         ctx.fill();
 
-        ctx.fillStyle = '#2d3748';
+        // Hair / Beanie
+        ctx.fillStyle = this.hairColor;
         ctx.beginPath();
-        ctx.arc(0, -6, 3, Math.PI, 0);
+        ctx.arc(0, -6, 3.1, Math.PI, 0);
         ctx.fill();
 
-        const swing = (this.state === 'WAITING') ? 0 : Math.sin(this.walkCycle) * 3;
+        // Walking legs animation (still while waiting for green walk light)
+        const swing = (this.state === 'WAITING') ? 0 : Math.sin(this.walkCycle) * 3.2;
         ctx.strokeStyle = '#2d3748';
-        ctx.lineWidth = 1.5;
+        ctx.lineWidth = 1.6;
         ctx.beginPath();
-        ctx.moveTo(-2, 2); ctx.lineTo(-2 + swing, 6);
-        ctx.moveTo(2, 2);  ctx.lineTo(2 - swing, 6);
+        ctx.moveTo(-2, 2); ctx.lineTo(-2 + swing, 6.2);
+        ctx.moveTo(2, 2);  ctx.lineTo(2 - swing, 6.2);
         ctx.stroke();
+
+        // To-go Ballard coffee cup in hand
+        if (this.hasCoffee && !(typeof Game !== 'undefined' && Game.isRainy)) {
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(3.2, -2.5, 2.4, 3.2);
+            ctx.fillStyle = '#b7791f';
+            ctx.fillRect(3.2, -1.5, 2.4, 1.2);
+        }
 
         if (typeof Game !== 'undefined' && Game.isRainy) {
             ctx.strokeStyle = '#4a5568';
@@ -167,16 +490,27 @@ const Game = {
     gas: 100,
     lives: 3,
     score: 0,
+    cash: 0,
     startTime: 0,
     cam: { x: 0, y: 0 },
+    camLookAheadX: 0,
+    camLookAheadY: 0,
+    cameraGroundElev: 35,
     player: null,
     level: 1,
     timeLimit: 75,
     baseMaxCars: 400,
     maxCars: 400,
+    baseMaxPedestrians: 280,
+    maxPedestrians: 280,
     upgrades: { tires: false, cupholder: false, fueltank: false, sticker: false },
     radioStation: 'KEXP',
     radioShuffle: true,
+    showGPSRoute: true,
+    currentErrand: null,
+    errandStepIndex: 0,
+    errandsCompleted: 0,
+    sideHustles: [],
     pedestrians: [],
     potholes: [],
     puddles: [],
@@ -196,6 +530,188 @@ const Game = {
     debugCollapsed: false,
     viewBounds: null,
     entityGrid: new Map(),
+
+    toggleGPSRoute() {
+        this.showGPSRoute = !this.showGPSRoute;
+        const btn = document.getElementById('gps-route-btn');
+        if (btn) {
+            btn.innerText = this.showGPSRoute ? 'ROUTE: ON [G]' : 'ROUTE: OFF [G]';
+            if (this.showGPSRoute) btn.classList.add('active');
+            else btn.classList.remove('active');
+        }
+        this.showNotification(
+            this.showGPSRoute ? '🧭 GPS ROUTE POLYLINE: SHOWN' : '🧭 GPS ROUTE POLYLINE: HIDDEN',
+            this.showGPSRoute ? '#10b981' : '#64748b'
+        );
+        if (this.minimapCtx && this.minimapCanvas) {
+            this.drawMinimap();
+        }
+        return this.showGPSRoute;
+    },
+
+    showGTABanner(title, subtitle, accentColor = '#f6ad55') {
+        const banner = document.getElementById('gta-mission-banner');
+        const tEl = document.getElementById('gta-banner-title');
+        const sEl = document.getElementById('gta-banner-sub');
+        if (!banner || !tEl || !sEl) return;
+        tEl.innerText = title;
+        tEl.style.color = accentColor;
+        sEl.innerText = subtitle || '';
+        banner.style.borderTopColor = accentColor;
+        banner.style.borderBottomColor = accentColor;
+        banner.style.opacity = '1';
+        banner.style.transform = 'translate(-50%, -50%) scale(1.0)';
+        if (this._gtaBannerTimeout) clearTimeout(this._gtaBannerTimeout);
+        this._gtaBannerTimeout = setTimeout(() => {
+            banner.style.opacity = '0';
+            banner.style.transform = 'translate(-50%, -50%) scale(0.92)';
+        }, 3100);
+    },
+
+    findDestinationOrBusinessByName(targetName) {
+        if (typeof MapData === 'undefined') return null;
+        const norm = String(targetName || '').trim().toUpperCase();
+        if (MapData.destinations) {
+            const d = MapData.destinations.find(item => item.name.toUpperCase() === norm);
+            if (d) return d;
+        }
+        if (MapData.businesses) {
+            const b = MapData.businesses.find(item => item.name.toUpperCase() === norm);
+            if (b) return b;
+        }
+        return (MapData.destinations && MapData.destinations[0]) || null;
+    },
+
+    startNewErrand(errandIndex = null) {
+        const errands = (typeof MapData !== 'undefined' && MapData.errands && MapData.errands.length > 0)
+            ? MapData.errands
+            : null;
+        if (!errands) return;
+
+        const idx = (typeof errandIndex === 'number')
+            ? ((errandIndex % errands.length) + errands.length) % errands.length
+            : ((this.level - 1 + this.errandsCompleted) % errands.length);
+        this.currentErrand = errands[idx];
+        this.errandStepIndex = 0;
+        this.applyErrandStepTarget();
+    },
+
+    applyErrandStepTarget() {
+        if (!this.currentErrand || !this.currentErrand.steps || this.currentErrand.steps.length === 0) return;
+        const step = this.currentErrand.steps[Math.min(this.errandStepIndex, this.currentErrand.steps.length - 1)];
+        const dest = this.findDestinationOrBusinessByName(step.targetName) || MapData.destinations[0];
+        if (!dest) return;
+
+        // Restore previous destination tile back to normal building parcel if map is already generated
+        if (this.map && this.map.length > 0 && this.destTile) {
+            const oldX = this.destTile.x;
+            const oldY = this.destTile.y;
+            if (this.map[oldY] && this.map[oldY][oldX] === 4) {
+                this.map[oldY][oldX] = 0;
+                if (this._cachedBuildingGrid && this._cachedBuildingGrid[oldY] && this._cachedBuildingGrid[oldY][oldX]) {
+                    const bld = this._cachedBuildingGrid[oldY][oldX];
+                    this.buildingGrid[oldY][oldX] = bld;
+                    if (!this.buildings.includes(bld)) this.buildings.push(bld);
+                }
+            }
+        }
+
+        this.destTile = { x: dest.x, y: dest.y };
+        if (this.map && this.map[dest.y]) {
+            this.map[dest.y][dest.x] = 4;
+            if (this.buildingGrid && this.buildingGrid[dest.y]) {
+                this.buildingGrid[dest.y][dest.x] = null;
+            }
+            if (this.parkGrid && this.parkGrid[dest.y]) this.parkGrid[dest.y][dest.x] = null;
+            if (this.waterGrid && this.waterGrid[dest.y]) this.waterGrid[dest.y][dest.x] = false;
+        }
+
+        this.currentDestName = dest.name;
+        this.currentDestDesc = step.instruction || dest.desc || '';
+        this.currentStepType = step.type || 'DELIVER';
+
+        const totalSteps = this.currentErrand.steps.length;
+        const stepNum = this.errandStepIndex + 1;
+        const stepBadgeEl = document.getElementById('errand-steps-display');
+        if (stepBadgeEl) {
+            stepBadgeEl.innerText = `STEP ${stepNum}/${totalSteps} • $${this.currentErrand.rewardCash}`;
+        }
+        const titleEl = document.getElementById('errand-title-display');
+        if (titleEl) {
+            titleEl.innerText = this.currentErrand.title;
+        }
+        const clientEl = document.getElementById('errand-client-display');
+        if (clientEl) {
+            clientEl.innerText = `👤 ${this.currentErrand.client}`;
+        }
+        const tNameEl = document.getElementById('target-name-display');
+        if (tNameEl) {
+            const prefix = step.type === 'PICKUP' ? '📦 Pick up @ ' : '🏁 Deliver to ';
+            tNameEl.innerText = prefix + this.currentDestName;
+        }
+        const tDescEl = document.getElementById('target-desc-display');
+        if (tDescEl) {
+            tDescEl.innerText = this.currentDestDesc;
+        }
+
+        this._lastGPSKey = null;
+        if (this.player) {
+            this.computeGPSRoute();
+        }
+    },
+
+    advanceErrandStep() {
+        if (!this.currentErrand || !this.currentErrand.steps) {
+            this.win();
+            return;
+        }
+        const step = this.currentErrand.steps[this.errandStepIndex];
+        if (this.errandStepIndex < this.currentErrand.steps.length - 1) {
+            // Intermediate pickup completed! Advance to next stop in the GTA errand!
+            this.errandStepIndex++;
+            const stepBonusCash = 100;
+            this.cash += stepBonusCash;
+            this.score += stepBonusCash;
+            this.modChill(15);
+            this.timeLimit += 28; // Add 28s for the next leg of the errand!
+            AudioSys.collect();
+            const quote = (step && step.npcLine) ? `"${step.npcLine}"` : 'Cargo loaded!';
+            this.applyErrandStepTarget();
+            this.spawnText(this.player.x, this.player.y - 25, `+$${stepBonusCash} PICKUP!`, '#fbbf24');
+            this.showGTABanner(
+                `STEP ${this.errandStepIndex}/${this.currentErrand.steps.length} COMPLETE!`,
+                `${quote} → NEXT: ${this.currentDestName}`,
+                '#38bdf8'
+            );
+            this.showNotification(`📦 ${quote}`, '#d97706');
+            this.updateHUD();
+        } else {
+            // Final delivery step completed!
+            const reward = this.currentErrand.rewardCash || 350;
+            this.cash += reward;
+            this.score += reward;
+            this.errandsCompleted++;
+            const quote = (step && step.npcLine) ? `"${step.npcLine}"` : 'Errand complete!';
+            this.showGTABanner(
+                'ERRAND PASSED!',
+                `RESPECT + • +$${reward} CASH • ${quote}`,
+                '#f6ad55'
+            );
+            this.win();
+        }
+    },
+
+    skipErrandDebug() {
+        this.errandsCompleted++;
+        this.startNewErrand();
+        if (this.currentErrand) {
+            this.showNotification(`📋 NEW ERRAND: ${this.currentErrand.title} ($${this.currentErrand.rewardCash})`, '#f6ad55');
+        }
+    },
+
+    pickNewDestinationDebug() {
+        this.skipErrandDebug();
+    },
 
     toggleCruiseControl() {
         if (!this.player || this.state !== 'PLAYING') return;
@@ -570,11 +1086,13 @@ const Game = {
     },
 
     getVertRoadAt(c, r) {
-        return (this.vertRoadGrid && this.vertRoadGrid[r] && this.vertRoadGrid[r][c]) || (this.vertRoadByCol && this.vertRoadByCol[c]) || null;
+        if (this.vertRoadGrid && this.vertRoadGrid[r]) return this.vertRoadGrid[r][c] || null;
+        return (this.vertRoadByCol && this.vertRoadByCol[c]) || null;
     },
 
     getHorizRoadAt(c, r) {
-        return (this.horizRoadGrid && this.horizRoadGrid[r] && this.horizRoadGrid[r][c]) || (this.horizRoadByRow && this.horizRoadByRow[r]) || null;
+        if (this.horizRoadGrid && this.horizRoadGrid[r]) return this.horizRoadGrid[r][c] || null;
+        return (this.horizRoadByRow && this.horizRoadByRow[r]) || null;
     },
 
     generateStreetParking() {
@@ -804,7 +1322,29 @@ const Game = {
         if (approach.signalGroup === 'DIAG' && inter.hasDiagPhase) {
             return inter.stateDIAG || 'RED';
         }
-        return (approach.signalGroup || approach.dominantAxis) === 'NS' ? inter.stateNS : inter.stateEW;
+        const axis = (approach.signalGroup === 'NS' || approach.signalGroup === 'EW')
+            ? approach.signalGroup
+            : (approach.dominantAxis || 'NS');
+        return axis === 'NS' ? inter.stateNS : inter.stateEW;
+    },
+
+    isPedestrianWalkGreen(inter, approach) {
+        if (!inter || !approach) return false;
+        // Pedestrians only cross at signalized crosswalks when the walk signal is GREEN for them
+        if (!inter.hasSignal && approach.controlType !== 'SIGNAL') return false;
+
+        // 1. Vehicles on the roadway being crossed must have a RED light
+        const crossedRoadState = this.getApproachSignalState(inter, approach);
+        if (crossedRoadState !== 'RED') return false;
+
+        // 2. The parallel traffic phase must be GREEN (never start crossing during YELLOW or all-red clearance)
+        if (approach.signalGroup === 'DIAG' && inter.hasDiagPhase) {
+            return inter.stateNS === 'GREEN' || inter.stateEW === 'GREEN';
+        }
+        const axis = (approach.signalGroup === 'NS' || approach.signalGroup === 'EW')
+            ? approach.signalGroup
+            : (approach.dominantAxis || 'NS');
+        return axis === 'NS' ? (inter.stateEW === 'GREEN') : (inter.stateNS === 'GREEN');
     },
 
     getNearestDiagonalRoad(x, y) {
@@ -917,6 +1457,7 @@ const Game = {
                 this._spawnCarAtTile(t);
             }
         }
+        this.populateInitialPedestrians();
 
         // Start Seattle FM Radio immediately on splash screen & unlock WebAudio on first user gesture
         this.toggleRadio(this.radioStation || 'KEXP');
@@ -961,6 +1502,8 @@ const Game = {
                 else if (this.state === 'PLAYING') this.honk();
             } else if (e.code === 'KeyV' && this.state === 'PLAYING') {
                 this.toggle3DView();
+            } else if (e.code === 'KeyG' && this.state === 'PLAYING' && !e.repeat) {
+                this.toggleGPSRoute();
             } else if (e.code === 'Minus' || e.code === 'NumpadSubtract') {
                 this.adjustZoom(-0.15);
             } else if (e.code === 'Equal' || e.code === 'NumpadAdd') {
@@ -1140,6 +1683,29 @@ const Game = {
         bindButtonTouch('#win-next-btn', () => this.openGarage());
         bindButtonTouch('#garage-next-btn', () => this.closeGarage());
         bindButtonTouch('.vehicle-card', (card) => this.selectVehicle(card.dataset.vehicle));
+    },
+
+    getSeattleBlockNumber(wx, wy, isVerticalRoad = false) {
+        const SX = (typeof MAP_SCALE_X !== 'undefined') ? MAP_SCALE_X : 3;
+        const SY = (typeof MAP_SCALE_Y !== 'undefined') ? MAP_SCALE_Y : 1.5;
+        const OX = (typeof BASE_OFFSET_X !== 'undefined') ? BASE_OFFSET_X : 6;
+        const OY = (typeof BASE_OFFSET_Y !== 'undefined') ? BASE_OFFSET_Y : 16;
+        const ox = (wx / TILE_SIZE) / SX - OX;
+        const oy = (wy / TILE_SIZE) / SY - OY;
+
+        if (isVerticalRoad) {
+            // North-South avenues use Seattle N/S street block numbers (5400 NW at Market St, 6500 NW at 65th, 8500 NW at 85th, 10000 NW at 100th)
+            let stNum;
+            if (oy <= 0) stNum = Math.round(85 + (-oy) * (15 / 16));
+            else if (oy <= 20) stNum = Math.round(85 - (oy / 20) * 20);
+            else if (oy <= 40) stNum = Math.round(65 - ((oy - 20) / 20) * 11);
+            else stNum = Math.round(54 - ((oy - 40) / 14) * 6);
+            return Math.max(46, Math.min(102, stNum)) * 100;
+        } else {
+            // East-West streets use Seattle E/W avenue block numbers (800 NW at 8th Ave, 1500 NW at 15th Ave, 2200 NW at 22nd Ave, 2400 NW at 24th Ave)
+            const aveNum = Math.round(8 + (62 - ox) * (24 / 58));
+            return Math.max(6, Math.min(39, aveNum)) * 100;
+        }
     },
 
     generateMap() {
@@ -1501,9 +2067,35 @@ const Game = {
                 const signalHeadCount = (controlType === 'SIGNAL') ? (roadLanes >= 4 ? 2 : 1) : 0;
                 const mastArmLen = isRoadArt ? (roadLanes >= 4 ? 48 : 32) : 24;
 
+                // Identify the primary intersecting cross street for SDOT mast-arm & corner street-name signs
+                const streetName = road.name || '';
+                let crossCandidates = node.connectedRoads.filter(r => r !== road && r.name && r.name !== streetName);
+                if (crossCandidates.length === 0) {
+                    crossCandidates = node.connectedRoads.filter(r => r !== road && r.name);
+                }
+                let bestCrossRoad = null;
+                let bestCrossScore = -1;
+                for (const cand of crossCandidates) {
+                    const cAng = Math.atan2((cand.y2 - cand.y1) * TILE_SIZE, (cand.x2 - cand.x1) * TILE_SIZE);
+                    const perp = Math.abs(Math.sin(ang - cAng));
+                    const score = getRoadRank(cand) * 2.0 + perp;
+                    if (score > bestCrossScore) {
+                        bestCrossScore = score;
+                        bestCrossRoad = cand;
+                    }
+                }
+                const crossStreetName = (bestCrossRoad && bestCrossRoad.name) ? bestCrossRoad.name : streetName;
+                const isApproachVert = Math.abs(dy) >= Math.abs(dx);
+                const blockNum = this.getSeattleBlockNumber(cx, cy, isApproachVert);
+                const crossBlockNum = this.getSeattleBlockNumber(cx, cy, !isApproachVert);
+
                 approaches.push({
                     angle: ang,
                     road,
+                    streetName,
+                    crossStreetName,
+                    blockNum,
+                    crossBlockNum,
                     isRoadArt,
                     isRoadDiag,
                     roadLanes,
@@ -1511,6 +2103,7 @@ const Game = {
                     stopDist: appStopDist,
                     stopLineCenter,
                     crosswalkCenter,
+                    cornerPos,
                     lightPos: controlType === 'SIGNAL' ? cornerPos : null,
                     signPos: controlType === 'STOP' ? cornerPos : null,
                     signalHeadCount,
@@ -1558,11 +2151,18 @@ const Game = {
             // Green-wave progression offset along Ballard corridors
             const cycleOffset = Math.floor((node.x * 19 + node.y * 23) % cycleLen);
 
+            const uniqueNames = [];
+            for (const r of [...node.connectedRoads].sort((a, b) => getRoadRank(b) - getRoadRank(a))) {
+                if (r.name && !uniqueNames.includes(r.name)) uniqueNames.push(r.name);
+            }
+            const labelName = uniqueNames.slice(0, 2).join(' & ');
+
             return {
                 x: node.x,
                 y: node.y,
                 worldX: cx,
                 worldY: cy,
+                labelName,
                 connectedRoads: node.connectedRoads,
                 hasSignal,
                 isAllWayStop,
@@ -1591,30 +2191,178 @@ const Game = {
             }
         }
 
-        // --- LANDMARKS & DESTINATIONS ---
-        const dest = MapData.destinations[Math.floor(Math.random() * MapData.destinations.length)];
-        this.destTile = { x: dest.x, y: dest.y };
-        this.map[dest.y][dest.x] = 4;
-        this.parkGrid[dest.y][dest.x] = null;
-        this.waterGrid[dest.y][dest.x] = false;
-        this.currentDestName = dest.name;
-        this.currentDestDesc = dest.desc || "";
-
-        const tNameEl = document.getElementById('target-name-display');
-        if (tNameEl) tNameEl.innerText = "Get to " + this.currentDestName;
-        const tDescEl = document.getElementById('target-desc-display');
-        if (tDescEl) tDescEl.innerText = this.currentDestDesc;
-
-        MapData.landmarks.forEach(l => {
-            if (l.x !== dest.x || l.y !== dest.y) {
-                this.map[l.y][l.x] = 5;
-                this.parkGrid[l.y][l.x] = null;
-                this.waterGrid[l.y][l.x] = false;
+        // Build high-density, intersection-clear Seattle pavement street-name & block-number stencils across all streets
+        this.textOverlay = [];
+        const isNearIntersection = (wx, wy, minDist = 74) => {
+            const gx = Math.floor(wx / TILE_SIZE);
+            const gy = Math.floor(wy / TILE_SIZE);
+            for (let dy = -1; dy <= 1; dy++) {
+                const row = this.intersectionGrid[gy + dy];
+                if (!row) continue;
+                for (let dx = -1; dx <= 1; dx++) {
+                    const cell = row[gx + dx];
+                    if (!cell) continue;
+                    for (let k = 0; k < cell.length; k++) {
+                        if (Math.hypot(wx - cell[k].worldX, wy - cell[k].worldY) < minDist) return true;
+                    }
+                }
             }
+            return false;
+        };
+        const pushStreetLabel = (entry) => {
+            for (let i = 0; i < this.textOverlay.length; i++) {
+                const ex = this.textOverlay[i];
+                if (ex.text === entry.text && Math.hypot(ex.x - entry.x, ex.y - entry.y) < 210) return;
+                if (Math.hypot(ex.x - entry.x, ex.y - entry.y) < 110) return;
+            }
+            this.textOverlay.push(entry);
+        };
+        if (typeof MapData !== 'undefined' && MapData.roads) {
+            for (const r of MapData.roads) {
+                if (!r.name) continue;
+                const isArt = (r.type === 6 || r.type === 7 || r.type === 9);
+                const isColl = Boolean(r.isCollector || r.isBoulevard);
+                if (r.x1 === r.x2) { // Vertical N-S Avenue
+                    const minY = Math.min(r.y1, r.y2);
+                    const maxY = Math.max(r.y1, r.y2);
+                    const span = maxY - minY;
+                    const yCandidates = [];
+                    if (span <= 4) {
+                        yCandidates.push((minY + maxY) * 0.5);
+                    } else {
+                        for (let y = minY + 1.5; y <= maxY - 1.2; y += 4.5) {
+                            yCandidates.push(y);
+                        }
+                    }
+                    const wx = r.x1 * TILE_SIZE + TILE_SIZE / 2;
+                    for (const yTile of yCandidates) {
+                        let wy = yTile * TILE_SIZE + TILE_SIZE / 2;
+                        if (isNearIntersection(wx, wy, 74)) {
+                            const tryUp = wy - TILE_SIZE * 0.75;
+                            const tryDn = wy + TILE_SIZE * 0.75;
+                            if (tryUp > minY * TILE_SIZE + 40 && !isNearIntersection(wx, tryUp, 66)) wy = tryUp;
+                            else if (tryDn < maxY * TILE_SIZE + 80 && !isNearIntersection(wx, tryDn, 66)) wy = tryDn;
+                            else continue;
+                        }
+                        const blk = this.getSeattleBlockNumber(wx, wy, true);
+                        pushStreetLabel({
+                            x: wx,
+                            y: wy,
+                            text: r.name,
+                            blockText: `${blk} BLK`,
+                            vertical: true,
+                            isArterial: isArt,
+                            isCollector: isColl
+                        });
+                    }
+                } else if (r.y1 === r.y2) { // Horizontal E-W Street
+                    const minX = Math.min(r.x1, r.x2);
+                    const maxX = Math.max(r.x1, r.x2);
+                    const span = maxX - minX;
+                    const xCandidates = [];
+                    if (span <= 4) {
+                        xCandidates.push((minX + maxX) * 0.5);
+                    } else {
+                        for (let x = minX + 1.5; x <= maxX - 1.2; x += 4.5) {
+                            xCandidates.push(x);
+                        }
+                    }
+                    const wy = r.y1 * TILE_SIZE + TILE_SIZE / 2;
+                    for (const xTile of xCandidates) {
+                        let wx = xTile * TILE_SIZE + TILE_SIZE / 2;
+                        if (isNearIntersection(wx, wy, 74)) {
+                            const tryL = wx - TILE_SIZE * 0.75;
+                            const tryR = wx + TILE_SIZE * 0.75;
+                            if (tryL > minX * TILE_SIZE + 40 && !isNearIntersection(tryL, wy, 66)) wx = tryL;
+                            else if (tryR < maxX * TILE_SIZE + 80 && !isNearIntersection(tryR, wy, 66)) wx = tryR;
+                            else continue;
+                        }
+                        const blk = this.getSeattleBlockNumber(wx, wy, false);
+                        pushStreetLabel({
+                            x: wx,
+                            y: wy,
+                            text: r.name,
+                            blockText: `${blk} BLK`,
+                            vertical: false,
+                            isArterial: isArt,
+                            isCollector: isColl
+                        });
+                    }
+                } else { // Diagonal / Curvilinear Street
+                    const x1_w = r.x1 * TILE_SIZE + TILE_SIZE / 2;
+                    const y1_w = r.y1 * TILE_SIZE + TILE_SIZE / 2;
+                    const x2_w = r.x2 * TILE_SIZE + TILE_SIZE / 2;
+                    const y2_w = r.y2 * TILE_SIZE + TILE_SIZE / 2;
+                    const len = Math.hypot(x2_w - x1_w, y2_w - y1_w);
+                    let roadAngle = Math.atan2(y2_w - y1_w, x2_w - x1_w);
+                    if (roadAngle > Math.PI / 2) roadAngle -= Math.PI;
+                    if (roadAngle < -Math.PI / 2) roadAngle += Math.PI;
+                    const isMostlyVert = Math.abs(y2_w - y1_w) >= Math.abs(x2_w - x1_w);
+                    const steps = Math.max(1, Math.floor(len / (TILE_SIZE * 4.5)));
+                    for (let s = 1; s <= steps; s++) {
+                        const t = s / (steps + 1);
+                        const wx = x1_w + (x2_w - x1_w) * t;
+                        const wy = y1_w + (y2_w - y1_w) * t;
+                        if (isNearIntersection(wx, wy, 68)) continue;
+                        const blk = this.getSeattleBlockNumber(wx, wy, isMostlyVert);
+                        pushStreetLabel({
+                            x: wx,
+                            y: wy,
+                            text: r.name,
+                            blockText: `${blk} BLK`,
+                            diagonal: true,
+                            angle: roadAngle,
+                            isArterial: isArt,
+                            isCollector: isColl
+                        });
+                    }
+                }
+            }
+        }
+
+        // --- LANDMARKS, MULTI-STOP GTA ERRANDS & DESTINATIONS ---
+        MapData.landmarks.forEach(l => {
+            this.map[l.y][l.x] = 5;
+            this.parkGrid[l.y][l.x] = null;
+            this.waterGrid[l.y][l.x] = false;
         });
+
+        this.startNewErrand();
+        if (!this.destTile || (!this.destTile.x && !this.destTile.y)) {
+            const dest = MapData.destinations[Math.floor(Math.random() * MapData.destinations.length)];
+            this.destTile = { x: dest.x, y: dest.y };
+            this.map[dest.y][dest.x] = 4;
+            this.parkGrid[dest.y][dest.x] = null;
+            this.waterGrid[dest.y][dest.x] = false;
+            this.currentDestName = dest.name;
+            this.currentDestDesc = dest.desc || "";
+        }
 
         this.generateBuildingsAndTrees();
         this.generateStreetParking();
+
+        // Generate GTA Side-Hustle Cash Drops across Ballard road curbs
+        this.sideHustles = [];
+        const hustleTypes = [
+            { title: "VIP ESPRESSO DROP", cash: 75, color: "#fbbf24" },
+            { title: "SUB POP TEST VINYL", cash: 95, color: "#38bdf8" },
+            { title: "FARMERS MKT CRATE", cash: 85, color: "#34d399" },
+            { title: "CRAFT GROWLER RUSH", cash: 110, color: "#f97316" }
+        ];
+        if (this.validSpawnTiles.length > 0) {
+            for (let i = 0; i < 14; i++) {
+                const t = this.validSpawnTiles[Math.floor(Math.random() * this.validSpawnTiles.length)];
+                const hMeta = hustleTypes[i % hustleTypes.length];
+                this.sideHustles.push({
+                    x: t.x * TILE_SIZE + TILE_SIZE / 2,
+                    y: t.y * TILE_SIZE + TILE_SIZE / 2,
+                    title: hMeta.title,
+                    cash: hMeta.cash,
+                    color: hMeta.color,
+                    collected: false
+                });
+            }
+        }
 
         // Generate potholes on road tiles
         this.potholes = [];
@@ -1949,6 +2697,8 @@ const Game = {
     restartGame() {
         this.level = 1;
         this.score = 0;
+        this.cash = 0;
+        this.errandsCompleted = 0;
         this.gas = 100;
         this.lives = 3;
         this.upgrades = { tires: false, cupholder: false, fueltank: false, sticker: false };
@@ -2291,6 +3041,9 @@ const Game = {
             }
         }
 
+        // Pre-populate pedestrians across the entire surrounding neighborhood & horizon ring (just like cars!)
+        this.populateInitialPedestrians();
+
         this.rebuildEntityGrid();
         this.updateHUD();
         this.updateCruiseUI();
@@ -2448,6 +3201,114 @@ const Game = {
         return false;
     },
 
+    spawnPedestrian(preferHorizonRing = false, allowNearStart = false) {
+        if (typeof Pedestrian === 'undefined') return false;
+        if (!this.pedestrians) this.pedestrians = [];
+
+        const focusX = this.player ? this.player.x : (this.cam.x + (this.canvas ? this.canvas.width / 2 : 640));
+        const focusY = this.player ? this.player.y : (this.cam.y + (this.canvas ? this.canvas.height / 2 : 400));
+
+        // During gameplay (preferHorizonRing === true), spawn strictly in the off-screen horizon ring (740px - 2900px)
+        // so pedestrians NEVER pop into existence next to the player on screen, yet fill the entire surrounding area!
+        const minDist = preferHorizonRing ? 740 : (allowNearStart ? 175 : 500);
+        const maxDist = preferHorizonRing ? 2900 : (allowNearStart ? 1100 : 3400);
+
+        const signalInters = this._signalIntersectionsCache || (
+            this._signalIntersectionsCache = (this.intersections || []).filter(it => it && it.hasSignal && it.approaches && it.approaches.length > 0)
+        );
+        const pool = this.validSpawnTiles || [];
+
+        for (let attempts = 0; attempts < 36; attempts++) {
+            // ~42% spawn at signalized intersection corners/crosswalks; ~58% stroll along block sidewalks
+            const trySignal = (signalInters.length > 0) && (Math.random() < 0.42);
+            if (trySignal) {
+                const inter = signalInters[Math.floor(Math.random() * signalInters.length)];
+                const dFocus = Utils.dist(inter.worldX, inter.worldY, focusX, focusY);
+                if (dFocus < minDist || dFocus > maxDist) continue;
+
+                const sigApps = inter.approaches.filter(a => a && a.controlType === 'SIGNAL' && a.crosswalkCenter);
+                if (sigApps.length === 0) continue;
+                const app = sigApps[Math.floor(Math.random() * sigApps.length)];
+                const ped = new Pedestrian(app, inter);
+
+                // If this crosswalk ALREADY has a GREEN walk signal right now, let some horizon pedestrians start
+                // actively waiting or partway across the crosswalk so distant intersections are already in motion!
+                if (this.isPedestrianWalkGreen(inter, app) && Math.random() < 0.45) {
+                    const frac = 0.15 + Math.random() * 0.55;
+                    ped.x = ped.waitX + (ped.targetX - ped.waitX) * frac;
+                    ped.y = ped.waitY + (ped.targetY - ped.waitY) * frac;
+                    ped.state = 'CROSSING';
+                    ped.heading = Math.atan2(ped.targetY - ped.waitY, ped.targetX - ped.waitX);
+                } else if (Math.random() < 0.55) {
+                    ped.x = ped.waitX;
+                    ped.y = ped.waitY;
+                    ped.state = 'WAITING';
+                    ped.heading = Math.atan2(ped.targetY - ped.waitY, ped.targetX - ped.waitX);
+                }
+
+                this.pedestrians.push(ped);
+                return true;
+            } else if (pool.length > 0) {
+                const t = pool[Math.floor(Math.random() * pool.length)];
+                const wx = t.x * TILE_SIZE + TILE_SIZE / 2;
+                const wy = t.y * TILE_SIZE + TILE_SIZE / 2;
+                const dFocus = Utils.dist(wx, wy, focusX, focusY);
+                if (dFocus < minDist || dFocus > maxDist) continue;
+
+                let road = null;
+                if (t.type === 1 || t.type === 6) {
+                    road = this.getVertRoadAt(t.x, t.y);
+                } else if (t.type === 2 || t.type === 7) {
+                    road = this.getHorizRoadAt(t.x, t.y);
+                } else if (t.type === 8 || t.type === 9) {
+                    road = this.getNearestDiagonalRoad(wx, wy).road;
+                }
+                if (!road) continue;
+
+                const x1_w = road.x1 * TILE_SIZE + TILE_SIZE / 2;
+                const y1_w = road.y1 * TILE_SIZE + TILE_SIZE / 2;
+                const x2_w = road.x2 * TILE_SIZE + TILE_SIZE / 2;
+                const y2_w = road.y2 * TILE_SIZE + TILE_SIZE / 2;
+                const rLen = Math.hypot(x2_w - x1_w, y2_w - y1_w) || 1;
+                if (rLen < 120) continue;
+
+                const closest = Utils.getClosestPointOnSegment(wx, wy, x1_w, y1_w, x2_w, y2_w);
+                const frac = Math.max(0.08, Math.min(0.92, closest.t + (Math.random() - 0.5) * (90 / rLen)));
+                const ped = new Pedestrian(null, null, {
+                    road,
+                    side: Math.random() < 0.5 ? -1 : 1,
+                    walkDir: Math.random() < 0.5 ? -1 : 1,
+                    alongFraction: frac
+                });
+                if (ped.state !== 'FINISHED') {
+                    this.pedestrians.push(ped);
+                    return true;
+                }
+            }
+        }
+        return false;
+    },
+
+    populateInitialPedestrians() {
+        if (typeof Pedestrian === 'undefined') return;
+        this.pedestrians = [];
+        this._signalIntersectionsCache = null;
+        this.maxPedestrians = Math.floor((this.baseMaxPedestrians || 280) * Math.max(0.5, this.trafficMult || 1.0));
+
+        // 1. Populate ~75 pedestrians in the immediate neighborhood around the starting area (175px - 1100px)
+        const nearTarget = Math.min(75, Math.floor(this.maxPedestrians * 0.28));
+        for (let i = 0; i < nearTarget * 2 && this.pedestrians.length < nearTarget; i++) {
+            this.spawnPedestrian(false, true);
+        }
+
+        // 2. Populate the remaining ~205 pedestrians across the big horizon area (740px - 2900px)
+        for (let i = 0; i < this.maxPedestrians * 2 && this.pedestrians.length < this.maxPedestrians; i++) {
+            if (!this.spawnPedestrian(true, false)) {
+                this.spawnPedestrian(false, false);
+            }
+        }
+    },
+
     honk() {
         if (this.state !== 'PLAYING') return;
         AudioSys.honk(true);
@@ -2481,6 +3342,20 @@ const Game = {
                 }
             }
         });
+
+        // Startle nearby sidewalk & crosswalk pedestrians when honking
+        if (this.pedestrians && this.pedestrians.length > 0 && this.player) {
+            const pedQuotes = ["Watch it!", "I'm walkin' here!", "Spilled my latte!", "Chill out!", "Typical Ballard driver!"];
+            this.pedestrians.forEach(ped => {
+                if (Utils.dist(ped.x, ped.y, this.player.x, this.player.y) < 165) {
+                    ped.speed = Math.min(0.65, (ped.speed || 0.25) * 1.65);
+                    if (Math.random() < 0.65) {
+                        const q = pedQuotes[Math.floor(Math.random() * pedQuotes.length)];
+                        this.spawnText(ped.x, ped.y - 18, q, "#fbd38d");
+                    }
+                }
+            });
+        }
     },
 
     modChill(amt) {
@@ -2527,9 +3402,50 @@ const Game = {
             livesEl.innerText = hearts;
         }
 
+        if (this.player && this.getActiveRoadForCar) {
+            const active = this.getActiveRoadForCar(this.player.x, this.player.y, this.player.angle);
+            if (active && active.road && active.road.name) {
+                const r = active.road;
+                const isVert = Math.abs(r.y2 - r.y1) >= Math.abs(r.x2 - r.x1);
+                const blk = this.getSeattleBlockNumber ? this.getSeattleBlockNumber(this.player.x, this.player.y, isVert) : 5400;
+                let crossAhead = '';
+                const nearInters = this.getNearbyIntersections ? this.getNearbyIntersections(this.player.x, this.player.y) : [];
+                let bestDist = 360;
+                const hx = Math.cos(this.player.angle);
+                const hy = Math.sin(this.player.angle);
+                for (let i = 0; i < nearInters.length; i++) {
+                    const it = nearInters[i];
+                    const dx = it.worldX - this.player.x;
+                    const dy = it.worldY - this.player.y;
+                    const d = Math.hypot(dx, dy);
+                    if (d > 24 && d < bestDist && (dx * hx + dy * hy) / d > 0.55) {
+                        const crossRd = (it.connectedRoads || []).find(cr => cr && cr.name && cr.name !== r.name);
+                        if (crossRd) {
+                            bestDist = d;
+                            crossAhead = crossRd.name;
+                        }
+                    }
+                }
+                this.upcomingCrossStreet = crossAhead;
+                this.currentStreetName = crossAhead
+                    ? `${r.name} (${blk} Blk) ➔ ${crossAhead}`
+                    : `${r.name} • ${blk} Blk`;
+            }
+        }
+
         const stEl = document.getElementById('current-street-display');
         if (stEl && this.currentStreetName) {
             stEl.innerText = "📍 " + this.currentStreetName;
+        }
+
+        const cashEl = document.getElementById('cash-hud-display');
+        if (cashEl) {
+            cashEl.innerText = "$" + (this.cash || 0);
+        }
+
+        const scoreEl = document.getElementById('score-hud-display');
+        if (scoreEl) {
+            scoreEl.innerText = this.score || 0;
         }
     },
 
@@ -2791,8 +3707,8 @@ const Game = {
             this._drawMinimapStaticLayers(mctx, mw, mh);
         }
 
-        // 3B. Highlighted Turn-by-Turn GPS Route on Minimap!
-        if (this.gpsPath && this.gpsPath.length > 1) {
+        // 3B. Highlighted Turn-by-Turn GPS Route on Minimap (toggled via showGPSRoute / KeyG)!
+        if (this.showGPSRoute && this.gpsPath && this.gpsPath.length > 1) {
             mctx.strokeStyle = '#38bdf8';
             mctx.lineWidth = 2.2;
             mctx.beginPath();
@@ -2804,6 +3720,16 @@ const Game = {
                 else mctx.lineTo(mx, my);
             }
             mctx.stroke();
+        }
+
+        // 4B. Active GTA Side-Hustle Cash Drops on Minimap
+        if (this.sideHustles && this.sideHustles.length > 0) {
+            mctx.fillStyle = '#fbbf24';
+            for (let i = 0; i < this.sideHustles.length; i++) {
+                const h = this.sideHustles[i];
+                if (h.collected) continue;
+                mctx.fillRect((h.x / TILE_SIZE) * sx - 1.3, (h.y / TILE_SIZE) * sy - 1.3, 2.6, 2.6);
+            }
         }
 
         // 5. Destination Beacon
@@ -2961,7 +3887,23 @@ const Game = {
                 if (this.player.x > destX - 36 && this.player.x < destX + TILE_SIZE + 36 &&
                     this.player.y > destY - 36 && this.player.y < destY + TILE_SIZE + 36) {
                     if (Math.abs(this.player.speed) < 2.2) {
-                        this.win();
+                        this.advanceErrandStep();
+                    }
+                }
+
+                // GTA Side-Hustle Street Pickups
+                if (this.sideHustles && this.sideHustles.length > 0) {
+                    for (let i = 0; i < this.sideHustles.length; i++) {
+                        const h = this.sideHustles[i];
+                        if (!h.collected && Utils.dist(this.player.x, this.player.y, h.x, h.y) < 42) {
+                            h.collected = true;
+                            this.cash += h.cash;
+                            this.score += h.cash;
+                            this.modChill(10);
+                            AudioSys.collect();
+                            this.spawnText(h.x, h.y - 18, `+$${h.cash} ${h.title}!`, '#fbbf24');
+                            this.showNotification(`💵 SIDE HUSTLE: ${h.title} (+$${h.cash})`, '#d97706');
+                        }
                     }
                 }
 
@@ -3150,6 +4092,36 @@ const Game = {
                 const bt = this.boats[i];
                 const dir = Math.cos(bt.angle) >= 0 ? 1 : -1;
                 bt.x = (bt.x + dir * 0.22 + mapW) % mapW;
+            }
+        }
+
+        // Spawn, Recycle & Update Living Ballard Sidewalk & Crosswalk Pedestrians across the large horizon area (just like cars!)
+        if (this.intersections && this.intersections.length > 0 && typeof Pedestrian !== 'undefined') {
+            if (!this.pedestrians) this.pedestrians = [];
+            if (this.pedestrians.length === 0 && (this.maxPedestrians || 280) > 0) {
+                this.populateInitialPedestrians();
+            }
+            const focusX = this.player ? this.player.x : (this.cam.x + (this.canvas ? this.canvas.width / 2 : 640));
+            const focusY = this.player ? this.player.y : (this.cam.y + (this.canvas ? this.canvas.height / 2 : 400));
+            const maxPeds = this.maxPedestrians || 280;
+
+            for (let i = 0; i < this.pedestrians.length; i++) {
+                const ped = this.pedestrians[i];
+                // Recycle pedestrians that fall far behind outside the 3300px active neighborhood radius
+                if (Math.abs(ped.x - focusX) > 3300 || Math.abs(ped.y - focusY) > 3300 || Utils.dist(ped.x, ped.y, focusX, focusY) > 3300) {
+                    ped.state = 'FINISHED';
+                    continue;
+                }
+                ped.update();
+            }
+            this.pedestrians = this.pedestrians.filter(p => p.state !== 'FINISHED');
+
+            // Continuously spawn replacement pedestrians in the off-screen horizon ring (740px - 2900px from player)
+            // so pedestrians never pop in next to the player on screen, yet fill every street you drive into!
+            for (let s = 0; s < 5 && this.pedestrians.length < maxPeds; s++) {
+                if (!this.spawnPedestrian(true, false)) {
+                    this.spawnPedestrian(false, false);
+                }
             }
         }
 
@@ -3477,7 +4449,7 @@ const Game = {
             }
         }
 
-        // Camera Update (Supports Free Cam Panning, Zoom, Pitch Tilt & Impact Screen Shake)
+        // Camera Update (Supports Speed-Adaptive Look-Ahead, Constant Camera Height Relative to Car, Free Cam Panning, Zoom, Pitch Tilt & Screen Shake)
         const centerX = this.canvas.width / 2;
         const centerY = this.canvas.height / 2;
         const effScaleX = this.zoom || 1.0;
@@ -3501,10 +4473,21 @@ const Game = {
             if (this.keys['ArrowLeft'] || this.keys['KeyA']) this.cam.x -= panSpeed;
             if (this.keys['ArrowRight'] || this.keys['KeyD']) this.cam.x += panSpeed;
         } else if (this.player) {
-            const targetCamX = this.player.x - centerX;
-            const targetCamY = this.player.y - centerY;
-            this.cam.x = Utils.lerp(this.cam.x, targetCamX, 0.12);
-            this.cam.y = Utils.lerp(this.cam.y, targetCamY, 0.12);
+            // Keep camera strictly fixed directly on top of the player's car at all speeds
+            this.camLookAheadX = 0;
+            this.camLookAheadY = 0;
+            this.cam.x = this.player.x - centerX;
+            this.cam.y = this.player.y - centerY;
+        }
+
+        // Keep camera at a constant height relative to where the player's car is on the terrain
+        if (typeof MapData !== 'undefined' && MapData.getElevationAt) {
+            const focusWorldX = this.player ? this.player.x : (this.cam.x + centerX);
+            const focusWorldY = this.player ? this.player.y : (this.cam.y + centerY);
+            this.cameraGroundElev = MapData.getElevationAt(focusWorldX, focusWorldY);
+        }
+        if (typeof Projection3D !== 'undefined' && Projection3D.beginFrame) {
+            Projection3D.beginFrame(this.cameraGroundElev);
         }
 
         let shakeX = 0, shakeY = 0;
@@ -3648,17 +4631,28 @@ const Game = {
                         }
                     }
                 } else if (this.parkGrid[r] && this.parkGrid[r][c]) {
-                    // Ballard Park Block
-                    this.ctx.fillStyle = this.isRainy ? '#a0aec0' : '#cbd5e0';
+                    // Seamless Ballard Park Lawn & Outer Perimeter Sidewalk
+                    const pk = this.parkGrid[r][c];
+                    const isCemetery = pk.name === 'CROWN HILL CEMETERY';
+                    const isEvenStripe = ((r + c) & 1) === 0;
+                    if (isCemetery) {
+                        this.ctx.fillStyle = this.isRainy
+                            ? (isEvenStripe ? '#1e4631' : '#234e38')
+                            : (isEvenStripe ? '#276749' : '#2f855a');
+                    } else {
+                        this.ctx.fillStyle = this.isRainy
+                            ? (isEvenStripe ? '#22543d' : '#276749')
+                            : (isEvenStripe ? '#2f855a' : '#38a169');
+                    }
                     this.ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
-                    this.ctx.fillStyle = this.isRainy ? '#22543d' : '#38a169';
-                    this.ctx.fillRect(x + 6, y + 6, TILE_SIZE - 12, TILE_SIZE - 12);
-                    this.ctx.strokeStyle = this.isRainy ? '#718096' : '#e2e8f0';
-                    this.ctx.lineWidth = 5;
-                    this.ctx.beginPath();
-                    this.ctx.moveTo(x + 6, y + TILE_SIZE / 2);
-                    this.ctx.lineTo(x + TILE_SIZE - 6, y + TILE_SIZE / 2);
-                    this.ctx.stroke();
+
+                    // Draw concrete sidewalk border only along outer edges of the park
+                    const sideCol = this.isRainy ? '#a0aec0' : '#cbd5e0';
+                    this.ctx.fillStyle = sideCol;
+                    if (!this.parkGrid[r - 1] || this.parkGrid[r - 1][c] !== pk) this.ctx.fillRect(x, y, TILE_SIZE, 6);
+                    if (!this.parkGrid[r + 1] || this.parkGrid[r + 1][c] !== pk) this.ctx.fillRect(x, y + TILE_SIZE - 6, TILE_SIZE, 6);
+                    if (this.parkGrid[r][c - 1] !== pk) this.ctx.fillRect(x, y, 6, TILE_SIZE);
+                    if (this.parkGrid[r][c + 1] !== pk) this.ctx.fillRect(x + TILE_SIZE - 6, y, 6, TILE_SIZE);
                 } else {
                     const t = this.map[r][c];
                     const hasBld = this.buildingGrid[r] && this.buildingGrid[r][c];
@@ -3721,6 +4715,229 @@ const Game = {
                         }
                     }
                 }
+            }
+        }
+
+        // Named Ballard Parks, Athletic Playfields (Baseball Diamonds & Soccer Pitches), Crown Hill Cemetery, Ballard Commons Skate Bowl & 3D Seattle Parks Signboards
+        if (typeof MapData !== 'undefined' && MapData.parks) {
+            for (let pIdx = 0; pIdx < MapData.parks.length; pIdx++) {
+                const p = MapData.parks[pIdx];
+                const px1 = p.x1 * TILE_SIZE - cx;
+                const py1 = p.y1 * TILE_SIZE - cy;
+                const pw = Math.max(TILE_SIZE, (p.x2 - p.x1 + 1) * TILE_SIZE);
+                const ph = Math.max(TILE_SIZE, (p.y2 - p.y1 + 1) * TILE_SIZE);
+                if (px1 + pw < vMinX - 140 || px1 > vMaxX + 140 || py1 + ph < vMinY - 140 || py1 > vMaxY + 140) continue;
+
+                const isPlayfield = p.name.includes('PLAYFIELD') || p.name.includes('PLAYGROUND') || p.name.includes('FIELD');
+                const isCemetery = p.name === 'CROWN HILL CEMETERY';
+                const isCommons = p.name === 'BALLARD COMMONS PARK';
+                const isLocks = p.name === 'BALLARD LOCKS GARDENS';
+
+                this.ctx.save();
+                if (isPlayfield) {
+                    // 1. Lined Athletic Soccer / Multi-Purpose Turf Field
+                    const padX = Math.min(34, pw * 0.12);
+                    const padY = Math.min(28, ph * 0.14);
+                    const fx = px1 + padX;
+                    const fy = py1 + padY;
+                    const fw = Math.max(60, pw - padX * 2);
+                    const fh = Math.max(48, ph - padY * 2);
+
+                    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.58)';
+                    this.ctx.lineWidth = 2;
+                    this.ctx.strokeRect(fx, fy, fw, fh);
+                    // Halfway line & center circle
+                    this.ctx.beginPath();
+                    if (fw >= fh) {
+                        this.ctx.moveTo(fx + fw * 0.5, fy);
+                        this.ctx.lineTo(fx + fw * 0.5, fy + fh);
+                    } else {
+                        this.ctx.moveTo(fx, fy + fh * 0.5);
+                        this.ctx.lineTo(fx + fw, fy + fh * 0.5);
+                    }
+                    this.ctx.stroke();
+                    this.ctx.beginPath();
+                    this.ctx.arc(fx + fw * 0.5, fy + fh * 0.5, Math.min(fw, fh) * 0.22, 0, Math.PI * 2);
+                    this.ctx.stroke();
+
+                    // 2. Red-Clay Baseball / Softball Infield Diamond in the SW corner of the playfield
+                    const homeX = px1 + 26;
+                    const homeY = py1 + ph - 26;
+                    const diamondR = Math.min(82, Math.min(pw, ph) * 0.44);
+                    // Clay dirt fan
+                    this.ctx.fillStyle = this.isRainy ? '#8b4513' : '#b7652c';
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(homeX, homeY);
+                    this.ctx.arc(homeX, homeY, diamondR, -Math.PI * 0.48, -0.02);
+                    this.ctx.closePath();
+                    this.ctx.fill();
+                    // Grass infield cutout
+                    const baseDist = diamondR * 0.62;
+                    this.ctx.fillStyle = this.isRainy ? '#22543d' : '#2f855a';
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(homeX + 10, homeY - 10);
+                    this.ctx.lineTo(homeX + baseDist - 6, homeY - 10);
+                    this.ctx.lineTo(homeX + baseDist - 6, homeY - baseDist + 6);
+                    this.ctx.lineTo(homeX + 10, homeY - baseDist + 6);
+                    this.ctx.closePath();
+                    this.ctx.fill();
+                    // White chalk foul lines & bases
+                    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+                    this.ctx.lineWidth = 1.6;
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(homeX, homeY);
+                    this.ctx.lineTo(homeX + diamondR * 1.12, homeY);
+                    this.ctx.moveTo(homeX, homeY);
+                    this.ctx.lineTo(homeX, homeY - diamondR * 1.12);
+                    this.ctx.stroke();
+                    // Pitcher's mound
+                    this.ctx.fillStyle = this.isRainy ? '#8b4513' : '#c06c30';
+                    this.ctx.beginPath();
+                    this.ctx.arc(homeX + baseDist * 0.5, homeY - baseDist * 0.5, 4.5, 0, Math.PI * 2);
+                    this.ctx.fill();
+                    // Home plate & 1st, 2nd, 3rd bases
+                    this.ctx.fillStyle = '#ffffff';
+                    this.ctx.fillRect(homeX - 2, homeY - 2, 4.5, 4.5);
+                    this.ctx.fillRect(homeX + baseDist - 2.5, homeY - 3.5, 4.5, 4.5);
+                    this.ctx.fillRect(homeX + baseDist - 2.5, homeY - baseDist - 2.5, 4.5, 4.5);
+                    this.ctx.fillRect(homeX - 1, homeY - baseDist - 2.5, 4.5, 4.5);
+                } else if (isCemetery) {
+                    // Crown Hill Cemetery: Peaceful gravel carriage loop paths, wrought-iron perimeter fence & rows of historic granite headstones
+                    this.ctx.strokeStyle = this.isRainy ? '#64748b' : '#94a3b8';
+                    this.ctx.lineWidth = 7;
+                    this.ctx.strokeRect(px1 + 26, py1 + 24, Math.max(40, pw - 52), Math.max(40, ph - 48));
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(px1 + pw * 0.5, py1 + 8);
+                    this.ctx.lineTo(px1 + pw * 0.5, py1 + ph - 8);
+                    this.ctx.stroke();
+
+                    // Wrought-iron perimeter fence posts
+                    this.ctx.strokeStyle = '#1e293b';
+                    this.ctx.lineWidth = 1.6;
+                    this.ctx.strokeRect(px1 + 8, py1 + 8, pw - 16, ph - 16);
+
+                    // Rows of granite headstones & memorials
+                    for (let gy = py1 + 38; gy < py1 + ph - 32; gy += 22) {
+                        for (let gx = px1 + 42; gx < px1 + pw - 38; gx += 18) {
+                            if (Math.abs(gx - (px1 + pw * 0.5)) < 14) continue;
+                            // Headstone shadow
+                            this.ctx.fillStyle = 'rgba(15, 23, 42, 0.35)';
+                            this.ctx.fillRect(gx + 1.5, gy + 1.5, 6, 4);
+                            // Granite headstone tablet
+                            this.ctx.fillStyle = ((gx + gy) % 3 === 0) ? '#94a3b8' : '#cbd5e1';
+                            this.ctx.fillRect(gx, gy - 2, 6, 5);
+                        }
+                    }
+                    // Central pioneer obelisk monument
+                    const obX = px1 + pw * 0.5;
+                    const obY = py1 + ph * 0.5;
+                    this.ctx.fillStyle = '#64748b';
+                    this.ctx.fillRect(obX - 8, obY - 8, 16, 16);
+                    this.ctx.fillStyle = '#e2e8f0';
+                    this.ctx.fillRect(obX - 4.5, obY - 4.5, 9, 9);
+                } else if (isCommons) {
+                    // Ballard Commons Park: Iconic Concrete Skate Bowl & Interactive Spray Plaza
+                    this.ctx.strokeStyle = this.isRainy ? '#94a3b8' : '#cbd5e1';
+                    this.ctx.lineWidth = 8;
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(px1 + 12, py1 + ph - 12);
+                    this.ctx.lineTo(px1 + pw - 12, py1 + 12);
+                    this.ctx.stroke();
+
+                    // Kidney-shaped concrete Skate Bowl in NE section
+                    const bowlX = px1 + pw * 0.68;
+                    const bowlY = py1 + ph * 0.45;
+                    this.ctx.fillStyle = '#94a3b8';
+                    this.ctx.beginPath();
+                    this.ctx.arc(bowlX - 14, bowlY, 22, 0, Math.PI * 2);
+                    this.ctx.arc(bowlX + 12, bowlY + 4, 18, 0, Math.PI * 2);
+                    this.ctx.fill();
+                    this.ctx.fillStyle = '#64748b';
+                    this.ctx.beginPath();
+                    this.ctx.arc(bowlX - 14, bowlY, 15, 0, Math.PI * 2);
+                    this.ctx.arc(bowlX + 12, bowlY + 4, 12, 0, Math.PI * 2);
+                    this.ctx.fill();
+
+                    // Circular water-spray fountain plaza in SW section
+                    const plzX = px1 + pw * 0.30;
+                    const plzY = py1 + ph * 0.55;
+                    this.ctx.fillStyle = '#cbd5e1';
+                    this.ctx.beginPath();
+                    this.ctx.arc(plzX, plzY, 24, 0, Math.PI * 2);
+                    this.ctx.fill();
+                    this.ctx.strokeStyle = '#38bdf8';
+                    this.ctx.lineWidth = 2;
+                    this.ctx.beginPath();
+                    this.ctx.arc(plzX, plzY, 14, 0, Math.PI * 2);
+                    this.ctx.stroke();
+                } else {
+                    // Scenic Neighborhood & Waterfront Parks (Ballard Locks Gardens, Salmon Bay Park, Sunset Hill Park, Kirke Park, Golden Gardens)
+                    this.ctx.strokeStyle = this.isRainy ? '#718096' : '#d6bc8b';
+                    this.ctx.lineWidth = 6;
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(px1 + 10, py1 + ph * 0.5);
+                    this.ctx.quadraticCurveTo(px1 + pw * 0.5, py1 + ph * 0.28, px1 + pw - 10, py1 + ph * 0.5);
+                    this.ctx.moveTo(px1 + pw * 0.5, py1 + 10);
+                    this.ctx.lineTo(px1 + pw * 0.5, py1 + ph - 10);
+                    this.ctx.stroke();
+
+                    // Central stone plaza / overlook circle
+                    this.ctx.fillStyle = this.isRainy ? '#94a3b8' : '#e2e8f0';
+                    this.ctx.beginPath();
+                    this.ctx.arc(px1 + pw * 0.5, py1 + ph * 0.5, 16, 0, Math.PI * 2);
+                    this.ctx.fill();
+
+                    if (isLocks) {
+                        // Hiram M. Chittenden Locks concrete canal wall & botanical flowerbeds
+                        this.ctx.fillStyle = '#f6ad55';
+                        this.ctx.beginPath();
+                        this.ctx.arc(px1 + pw * 0.28, py1 + ph * 0.38, 9, 0, Math.PI * 2);
+                        this.ctx.fill();
+                        this.ctx.fillStyle = '#f687b3';
+                        this.ctx.beginPath();
+                        this.ctx.arc(px1 + pw * 0.72, py1 + ph * 0.38, 9, 0, Math.PI * 2);
+                        this.ctx.fill();
+                    }
+                }
+
+                // 3D Seattle Parks & Recreation Carved Green & Cedar Entrance Signboard
+                const signGroundX = px1 + pw * 0.5;
+                const signGroundY = py1 + ph - 12;
+                const topSign = (typeof Projection3D !== 'undefined')
+                    ? Projection3D.project(signGroundX, signGroundY, 15, centerX, centerY)
+                    : { x: signGroundX, y: signGroundY - 10 };
+
+                // Cedar posts from ground to signboard
+                this.ctx.strokeStyle = '#744210';
+                this.ctx.lineWidth = 2.6;
+                this.ctx.beginPath();
+                this.ctx.moveTo(signGroundX - 28, signGroundY);
+                this.ctx.lineTo(topSign.x - 28, topSign.y + 4);
+                this.ctx.moveTo(signGroundX + 28, signGroundY);
+                this.ctx.lineTo(topSign.x + 28, topSign.y + 4);
+                this.ctx.stroke();
+
+                this.ctx.font = 'bold 9px "Inter", sans-serif';
+                const labelTxt = p.name.toUpperCase();
+                const boardW = Math.max(78, this.ctx.measureText(labelTxt).width + 18);
+                const boardH = 16;
+
+                // Drop shadow
+                this.ctx.fillStyle = 'rgba(15, 23, 42, 0.45)';
+                this.ctx.fillRect(topSign.x - boardW * 0.5 + 2, topSign.y - boardH * 0.5 + 2, boardW, boardH);
+
+                // Seattle Parks deep forest-green board with warm cedar/gold top & bottom trim
+                this.ctx.fillStyle = isCemetery ? '#1e293b' : '#14532d';
+                this.ctx.fillRect(topSign.x - boardW * 0.5, topSign.y - boardH * 0.5, boardW, boardH);
+                this.ctx.strokeStyle = '#d69e2e';
+                this.ctx.lineWidth = 1.6;
+                this.ctx.strokeRect(topSign.x - boardW * 0.5, topSign.y - boardH * 0.5, boardW, boardH);
+
+                this.ctx.fillStyle = '#ffffff';
+                this.ctx.textAlign = 'center';
+                this.ctx.textBaseline = 'middle';
+                this.ctx.fillText(labelTxt, topSign.x, topSign.y + 0.5);
+                this.ctx.restore();
             }
         }
 
@@ -4347,9 +5564,9 @@ const Game = {
         });
 
         // =====================================================================
-        // LAYER 3B: TURN-BY-TURN ON-ROAD GLOWING GPS ROUTE RIBBON
+        // LAYER 3B: TURN-BY-TURN ON-ROAD GLOWING GPS ROUTE RIBBON (Toggled via showGPSRoute / KeyG)
         // =====================================================================
-        if (this.player && this.gpsPath && this.gpsPath.length > 1) {
+        if (this.showGPSRoute && this.player && this.gpsPath && this.gpsPath.length > 1) {
             this.ctx.save();
             this.ctx.lineCap = 'round';
             this.ctx.lineJoin = 'round';
@@ -4711,27 +5928,97 @@ const Game = {
                     this.ctx.fillStyle = '#eab308';
                     this.ctx.fillRect(-5, -curbDist - 3, 10, 5);
                     this.ctx.fillRect(-5, curbDist - 2, 10, 5);
+
+                    // Glowing Seattle Pedestrian WALK (Green) / DON'T WALK (Red-Orange) Signal Beacon at signalized crosswalk corners
+                    if (a.controlType === 'SIGNAL') {
+                        const pedWalkGreen = this.isPedestrianWalkGreen(inter, a);
+                        const pedSigCol = pedWalkGreen ? '#22c55e' : '#ef4444';
+                        this.ctx.fillStyle = '#0f172a';
+                        this.ctx.fillRect(6, -curbDist - 4.5, 6, 6);
+                        this.ctx.fillRect(6, curbDist - 2.5, 6, 6);
+                        this.ctx.fillStyle = pedSigCol;
+                        this.ctx.beginPath();
+                        this.ctx.arc(9, -curbDist - 1.5, 2.1, 0, Math.PI * 2);
+                        this.ctx.arc(9, curbDist + 0.5, 2.1, 0, Math.PI * 2);
+                        this.ctx.fill();
+                    }
                     this.ctx.restore();
                 }
             });
         });
 
-        // Draw Street Names on Asphalt
-        this.ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
-        this.ctx.font = 'bold 14px sans-serif';
+        // Draw High-Contrast Seattle Street Names & Real 100-Block Stencils on Asphalt
         this.ctx.textAlign = 'center';
         this.ctx.textBaseline = 'middle';
         this.textOverlay.forEach(t => {
             const tx = t.x - cx; const ty = t.y - cy;
-            if (tx > vMinX - 120 && tx < vMaxX + 120 && ty > vMinY - 120 && ty < vMaxY + 120) {
+            if (tx > vMinX - 140 && tx < vMaxX + 140 && ty > vMinY - 140 && ty < vMaxY + 140) {
                 this.ctx.save();
                 this.ctx.translate(tx, ty);
                 if (t.vertical) this.ctx.rotate(-Math.PI / 2);
                 else if (t.diagonal) this.ctx.rotate(t.angle);
-                this.ctx.fillText(t.text.toUpperCase(), 0, 0);
+
+                const nameStr = t.text.toUpperCase();
+                const fullStr = t.blockText ? `${nameStr}  •  ${t.blockText}` : nameStr;
+                this.ctx.font = t.isArterial ? '800 13px "Inter", sans-serif' : 'bold 11.5px "Inter", sans-serif';
+                const tw = this.ctx.measureText(fullStr).width;
+
+                // Subtle dark asphalt backing pill so pavement street names & block numbers pop clearly over concrete joints & lane stripes
+                this.ctx.fillStyle = 'rgba(15, 23, 42, 0.42)';
+                this.ctx.fillRect(-tw * 0.5 - 7, -8.5, tw + 14, 17);
+
+                this.ctx.fillStyle = t.isArterial
+                    ? 'rgba(254, 240, 138, 0.78)'
+                    : (t.isCollector ? 'rgba(248, 250, 252, 0.72)' : 'rgba(226, 232, 240, 0.64)');
+                this.ctx.fillText(fullStr, 0, 0.5);
                 this.ctx.restore();
             }
         });
+
+        // Bergen Place Nordic Triangular Plaza (at 22nd Ave NW, NW Market St & Leary Ave NW)
+        {
+            const SX = (typeof MAP_SCALE_X !== 'undefined') ? MAP_SCALE_X : 3;
+            const SY = (typeof MAP_SCALE_Y !== 'undefined') ? MAP_SCALE_Y : 1.5;
+            const OX = (typeof BASE_OFFSET_X !== 'undefined') ? BASE_OFFSET_X : 6;
+            const OY = (typeof BASE_OFFSET_Y !== 'undefined') ? BASE_OFFSET_Y : 16;
+            const bpX = (26.6 + OX) * SX * TILE_SIZE - cx;
+            const bpY = (40.7 + OY) * SY * TILE_SIZE - cy;
+            if (bpX > vMinX - 100 && bpX < vMaxX + 100 && bpY > vMinY - 100 && bpY < vMaxY + 100) {
+                this.ctx.save();
+                // Herringbone brick circular Nordic plaza
+                this.ctx.fillStyle = this.isRainy ? '#742a2a' : '#9b2c2c';
+                this.ctx.beginPath();
+                this.ctx.arc(bpX, bpY, 24, 0, Math.PI * 2);
+                this.ctx.fill();
+                this.ctx.strokeStyle = '#e2e8f0';
+                this.ctx.lineWidth = 2;
+                this.ctx.stroke();
+
+                // Inner granite compass rose & Nordic mural monument
+                this.ctx.fillStyle = '#cbd5e1';
+                this.ctx.beginPath();
+                this.ctx.arc(bpX, bpY, 10, 0, Math.PI * 2);
+                this.ctx.fill();
+
+                // Five Nordic heritage flagpoles (Norway, Sweden, Denmark, Finland, Iceland)
+                const flagCols = ['#ef4444', '#eab308', '#dc2626', '#38bdf8', '#2563eb'];
+                for (let f = 0; f < 5; f++) {
+                    const fang = -Math.PI * 0.85 + f * 0.42;
+                    const fx = bpX + Math.cos(fang) * 18;
+                    const fy = bpY + Math.sin(fang) * 18;
+                    this.ctx.fillStyle = flagCols[f];
+                    this.ctx.beginPath();
+                    this.ctx.arc(fx, fy, 2.8, 0, Math.PI * 2);
+                    this.ctx.fill();
+                }
+
+                this.ctx.font = 'bold 7.5px "Inter", sans-serif';
+                this.ctx.fillStyle = '#fef08a';
+                this.ctx.textAlign = 'center';
+                this.ctx.fillText('BERGEN PLACE', bpX, bpY + 32);
+                this.ctx.restore();
+            }
+        }
 
         // Street-level Props, Curbside Parked Cars & 2.5D Active Vehicles
         this.props.forEach(p => p.draw(this.ctx, cx, cy));
@@ -4855,6 +6142,87 @@ const Game = {
             }
         }
 
+        // GTA Side-Hustle Cash / Delivery Rings on the street
+        if (this.sideHustles && this.sideHustles.length > 0) {
+            const nowMs = Date.now();
+            const pulse = 0.78 + 0.22 * Math.sin(nowMs * 0.006);
+            for (let i = 0; i < this.sideHustles.length; i++) {
+                const sh = this.sideHustles[i];
+                if (sh.collected) continue;
+                const shx = sh.x - cx;
+                const shy = sh.y - cy;
+                if (shx < vMinX - 50 || shx > vMaxX + 50 || shy < vMinY - 50 || shy > vMaxY + 50) continue;
+                this.ctx.save();
+                this.ctx.strokeStyle = `rgba(250, 204, 21, ${0.85 * pulse})`;
+                this.ctx.fillStyle = `rgba(250, 204, 21, ${0.22 * pulse})`;
+                this.ctx.lineWidth = 2.6;
+                this.ctx.beginPath();
+                this.ctx.arc(shx, shy, 18 * pulse, 0, Math.PI * 2);
+                this.ctx.fill();
+                this.ctx.stroke();
+
+                this.ctx.fillStyle = '#fef08a';
+                this.ctx.font = '900 12px "Courier New", monospace';
+                this.ctx.textAlign = 'center';
+                this.ctx.fillText(`+$${sh.cash}`, shx, shy + 4);
+                this.ctx.restore();
+            }
+        }
+
+        // Dynamic Dusk/Night/Rain Headlight Cones & Wet-Asphalt Taillight Reflections
+        if ((this.timeOfDay && this.timeOfDay !== 'DAY') || this.weather !== 'CLEAR') {
+            const beamAlpha = this.timeOfDay === 'NIGHT' ? 0.28 : (this.timeOfDay === 'DUSK' ? 0.18 : 0.12);
+            this.ctx.save();
+            for (let i = 0; i < this.entities.length; i++) {
+                const ent = this.entities[i];
+                const ex = ent.x - cx;
+                const ey = ent.y - cy;
+                if (ex < vMinX - 160 || ex > vMaxX + 160 || ey < vMinY - 160 || ey > vMaxY + 160) continue;
+                const cosA = Math.cos(ent.angle || 0);
+                const sinA = Math.sin(ent.angle || 0);
+                const noseX = ex + cosA * 18;
+                const noseY = ey + sinA * 18;
+                const beamLen = (ent === this.player) ? 145 : 105;
+                const spread = (ent === this.player) ? 46 : 34;
+                const farX = noseX + cosA * beamLen;
+                const farY = noseY + sinA * beamLen;
+                const grad = this.ctx.createLinearGradient(noseX, noseY, farX, farY);
+                grad.addColorStop(0, `rgba(254, 249, 195, ${beamAlpha})`);
+                grad.addColorStop(1, 'rgba(254, 249, 195, 0)');
+                this.ctx.fillStyle = grad;
+                this.ctx.beginPath();
+                this.ctx.moveTo(noseX - sinA * 7, noseY + cosA * 7);
+                this.ctx.lineTo(farX - sinA * spread, farY + cosA * spread);
+                this.ctx.lineTo(farX + sinA * spread, farY - cosA * spread);
+                this.ctx.lineTo(noseX + sinA * 7, noseY - cosA * 7);
+                this.ctx.closePath();
+                this.ctx.fill();
+
+                if (this.weather !== 'CLEAR') {
+                    // Wet-asphalt red taillight reflection streak behind vehicle
+                    const tailX = ex - cosA * 18;
+                    const tailY = ey - sinA * 18;
+                    this.ctx.fillStyle = 'rgba(239, 68, 68, 0.18)';
+                    this.ctx.beginPath();
+                    this.ctx.arc(tailX - cosA * 10, tailY - sinA * 10, 10, 0, Math.PI * 2);
+                    this.ctx.fill();
+                }
+            }
+            this.ctx.restore();
+        }
+
+        // Living Ballard Sidewalk & Crosswalk Pedestrians
+        if (this.pedestrians && this.pedestrians.length > 0) {
+            for (let i = 0; i < this.pedestrians.length; i++) {
+                const ped = this.pedestrians[i];
+                const px = ped.x - cx;
+                const py = ped.y - cy;
+                if (px > vMinX - 40 && px < vMaxX + 40 && py > vMinY - 40 && py < vMaxY + 40) {
+                    ped.draw(this.ctx, cx, cy);
+                }
+            }
+        }
+
         this.entities.sort((a, b) => a.y - b.y);
         this.entities.forEach(e => e.draw(this.ctx, cx, cy));
 
@@ -4889,9 +6257,12 @@ const Game = {
         }
 
         // 3D Gas Station Canopies & 3D Destination Marquee Beacons
+        const stepBadgeText = (this.currentErrand && this.currentErrand.steps)
+            ? `STEP ${this.errandStepIndex + 1}/${this.currentErrand.steps.length}`
+            : '';
         for (const st of visibleSpecialTiles) {
             if (st.type === 4 && Draw.destinationBeacon3D) {
-                Draw.destinationBeacon3D(this.ctx, st.x, st.y, this.currentDestName);
+                Draw.destinationBeacon3D(this.ctx, st.x, st.y, this.currentDestName, this.currentStepType, stepBadgeText);
             } else if (st.type === 5 && Draw.gasStationCanopy3D) {
                 Draw.gasStationCanopy3D(this.ctx, st.x, st.y);
             }
@@ -4959,10 +6330,15 @@ const Game = {
             }
         }
 
-        // 3D Park & Yard Trees
+        // 3D Park & Yard Trees (with camera-relative 2.5D terrain elevation!)
         this.trees.forEach(t => {
             const tx = t.x - cx; const ty = t.y - cy;
-            if (tx > vMinX - 30 && tx < vMaxX + 30 && ty > vMinY - 30 && ty < vMaxY + 30) Draw.tree(this.ctx, tx, ty);
+            if (tx > vMinX - 30 && tx < vMaxX + 30 && ty > vMinY - 30 && ty < vMaxY + 30) {
+                const tr = Math.max(0, Math.min(MAP_H - 1, Math.floor(t.y / TILE_SIZE)));
+                const tc = Math.max(0, Math.min(MAP_W - 1, Math.floor(t.x / TILE_SIZE)));
+                const tElevM = (this.elevationGrid && this.elevationGrid[tr]) ? this.elevationGrid[tr][tc] : undefined;
+                Draw.tree(this.ctx, tx, ty, tElevM);
+            }
         });
 
         // 3D Seattle Boulevard Street Trees planted in the green residential planting strips
@@ -4973,23 +6349,24 @@ const Game = {
                     const tile = this.map[r][c];
                     const x = c * TILE_SIZE - cx;
                     const y = r * TILE_SIZE - cy;
+                    const elevM = (this.elevationGrid && this.elevationGrid[r]) ? this.elevationGrid[r][c] : undefined;
                     if (tile === 1) {
                         const vRoad = this.getVertRoadAt(c, r);
                         if (vRoad && vRoad.hasSidewalk === false) continue;
                         if (vRoad && vRoad.isBoulevard) {
                             // Iconic 14th Ave NW landscaped median trees
-                            Draw.streetTree(this.ctx, x + TILE_SIZE / 2, y + 36, r * 31 + c * 17);
-                            Draw.streetTree(this.ctx, x + TILE_SIZE / 2, y + 88, r * 31 + c * 17 + 3);
+                            Draw.streetTree(this.ctx, x + TILE_SIZE / 2, y + 36, r * 31 + c * 17, elevM);
+                            Draw.streetTree(this.ctx, x + TILE_SIZE / 2, y + 88, r * 31 + c * 17 + 3, elevM);
                         } else if ((r + c) % 2 === 0) {
                             // Curbside planting strip street trees (cherry blossoms, red maples, PNW maples)
-                            Draw.streetTree(this.ctx, x + 7, y + 60, r * 19 + c * 13);
-                            Draw.streetTree(this.ctx, x + TILE_SIZE - 7, y + 60, r * 23 + c * 29);
+                            Draw.streetTree(this.ctx, x + 7, y + 60, r * 19 + c * 13, elevM);
+                            Draw.streetTree(this.ctx, x + TILE_SIZE - 7, y + 60, r * 23 + c * 29, elevM);
                         }
                     } else if (tile === 2 && (r + c) % 2 === 1) {
                         const hRoad = this.getHorizRoadAt(c, r);
                         if (hRoad && hRoad.hasSidewalk === false) continue;
-                        Draw.streetTree(this.ctx, x + 60, y + 7, r * 17 + c * 37);
-                        Draw.streetTree(this.ctx, x + 60, y + TILE_SIZE - 7, r * 41 + c * 11);
+                        Draw.streetTree(this.ctx, x + 60, y + 7, r * 17 + c * 37, elevM);
+                        Draw.streetTree(this.ctx, x + 60, y + TILE_SIZE - 7, r * 41 + c * 11, elevM);
                     }
                 }
             }
@@ -5191,6 +6568,43 @@ const Game = {
 
                             this.ctx.restore();
                         }
+
+                        // 3D Overhead Illuminated SDOT Green Street-Name Sign Blade mounted on the Signal Mast Arm
+                        if (a.crossStreetName) {
+                            const signFrac = headCount >= 2 ? 0.66 : 0.48;
+                            const signX = topL.x + (mastTip.x - topL.x) * signFrac;
+                            const signY = topL.y + (mastTip.y - topL.y) * signFrac - (isPlayersApproach ? 9 : 6);
+                            let armAng = Math.atan2(mastTip.y - topL.y, mastTip.x - topL.x);
+                            if (armAng > Math.PI * 0.5) armAng -= Math.PI;
+                            if (armAng < -Math.PI * 0.5) armAng += Math.PI;
+
+                            this.ctx.save();
+                            this.ctx.translate(signX, signY);
+                            this.ctx.rotate(armAng);
+                            const crossLabel = isPlayersApproach && a.crossBlockNum
+                                ? `${a.crossStreetName.toUpperCase()}  ${a.crossBlockNum}`
+                                : a.crossStreetName.toUpperCase();
+                            this.ctx.font = isPlayersApproach ? '800 8.5px "Inter", sans-serif' : 'bold 7px "Inter", sans-serif';
+                            const bladeW = Math.max(34, this.ctx.measureText(crossLabel).width + (isPlayersApproach ? 12 : 8));
+                            const bladeH = isPlayersApproach ? 11.5 : 9;
+
+                            // Sign drop shadow
+                            this.ctx.fillStyle = 'rgba(15, 23, 42, 0.55)';
+                            this.ctx.fillRect(-bladeW * 0.5 + 1.2, -bladeH * 0.5 + 1.2, bladeW, bladeH);
+
+                            // Reflective SDOT Emerald Green Sign Blade
+                            this.ctx.fillStyle = isPlayersApproach ? '#15803d' : '#166534';
+                            this.ctx.fillRect(-bladeW * 0.5, -bladeH * 0.5, bladeW, bladeH);
+                            this.ctx.strokeStyle = isPlayersApproach ? '#fef08a' : '#f8fafc';
+                            this.ctx.lineWidth = isPlayersApproach ? 1.2 : 0.8;
+                            this.ctx.strokeRect(-bladeW * 0.5, -bladeH * 0.5, bladeW, bladeH);
+
+                            this.ctx.fillStyle = '#ffffff';
+                            this.ctx.textAlign = 'center';
+                            this.ctx.textBaseline = 'middle';
+                            this.ctx.fillText(crossLabel, 0, 0.5);
+                            this.ctx.restore();
+                        }
                     }
                 } else if (a.controlType === 'STOP' && a.signPos) {
                     const sx = a.signPos.x - cx;
@@ -5231,14 +6645,56 @@ const Game = {
                         this.ctx.textAlign = 'center';
                         this.ctx.textBaseline = 'middle';
                         this.ctx.fillText("STOP", 0, 0);
+                        this.ctx.restore();
 
-                        // Green Seattle Street-Name Sign Blade mounted atop the stop sign post
-                        this.ctx.fillStyle = '#15803d';
-                        this.ctx.fillRect(-10, -13, 20, 4);
-                        this.ctx.strokeStyle = '#ffffff';
+                        // Upright Readable Crossed Green Seattle Street-Name Blades atop the Stop Sign Post
+                        if (a.crossStreetName) {
+                            this.ctx.save();
+                            this.ctx.translate(topS.x, topS.y - 13);
+                            const cTxt = a.crossStreetName.toUpperCase();
+                            this.ctx.font = 'bold 6.5px "Inter", sans-serif';
+                            const bw = Math.max(28, this.ctx.measureText(cTxt).width + 7);
+                            this.ctx.fillStyle = '#15803d';
+                            this.ctx.fillRect(-bw * 0.5, -4, bw, 8);
+                            this.ctx.strokeStyle = '#ffffff';
+                            this.ctx.lineWidth = 0.7;
+                            this.ctx.strokeRect(-bw * 0.5, -4, bw, 8);
+                            this.ctx.fillStyle = '#ffffff';
+                            this.ctx.textAlign = 'center';
+                            this.ctx.textBaseline = 'middle';
+                            this.ctx.fillText(cTxt, 0, 0.3);
+                            this.ctx.restore();
+                        }
+                    }
+                } else if (a.controlType === 'NONE' && a.cornerPos && a.crossStreetName && a.dominantAxis === 'NS') {
+                    // Uncontrolled residential corner street-name sign post (one corner per intersection so every residential cross street is recognizable!)
+                    const sx = a.cornerPos.x - cx;
+                    const sy = a.cornerPos.y - cy;
+                    if (sx > vMinX - 40 && sx < vMaxX + 40 && sy > vMinY - 40 && sy < vMaxY + 40) {
+                        const topC = (typeof Projection3D !== 'undefined')
+                            ? Projection3D.project(sx, sy, 15, centerX, centerY)
+                            : { x: sx, y: sy - 10 };
+                        this.ctx.strokeStyle = '#64748b';
+                        this.ctx.lineWidth = 1.8;
+                        this.ctx.beginPath();
+                        this.ctx.moveTo(sx, sy);
+                        this.ctx.lineTo(topC.x, topC.y);
+                        this.ctx.stroke();
+
+                        this.ctx.save();
+                        this.ctx.translate(topC.x, topC.y - 3);
+                        const cTxt = a.crossStreetName.toUpperCase();
+                        this.ctx.font = 'bold 6px "Inter", sans-serif';
+                        const bw = Math.max(26, this.ctx.measureText(cTxt).width + 6);
+                        this.ctx.fillStyle = '#166534';
+                        this.ctx.fillRect(-bw * 0.5, -3.8, bw, 7.6);
+                        this.ctx.strokeStyle = '#e2e8f0';
                         this.ctx.lineWidth = 0.6;
-                        this.ctx.strokeRect(-10, -13, 20, 4);
-
+                        this.ctx.strokeRect(-bw * 0.5, -3.8, bw, 7.6);
+                        this.ctx.fillStyle = '#ffffff';
+                        this.ctx.textAlign = 'center';
+                        this.ctx.textBaseline = 'middle';
+                        this.ctx.fillText(cTxt, 0, 0.3);
                         this.ctx.restore();
                     }
                 }
@@ -5284,6 +6740,155 @@ const Game = {
                         }
                     }
                 }
+            }
+
+            // Iconic Historic Ballard Ave NW Overhead Bistro String Lights, Sidewalk Café Umbrellas & Farmers Market Canopies
+            // + 15th Ave NW Ballard Bridge Bascule Approach Towers over Salmon Bay
+            const SX = (typeof MAP_SCALE_X !== 'undefined') ? MAP_SCALE_X : 3;
+            const SY = (typeof MAP_SCALE_Y !== 'undefined') ? MAP_SCALE_Y : 1.5;
+            const OX = (typeof BASE_OFFSET_X !== 'undefined') ? BASE_OFFSET_X : 6;
+            const OY = (typeof BASE_OFFSET_Y !== 'undefined') ? BASE_OFFSET_Y : 16;
+
+            // 1. Historic Ballard Ave NW (from 24th/Market at base (22, 40) to 17th/50th at base (38, 50))
+            const baX1 = (22 + OX) * SX * TILE_SIZE + TILE_SIZE * 0.5 - cx;
+            const baY1 = (40 + OY) * SY * TILE_SIZE + TILE_SIZE * 0.5 - cy;
+            const baX2 = (38 + OX) * SX * TILE_SIZE + TILE_SIZE * 0.5 - cx;
+            const baY2 = (50 + OY) * SY * TILE_SIZE + TILE_SIZE * 0.5 - cy;
+            const baMinX = Math.min(baX1, baX2), baMaxX = Math.max(baX1, baX2);
+            const baMinY = Math.min(baY1, baY2), baMaxY = Math.max(baY1, baY2);
+            if (baMaxX > vMinX - 150 && baMinX < vMaxX + 150 && baMaxY > vMinY - 150 && baMinY < vMaxY + 150) {
+                const bdx = baX2 - baX1, bdy = baY2 - baY1;
+                const bLen = Math.hypot(bdx, bdy) || 1;
+                const bux = bdx / bLen, buy = bdy / bLen;
+                const bnx = -buy, bny = bux;
+                const numStrands = 26;
+                const umbrellaColors = ['#dc2626', '#f59e0b', '#2563eb', '#16a34a', '#9333ea'];
+
+                this.ctx.save();
+                for (let s = 1; s < numStrands; s++) {
+                    const t = s / numStrands;
+                    const gx = baX1 + bdx * t;
+                    const gy = baY1 + bdy * t;
+                    if (gx < vMinX - 90 || gx > vMaxX + 90 || gy < vMinY - 90 || gy > vMaxY + 90) continue;
+
+                    // Sidewalk Café Patio Umbrellas & Ballard Sunday Farmers Market White Canopies along the brick curbs
+                    if (s % 2 === 0) {
+                        const side = (s % 4 === 0) ? 1 : -1;
+                        const ux = gx + bnx * 54 * side;
+                        const uy = gy + bny * 54 * side;
+                        const topU = Projection3D.project(ux, uy, 11, centerX, centerY);
+                        if (s >= 6 && s <= 16 && s % 4 === 0) {
+                            // White Ballard Farmers Market 10x10 Canopy Tent
+                            this.ctx.fillStyle = 'rgba(248, 250, 252, 0.92)';
+                            this.ctx.fillRect(topU.x - 9, topU.y - 9, 18, 18);
+                            this.ctx.strokeStyle = '#94a3b8';
+                            this.ctx.lineWidth = 1;
+                            this.ctx.strokeRect(topU.x - 9, topU.y - 9, 18, 18);
+                        } else {
+                            // Colorful Bistro Patio Umbrella
+                            this.ctx.fillStyle = umbrellaColors[s % umbrellaColors.length];
+                            this.ctx.beginPath();
+                            this.ctx.arc(topU.x, topU.y, 7.5, 0, Math.PI * 2);
+                            this.ctx.fill();
+                            this.ctx.fillStyle = '#ffffff';
+                            this.ctx.beginPath();
+                            this.ctx.arc(topU.x, topU.y, 2.2, 0, Math.PI * 2);
+                            this.ctx.fill();
+                        }
+                    }
+
+                    // 3D Overhead Catenary Bistro String Lights spanning Historic Ballard Ave NW
+                    const lx = gx - bnx * 56, ly = gy - bny * 56;
+                    const rx = gx + bnx * 56, ry = gy + bny * 56;
+                    const topL = Projection3D.project(lx, ly, 24, centerX, centerY);
+                    const topR = Projection3D.project(rx, ry, 24, centerX, centerY);
+                    const sagM = Projection3D.project(gx, gy, 20.5, centerX, centerY);
+
+                    this.ctx.strokeStyle = 'rgba(30, 41, 59, 0.55)';
+                    this.ctx.lineWidth = 1.0;
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(topL.x, topL.y);
+                    this.ctx.quadraticCurveTo(sagM.x, sagM.y, topR.x, topR.y);
+                    this.ctx.stroke();
+
+                    // Warm glowing bistro Edison bulbs along the catenary wire
+                    for (let b = 1; b <= 5; b++) {
+                        const bt = b / 6;
+                        const omt = 1 - bt;
+                        const bx = omt * omt * topL.x + 2 * omt * bt * sagM.x + bt * bt * topR.x;
+                        const by = omt * omt * topL.y + 2 * omt * bt * sagM.y + bt * bt * topR.y;
+                        this.ctx.fillStyle = 'rgba(251, 191, 36, 0.32)';
+                        this.ctx.beginPath();
+                        this.ctx.arc(bx, by, 3.6, 0, Math.PI * 2);
+                        this.ctx.fill();
+                        this.ctx.fillStyle = '#fef08a';
+                        this.ctx.beginPath();
+                        this.ctx.arc(bx, by, 1.6, 0, Math.PI * 2);
+                        this.ctx.fill();
+                    }
+                }
+                this.ctx.restore();
+            }
+
+            // 2. Iconic 15th Ave NW Ballard Bridge Bascule Approach Towers & Overhead Steel Portal Truss (at base x = 44, y = 51..54)
+            const bbX = (44 + OX) * SX * TILE_SIZE + TILE_SIZE * 0.5 - cx;
+            const bbY = (51.5 + OY) * SY * TILE_SIZE + TILE_SIZE * 0.5 - cy;
+            if (bbX > vMinX - 200 && bbX < vMaxX + 200 && bbY > vMinY - 200 && bbY < vMaxY + 200) {
+                this.ctx.save();
+                const pierL = bbX - 84;
+                const pierR = bbX + 84;
+                const topPierL = Projection3D.project(pierL, bbY, 42, centerX, centerY);
+                const topPierR = Projection3D.project(pierR, bbY, 42, centerX, centerY);
+
+                // Twin Art-Deco Concrete Bascule Machinery Towers flanking 15th Ave NW
+                this.ctx.strokeStyle = '#64748b';
+                this.ctx.lineWidth = 14;
+                this.ctx.beginPath();
+                this.ctx.moveTo(pierL, bbY);
+                this.ctx.lineTo(topPierL.x, topPierL.y);
+                this.ctx.moveTo(pierR, bbY);
+                this.ctx.lineTo(topPierR.x, topPierR.y);
+                this.ctx.stroke();
+
+                this.ctx.strokeStyle = '#cbd5e1';
+                this.ctx.lineWidth = 9;
+                this.ctx.beginPath();
+                this.ctx.moveTo(pierL, bbY);
+                this.ctx.lineTo(topPierL.x, topPierL.y);
+                this.ctx.moveTo(pierR, bbY);
+                this.ctx.lineTo(topPierR.x, topPierR.y);
+                this.ctx.stroke();
+
+                // Overhead Steel Portal Truss & Cross-Bracing spanning 15th Ave NW
+                this.ctx.strokeStyle = '#475569';
+                this.ctx.lineWidth = 8;
+                this.ctx.beginPath();
+                this.ctx.moveTo(topPierL.x, topPierL.y);
+                this.ctx.lineTo(topPierR.x, topPierR.y);
+                this.ctx.stroke();
+
+                // Overhead Green SDOT Portal Sign: "BALLARD BRIDGE • 15TH AVE NW"
+                const midTrussX = (topPierL.x + topPierR.x) * 0.5;
+                const midTrussY = (topPierL.y + topPierR.y) * 0.5;
+                this.ctx.fillStyle = '#15803d';
+                this.ctx.fillRect(midTrussX - 72, midTrussY - 8, 144, 16);
+                this.ctx.strokeStyle = '#ffffff';
+                this.ctx.lineWidth = 1.2;
+                this.ctx.strokeRect(midTrussX - 72, midTrussY - 8, 144, 16);
+                this.ctx.fillStyle = '#ffffff';
+                this.ctx.font = '800 8.5px "Inter", sans-serif';
+                this.ctx.textAlign = 'center';
+                this.ctx.textBaseline = 'middle';
+                this.ctx.fillText('BALLARD BRIDGE • 15TH AVE NW', midTrussX, midTrussY + 0.5);
+
+                // Flashing Amber Drawbridge Warning Beacons
+                const flashOn = (Math.floor(Date.now() / 400) % 2) === 0;
+                this.ctx.fillStyle = flashOn ? '#fbbf24' : '#78350f';
+                this.ctx.beginPath();
+                this.ctx.arc(midTrussX - 80, midTrussY, 3.5, 0, Math.PI * 2);
+                this.ctx.arc(midTrussX + 80, midTrussY, 3.5, 0, Math.PI * 2);
+                this.ctx.fill();
+                this.ctx.restore();
             }
         }
 
