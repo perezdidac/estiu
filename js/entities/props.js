@@ -154,8 +154,10 @@ class Building {
 
         const SX = (typeof MAP_SCALE_X !== 'undefined') ? MAP_SCALE_X : 3;
         const SY = (typeof MAP_SCALE_Y !== 'undefined') ? MAP_SCALE_Y : 1.5;
-        const ox = tx / SX;
-        const oy = ty / SY;
+        const OX = (typeof BASE_OFFSET_X !== 'undefined') ? BASE_OFFSET_X : 6;
+        const OY = (typeof BASE_OFFSET_Y !== 'undefined') ? BASE_OFFSET_Y : 16;
+        const ox = tx / SX - OX;
+        const oy = ty / SY - OY;
         this.ox = ox;
         this.oy = oy;
 
@@ -168,29 +170,98 @@ class Building {
 
         this.hasStreetEdge = Boolean(this.edges.N || this.edges.S || this.edges.W || this.edges.E || this.edges.diag);
 
-        // Determine authentic Ballard architectural zone using normalized Ballard coordinates (ox, oy)
+        // Look up real OpenStreetMap building footprints mapped to this parcel tile "tx,ty"
+        // Format: [[rx, ry, wMeters, hMeters, category, levels, optionalName], ...]
+        const osmList = (typeof OSMBuildings !== 'undefined' && OSMBuildings) ? OSMBuildings[`${tx},${ty}`] : null;
+        this.osmList = osmList || null;
+        this.buildingName = null;
+        if (this.osmList) {
+            for (let i = 0; i < this.osmList.length; i++) {
+                if (this.osmList[i][6]) {
+                    this.buildingName = this.osmList[i][6];
+                    break;
+                }
+            }
+        }
+
+        this.ox = ox;
+        this.oy = oy;
+
+        // Sample real Ballard 2.5D topography (elevation in meters & terrain slope vector)
+        this.elevationM = (typeof MapData !== 'undefined' && MapData.getElevationAt)
+            ? MapData.getElevationAt(this.x + this.w / 2, this.y + this.h / 2)
+            : 35;
+        this.slopeVec = (typeof MapData !== 'undefined' && MapData.getSlopeAt)
+            ? MapData.getSlopeAt(this.x + this.w / 2, this.y + this.h / 2)
+            : { gx: 0, gy: 0, slope: 0, elev: 35 };
+        // Stepped concrete hillside foundation height on sloped bluffs/ravines (0..10px)
+        this.foundationStep = Math.min(10, Math.round((this.slopeVec.slope || 0) * 58));
+        this.elevRelief = Math.round(Math.max(0, this.elevationM - 15) * 0.055);
+        this.isCoastalBluff = (this.elevationM >= 42 && (this.slopeVec.gx || 0) > 0.032) || (ox <= 18 && oy <= 34);
+        this.isBallardAveHistoric = (oy >= 40.2 && oy <= 48.2 && ox >= 22 && ox <= 36);
+
+        // Determine authentic Ballard, Olympic Manor, North Beach, Blue Ridge & Crown Hill architectural zones using (ox, oy) & OSM data
         const nearOldBallard = (oy >= 40 && oy <= 49 && ox >= 21 && ox <= 35);
         const nearMarketCore = (oy >= 38.5 && oy <= 41.5 && ox >= 16 && ox <= 46);
         const nearBreweryDistrict = (oy >= 45 && ox >= 42 && ox <= 58);
+        const nearCrownHillCommercial = isApartment && (oy >= -16 && oy <= 1 && ox >= 42 && ox <= 62);
+        const inOlympicManor = (oy >= -10.8 && oy < -0.2 && ox >= 11 && ox <= 31.5);
+        const nearBlueRidgeBluff = (oy <= -6 && ox <= 24 && !inOlympicManor);
         const nearArterialNode = isApartment && (
-            (Math.abs(oy - 40) < 1.2 && (Math.abs(ox - 22) < 2 || Math.abs(ox - 44) < 2))
+            (Math.abs(oy - 40) < 1.2 && (Math.abs(ox - 22) < 2 || Math.abs(ox - 44) < 2)) ||
+            (Math.abs(oy - 0) < 1.2 && (Math.abs(ox - 22) < 2 || Math.abs(ox - 44) < 2))
         );
+        this.isOlympicManor = inOlympicManor;
 
-        if (nearOldBallard && (isApartment || sRand(1) < 0.72)) {
+        const primaryOsm = (this.osmList && this.osmList.length > 0) ? this.osmList[0] : null;
+        const osmCat = primaryOsm ? primaryOsm[4] : null;
+
+        if (!this.hasStreetEdge) {
+            this.archStyle = 'BACKYARD_GREENSPACE';
+            this.isUrban = false;
+        } else if (osmCat === 'O') {
+            // Real OpenStreetMap Office, Medical Plaza, Bank & Civic Buildings (Ballard Building, Kress Building, Tallman, Greenfire, etc.)
+            this.archStyle = 'OFFICE_BUILDING';
+            this.isUrban = true;
+        } else if (osmCat === 'S') {
+            // Real OpenStreetMap Schools, Churches & Community Centers (Ballard High, Adams Elem, Loyal Heights Elem, St Alphonsus)
+            this.archStyle = 'INSTITUTIONAL_CIVIC';
+            this.isUrban = true;
+        } else if (osmCat === 'C') {
+            this.archStyle = 'HISTORIC_BRICK';
+            this.isUrban = true;
+        } else if (osmCat === 'A') {
+            this.archStyle = 'MODERN_MIDRISE';
+            this.isUrban = true;
+        } else if (osmCat === 'I') {
+            this.archStyle = 'BREWERY_INDUSTRIAL';
+            this.isUrban = true;
+        } else if (osmCat === 'T') {
+            this.archStyle = 'NORDIC_TOWNHOMES';
+            this.isUrban = false;
+        } else if (osmCat === 'M' || inOlympicManor) {
+            // Olympic Manor: Famous 1950s Mid-Century Modern single-story low-slung rambler/ranch subdivision!
+            this.archStyle = 'OLYMPIC_MANOR_MCM';
+            this.isUrban = false;
+        } else if (nearOldBallard && (isApartment || sRand(1) < 0.72)) {
             this.archStyle = 'HISTORIC_BRICK';
             this.isUrban = true;
         } else if (nearBreweryDistrict && (isApartment || sRand(2) < 0.68)) {
             this.archStyle = 'BREWERY_INDUSTRIAL';
             this.isUrban = true;
-        } else if ((nearMarketCore && (isApartment || sRand(3) < 0.62)) || nearArterialNode) {
-            this.archStyle = sRand(4) < 0.45 ? 'HISTORIC_BRICK' : 'MODERN_MIDRISE';
+        } else if ((nearMarketCore && (isApartment || sRand(3) < 0.62)) || nearArterialNode || (nearCrownHillCommercial && sRand(3) < 0.58)) {
+            this.archStyle = sRand(4) < 0.22 ? 'OFFICE_BUILDING' : (sRand(4) < 0.58 ? 'HISTORIC_BRICK' : 'MODERN_MIDRISE');
             this.isUrban = true;
         } else {
             this.isUrban = false;
             const rStyle = sRand(5);
             if (oy >= 34 && oy <= 42 && rStyle < 0.10) {
                 this.archStyle = 'NORDIC_TOWNHOMES';
-            } else if (rStyle < 0.72) {
+            } else if (nearBlueRidgeBluff) {
+                this.archStyle = rStyle < 0.55 ? 'OLYMPIC_MANOR_MCM' : 'CRAFTSMAN_ESTATE';
+            } else if (primaryOsm && (primaryOsm[2] * primaryOsm[3] >= 210)) {
+                this.archStyle = 'CRAFTSMAN_ESTATE';
+            } else if (oy < 20 ? (rStyle < 0.90) : (rStyle < 0.72)) {
                 this.archStyle = 'CRAFTSMAN_BLOCK';
             } else {
                 this.archStyle = 'CRAFTSMAN_ESTATE';
@@ -253,16 +324,140 @@ class Building {
             return;
         }
 
-        if (this.archStyle === 'HISTORIC_BRICK') {
-            // Subdivide into 2 adjoining Old Ballard historic brick storefront buildings
+        if (this.archStyle === 'OFFICE_BUILDING') {
+            // Real OpenStreetMap Office, Medical Plaza, Bank & Civic Office Buildings
+            const officeWalls = ['#1e3a5f', '#2c5282', '#334155', '#475569', '#8c3d2b', '#cbd5e1'];
+            const osmOffices = (this.osmList && this.osmList.length > 0)
+                ? this.osmList.filter(b => b[4] !== 'G')
+                : [[0.5, 0.5, 22, 18, 'O', 3]];
+            const count = (osmOffices.length >= 2 && this.w >= 92 && osmOffices[0][2] < 24) ? 2 : 1;
+            const splitX = (this.edges.N || this.edges.S || (!this.edges.W && !this.edges.E));
+
+            // Landscaped concrete plaza forecourt with planters
+            this.officePlaza = { x: this.x + 2, y: this.y + 2, w: this.w - 4, h: this.h - 4 };
+
+            for (let i = 0; i < count; i++) {
+                const ob = osmOffices[Math.min(i, osmOffices.length - 1)] || [0.5, 0.5, 20, 16, 'O', 3];
+                const rx = ob[0] || 0.5;
+                const ry = ob[1] || 0.5;
+                const wMeters = ob[2] || 20;
+                const hMeters = ob[3] || 16;
+                const lvl = Math.max(2, Math.min(6, ob[5] || 3));
+                const wallColor = officeWalls[Math.floor(sRand(10 + i * 3) * officeWalls.length)];
+                const h = Math.min(76, Math.max(30, lvl * 14 + Math.floor(sRand(11 + i * 3) * 8)));
+
+                let bx, by, bw, bh;
+                if (count === 1) {
+                    const targetW = Math.min(this.w - 10, Math.max(Math.floor(this.w * 0.62), Math.round(wMeters * 3.2)));
+                    const targetH = Math.min(this.h - 10, Math.max(Math.floor(this.h * 0.58), Math.round(hMeters * 3.2)));
+                    bw = targetW;
+                    bh = targetH;
+                    const maxOffX = Math.max(0, this.w - 8 - bw);
+                    const maxOffY = Math.max(0, this.h - 8 - bh);
+                    bx = this.x + 4 + Math.round(Math.max(0, Math.min(1, (rx - 0.15) / 0.7)) * maxOffX);
+                    by = this.y + 4 + Math.round(Math.max(0, Math.min(1, (ry - 0.15) / 0.7)) * maxOffY);
+                } else if (splitX) {
+                    const slotW = Math.floor(this.w / count);
+                    bw = slotW - 8;
+                    bx = this.x + i * slotW + 4;
+                    bh = Math.min(this.h - 10, Math.max(Math.floor(this.h * 0.62), Math.round(hMeters * 3.0)));
+                    by = this.y + Math.floor((this.h - bh) / 2);
+                } else {
+                    const slotH = Math.floor(this.h / count);
+                    bw = Math.min(this.w - 10, Math.max(Math.floor(this.w * 0.62), Math.round(wMeters * 3.0)));
+                    bx = this.x + Math.floor((this.w - bw) / 2);
+                    bh = slotH - 8;
+                    by = this.y + i * slotH + 4;
+                }
+
+                const bLabel = (i === 0 ? this.buildingName : (ob[6] || '')) || '';
+                const bSubInfo = (ob && ob[7]) || '';
+                const isHosp = /swedish|hospital|medical|emergency/i.test(bLabel) || bSubInfo === 'hospital';
+
+                this.subStructures.push({
+                    x: bx,
+                    y: by,
+                    w: bw,
+                    h: bh,
+                    zHeight: h + this.elevRelief,
+                    foundationH: this.foundationStep,
+                    roofType: 'FLAT_PARAPET',
+                    wallColor: isHosp ? '#cbd5e1' : wallColor,
+                    trimColor: '#e2e8f0',
+                    roofColor: '#1e293b',
+                    awningColor: isHosp ? '#dc2626' : '#0284c7',
+                    floors: lvl,
+                    winCols: Math.max(3, Math.floor(bw / 11)),
+                    isOffice: true,
+                    isHospital: isHosp,
+                    hasPenthouse: true,
+                    hasSkylight: true,
+                    hasHVAC: true,
+                    label: bLabel,
+                    subInfo: bSubInfo,
+                    facing: this.facing,
+                    seed: sRand(14 + i)
+                });
+            }
+        } else if (this.archStyle === 'INSTITUTIONAL_CIVIC') {
+            // Real OpenStreetMap Schools, Libraries, Churches & Community Centers
+            const civicWalls = ['#8b2e26', '#9a3412', '#7c2d12', '#c2b280', '#6e473b'];
+            const ob = (this.osmList && this.osmList[0]) ? this.osmList[0] : [0.5, 0.5, 26, 20, 'S', 2];
+            const lvl = Math.max(2, Math.min(4, ob[5] || 2));
+            const h = lvl * 15 + 6 + this.elevRelief;
+            const bw = Math.min(this.w - 10, Math.max(Math.floor(this.w * 0.68), Math.round((ob[2] || 24) * 3.2)));
+            const bh = Math.min(this.h - 10, Math.max(Math.floor(this.h * 0.64), Math.round((ob[3] || 18) * 3.2)));
+            const bx = this.x + Math.floor((this.w - bw) / 2);
+            const by = this.y + Math.floor((this.h - bh) / 2);
+            const cLabel = this.buildingName || (ob[6] || '');
+            const cSubInfo = (ob && ob[7]) || '';
+            const isLib = /library/i.test(cLabel) || cSubInfo === 'library';
+
+            this.officePlaza = { x: this.x + 2, y: this.y + 2, w: this.w - 4, h: this.h - 4 };
+
+            this.subStructures.push({
+                x: bx,
+                y: by,
+                w: bw,
+                h: bh,
+                zHeight: h,
+                foundationH: this.foundationStep,
+                roofType: 'FLAT_PARAPET',
+                wallColor: isLib ? '#475569' : civicWalls[Math.floor(sRand(16) * civicWalls.length)],
+                trimColor: '#f8fafc',
+                roofColor: isLib ? '#276749' : '#1e293b',
+                awningColor: '#1e3a8a',
+                floors: lvl,
+                winCols: Math.max(3, Math.floor(bw / 12)),
+                isCivic: true,
+                isLibrary: isLib,
+                hasPenthouse: lvl >= 3 && !isLib,
+                hasSkylight: true,
+                hasHVAC: true,
+                label: cLabel,
+                subInfo: cSubInfo,
+                facing: this.facing,
+                seed: sRand(18)
+            });
+        } else if (this.archStyle === 'HISTORIC_BRICK') {
+            // Subdivide into 1 or 2 Old Ballard historic brick storefront buildings calibrated from OpenStreetMap
             const brickWalls = ['#8b2e26', '#9c3d2b', '#7a3328', '#a8643b', '#5c2d24', '#6e473b'];
             const awnings = ['#276749', '#9b2c2c', '#2b6cb0', '#b7791f', '#1a202c'];
-            const count = 2;
+            const osmComm = (this.osmList && this.osmList.length > 0) ? this.osmList.filter(b => b[4] !== 'G') : [];
+            const count = (osmComm.length === 1 && osmComm[0][2] >= 22) ? 1 : 2;
             const splitX = (this.edges.N || this.edges.S || (!this.edges.W && !this.edges.E));
 
             for (let i = 0; i < count; i++) {
-                const wallColor = brickWalls[Math.floor(sRand(10 + i * 3) * brickWalls.length)];
-                const h = 34 + Math.floor(sRand(11 + i * 3) * 18);
+                const ob = osmComm[Math.min(i, osmComm.length - 1)];
+                const bLabel = (i === 0 ? this.buildingName : (ob && ob[6]) || '') || '';
+                const bSubInfo = (ob && ob[7]) || '';
+                const isNordic = /nordic|museum/i.test(bLabel) || bSubInfo === 'museum';
+                const isLib = /library/i.test(bLabel) || bSubInfo === 'library';
+                const wallColor = isNordic ? '#334155' : brickWalls[Math.floor(sRand(10 + i * 3) * brickWalls.length)];
+                const osmLvl = ob ? Math.max(1, Math.min(5, ob[5] || 2)) : 0;
+                const h = (osmLvl > 0
+                    ? (osmLvl * 14 + 6 + Math.floor(sRand(11 + i * 3) * 6))
+                    : (34 + Math.floor(sRand(11 + i * 3) * 18))) + this.elevRelief;
                 let bx, by, bw, bh;
                 if (splitX) {
                     bw = Math.floor(this.w / count);
@@ -276,21 +471,36 @@ class Building {
                     by = this.y + i * bh;
                 }
 
+                // Sidewalk cafe bistro tables along Historic Ballard Ave NW & Market St restaurants/cafes
+                if (this.isBallardAveHistoric || bSubInfo === 'restaurant' || bSubInfo === 'cafe' || bSubInfo === 'bar') {
+                    this.patioTables.push(
+                        { x: bx + Math.floor(bw * 0.32), y: this.facing === 'UP' ? (this.y + 2.5) : (this.y + this.h - 2.5) },
+                        { x: bx + Math.floor(bw * 0.68), y: this.facing === 'UP' ? (this.y + 2.5) : (this.y + this.h - 2.5) }
+                    );
+                }
+
                 this.subStructures.push({
                     x: bx + 2,
                     y: by + 2,
                     w: bw - 4,
                     h: bh - 4,
                     zHeight: h,
+                    foundationH: this.foundationStep,
                     roofType: 'FLAT_PARAPET',
                     wallColor,
                     trimColor: '#e2d9c8',
-                    roofColor: '#1e242b',
+                    roofColor: isLib ? '#276749' : '#1e242b',
                     awningColor: awnings[Math.floor(sRand(12 + i * 3) * awnings.length)],
                     floors: Math.max(2, Math.floor(h / 14)),
                     winCols: Math.max(2, Math.floor(bw / 14)),
                     hasSkylight: sRand(13 + i) < 0.75,
                     hasHVAC: true,
+                    isBallardAve: this.isBallardAveHistoric,
+                    hasBladeSign: this.isBallardAveHistoric || bSubInfo === 'restaurant' || bSubInfo === 'bar' || bSubInfo === 'cinema',
+                    isNordicMuseum: isNordic,
+                    isLibrary: isLib,
+                    label: bLabel,
+                    subInfo: bSubInfo,
                     facing: this.facing,
                     seed: sRand(14 + i)
                 });
@@ -298,12 +508,17 @@ class Building {
         } else if (this.archStyle === 'MODERN_MIDRISE') {
             // Seattle mixed-use apartment building with landscaped courtyard
             const modernWalls = ['#334155', '#475569', '#cbd5e1', '#2d3748'];
+            const osmApt = (this.osmList && this.osmList.length > 0) ? this.osmList.filter(b => b[4] !== 'G') : [];
             const count = 2;
             const gap = 10;
             const uw = Math.floor((this.w - gap) / count);
             for (let i = 0; i < count; i++) {
+                const ob = osmApt[Math.min(i, osmApt.length - 1)];
                 const wallColor = modernWalls[Math.floor(sRand(20 + i * 4) * modernWalls.length)];
-                const h = 44 + Math.floor(sRand(21 + i * 4) * 20);
+                const osmLvl = ob ? Math.max(3, Math.min(7, ob[5] || 4)) : 0;
+                const h = osmLvl > 0
+                    ? (osmLvl * 13 + Math.floor(sRand(21 + i * 4) * 8))
+                    : (44 + Math.floor(sRand(21 + i * 4) * 20));
                 this.subStructures.push({
                     x: this.x + i * (uw + gap) + 2,
                     y: this.y + 5,
@@ -320,6 +535,7 @@ class Building {
                     winCols: Math.max(2, Math.floor(uw / 14)),
                     hasHVAC: true,
                     hasSolar: sRand(22 + i) < 0.7,
+                    label: (i === 0 ? this.buildingName : (ob && ob[6]) || ''),
                     facing: this.facing,
                     seed: sRand(23 + i)
                 });
@@ -346,6 +562,7 @@ class Building {
                 floors: 2,
                 winCols: 3,
                 isBrewery: true,
+                label: this.buildingName || '',
                 facing: this.facing,
                 seed: sRand(32)
             });
@@ -381,13 +598,12 @@ class Building {
             ];
         } else {
             // =================================================================
-            // REALISTIC BALLARD RESIDENTIAL PARCELS:
-            // - Deep Front Yard (22-26px inside lot = 34-40px from street curb!)
-            //   with front lawn, front hedge/picket fence, concrete walkway & driveway
-            // - Well-separated Detached Craftsman Houses (1 house on corners and
-            //   45% of mid-block lots; 2 cottages with 24-28px side yard gap on 55%)
-            // - Private Fenced Backyard behind every house with wooden deck & garden
-            // - Shared Central Alley at the rear of the lot (no empty grass voids!)
+            // REALISTIC BALLARD RESIDENTIAL PARCELS CALIBRATED FROM OPENSTREETMAP:
+            // - Uses real OpenStreetMap building footprints (this.osmList) per parcel:
+            //   [rx, ry, wMeters, hMeters, cat, lvl, optionalName]
+            // - Exact house positions (rx, ry setback & side-yard shift) and footprint sizes
+            //   (wMeters, hMeters) inside each lot!
+            // - Detached backyard garages ('G' in OpenStreetMap) along the rear alley!
             // =================================================================
             let primaryFacing = 'DOWN';
             if (this.edges.N) primaryFacing = 'UP';
@@ -396,87 +612,200 @@ class Building {
             else if (this.edges.E) primaryFacing = 'RIGHT';
 
             const isCornerParcel = (this.edges.N || this.edges.S) && (this.edges.W || this.edges.E);
+            const isMCM = (this.archStyle === 'OLYMPIC_MANOR_MCM');
 
-            // Decide how many detached houses sit on this 120px parcel:
-            // Corner lots or estate lots or 45% of mid-block lots have 1 well-spaced house with driveway;
-            // the remaining 55% of mid-block lots have 2 smaller cottages with wide side yards between them.
-            const count = (
-                isCornerParcel ||
-                this.w < 102 ||
-                this.archStyle === 'CRAFTSMAN_ESTATE' ||
-                sRand(55) < 0.45
-            ) ? 1 : 2;
+            const osmHouses = (this.osmList && this.osmList.length > 0)
+                ? this.osmList.filter(b => b[4] !== 'G')
+                : [];
+            const osmGarages = (this.osmList && this.osmList.length > 0)
+                ? this.osmList.filter(b => b[4] === 'G')
+                : [];
 
-            const alleyThickness = 8;
+            let count = 1;
+            if (primaryFacing === 'UP' || primaryFacing === 'DOWN') {
+                if (this.w < 82) {
+                    count = 1;
+                } else if (osmHouses.length > 0) {
+                    count = Math.min(2, Math.max(1, osmHouses.length));
+                } else if (isCornerParcel) {
+                    count = isMCM ? (sRand(55) < 0.55 ? 1 : 2) : 2;
+                } else if (isMCM) {
+                    count = sRand(55) < 0.72 ? 1 : 2;
+                } else if (this.archStyle === 'CRAFTSMAN_ESTATE') {
+                    count = sRand(55) < 0.65 ? 1 : 2;
+                } else {
+                    count = sRand(55) < 0.14 ? 1 : 2;
+                }
+            } else {
+                // Avenue-facing parcel (LEFT or RIGHT)
+                if (this.h < 78) {
+                    count = 1;
+                } else if (osmHouses.length > 0) {
+                    count = Math.min(2, Math.max(1, osmHouses.length));
+                } else if (isMCM || this.archStyle === 'CRAFTSMAN_ESTATE') {
+                    count = sRand(55) < 0.55 ? 1 : 2;
+                } else {
+                    count = 2;
+                }
+            }
+
+            const alleyThickness = isMCM ? 6 : 8;
 
             if (primaryFacing === 'UP' || primaryFacing === 'DOWN') {
                 const isNorthFront = (primaryFacing === 'UP');
                 const lotW = Math.floor(this.w / count);
-                const frontYardDepth = 22 + Math.floor(sRand(58) * 4); // 22..25px inside parcel (+ 12..28px street margin = 34..53px from road!)
-                const houseDepth = Math.min(36, Math.floor((this.h - frontYardDepth - alleyThickness) * 0.48));
+                const baseFrontYard = isMCM ? (20 + Math.floor(sRand(58) * 4)) : (22 + Math.floor(sRand(58) * 4));
+                const baseHouseDepth = Math.min(isMCM ? 38 : 36, Math.floor((this.h - baseFrontYard - alleyThickness) * (isMCM ? 0.52 : 0.48)));
 
-                // Rear alley along the back edge of the lots (meets opposite row's alley in block center!)
+                // Rear alley along the back edge of the lots (stopped inside corner lots so it doesn't cut across avenue front yards!)
+                const alleyInsetL = this.edges.W ? Math.min(26, Math.floor(this.w * 0.25)) : 0;
+                const alleyInsetR = this.edges.E ? Math.min(26, Math.floor(this.w * 0.25)) : 0;
                 this.alleyRect = {
-                    x: this.x,
+                    x: this.x + alleyInsetL,
                     y: isNorthFront ? (this.y + this.h - alleyThickness) : this.y,
-                    w: this.w,
+                    w: Math.max(16, this.w - alleyInsetL - alleyInsetR),
                     h: alleyThickness
                 };
 
                 for (let c = 0; c < count; c++) {
                     const lotX = this.x + c * lotW;
-                    // Generous side yards so houses are clearly separated from each other!
-                    const sideMargin = (count === 1)
-                        ? Math.max(18, Math.floor((lotW - 48) / 2))
-                        : Math.max(11, Math.floor((lotW - 35) / 2));
+                    const osmH = osmHouses[c] || null;
+                    // On a 2-house corner parcel, orient the outer corner house toward the N-S Avenue (LEFT/RIGHT)
+                    // so every N-S Avenue has front-facing houses, walkways, and porches along both sides!
+                    let lotFacing = primaryFacing;
+                    if (isCornerParcel && count === 2) {
+                        if (c === 0 && this.edges.W) lotFacing = 'LEFT';
+                        else if (c === count - 1 && this.edges.E) lotFacing = 'RIGHT';
+                    }
 
-                    const hw = Math.max(30, lotW - sideMargin * 2);
-                    const hh = houseDepth;
-                    const hx = lotX + sideMargin;
+                    // Calibrate house width (hw), depth (hh), front-yard setback, and lateral shift from real OpenStreetMap footprint!
+                    const defaultMargin = (count === 1)
+                        ? (isMCM ? Math.max(12, Math.floor((lotW - 64) / 2)) : Math.max(18, Math.floor((lotW - 48) / 2)))
+                        : Math.max(8, Math.floor((lotW - (isMCM ? 40 : 36)) / 2));
+
+                    let hw = Math.max(28, lotW - defaultMargin * 2);
+                    let hh = baseHouseDepth;
+                    let frontYardDepth = baseFrontYard;
+                    let sideShift = 0;
+
+                    if (osmH) {
+                        // Scale width and depth from OpenStreetMap meters (1m ≈ 2.8px inside residential sub-lot)
+                        const osmWpx = Math.round(osmH[2] * 2.85);
+                        const osmHpx = Math.round(osmH[3] * 2.65);
+                        const maxAllowedW = Math.max(28, lotW - (count === 1 ? 22 : 14));
+                        const minAllowedW = count === 1 ? (isMCM ? 42 : 32) : 28;
+                        hw = Math.max(minAllowedW, Math.min(maxAllowedW, osmWpx));
+
+                        const maxAllowedH = Math.min(isMCM ? 40 : 38, this.h - alleyThickness - 34);
+                        hh = Math.max(24, Math.min(maxAllowedH, osmHpx));
+
+                        // Use real OpenStreetMap ry (0.14..0.86) to vary front-yard setback (17..28px)
+                        const ryNorm = isNorthFront ? osmH[1] : (1.0 - osmH[1]);
+                        frontYardDepth = Math.max(17, Math.min(28, Math.round(16 + ryNorm * 14)));
+
+                        // Use real OpenStreetMap rx to shift house slightly left/right within its side-yard margin
+                        const availSide = Math.max(0, Math.floor((lotW - hw) / 2) - 4);
+                        const expectedRx = (c + 0.5) / count;
+                        const rxDelta = Math.max(-1, Math.min(1, (osmH[0] - expectedRx) * count * 2));
+                        sideShift = Math.round(rxDelta * Math.min(5, availSide));
+                    }
+
+                    const sideMargin = Math.max(4, Math.floor((lotW - hw) / 2));
+                    const hx = lotX + sideMargin + sideShift;
                     const hy = isNorthFront
                         ? (this.y + frontYardDepth)
                         : (this.y + this.h - frontYardDepth - hh);
 
-                    this._addResidentialHouse(hx, hy, hw, hh, primaryFacing, c, sRand, craftWalls, craftRoofs, doorPalette);
+                    this._addResidentialHouse(hx, hy, hw, hh, lotFacing, c, sRand, craftWalls, craftRoofs, doorPalette, osmH);
 
-                    // Front Yard area between sidewalk and front of house
+                    // Detached backyard garage / ADU along the rear alley when present in OpenStreetMap!
+                    const osmG = osmGarages[c] || (c === 0 && osmGarages.length > 0 ? osmGarages[0] : null);
+                    const bySpace = this.h - frontYardDepth - hh - alleyThickness;
+                    if (osmG && bySpace >= 18) {
+                        const gw = Math.max(13, Math.min(18, Math.round((osmG[2] || 5.5) * 2.5)));
+                        const gh = Math.max(11, Math.min(14, Math.round((osmG[3] || 5.5) * 2.2)));
+                        const gx = (osmG[0] > 0.5) ? (lotX + lotW - gw - 4) : (lotX + 4);
+                        const gy = isNorthFront
+                            ? (this.y + this.h - alleyThickness - gh - 1)
+                            : (this.y + alleyThickness + 1);
+                        this.subStructures.push({
+                            x: gx,
+                            y: gy,
+                            w: gw,
+                            h: gh,
+                            zHeight: 11,
+                            roofType: 'GABLE',
+                            ridgeAxis: 'NS',
+                            pitch: 5,
+                            overhang: 1.2,
+                            wallColor: craftWalls[Math.floor(sRand(250 + c) * craftWalls.length)],
+                            trimColor: '#f8fafc',
+                            roofColor: craftRoofs[Math.floor(sRand(251 + c) * craftRoofs.length)],
+                            doorColor: '#e2e8f0',
+                            floors: 1,
+                            winCols: 1,
+                            isGarage: true,
+                            facing: isNorthFront ? 'DOWN' : 'UP',
+                            seed: sRand(252 + c)
+                        });
+                    }
+
+                    // Front Yard area between street/curb and front of house
                     const fyTop = isNorthFront ? this.y : (hy + hh);
                     const fyH = frontYardDepth;
+                    const usePicket = !isMCM && (sRand(61 + c) < 0.45);
                     this.frontYards.push({
                         x: lotX + 2,
                         y: fyTop,
                         w: lotW - 4,
                         h: fyH,
-                        isPicket: sRand(61 + c) < 0.45
+                        isPicket: usePicket
                     });
 
-                    // Front concrete walkway from street sidewalk through front yard to front porch
+                    // Front concrete walkway from street/avenue to front porch
                     const walkX = hx + hw / 2 - 2.5;
-                    this.walkways.push({
-                        x: walkX,
-                        y: fyTop,
-                        w: 5,
-                        h: fyH + 2
-                    });
+                    if (lotFacing === 'LEFT') {
+                        this.walkways.push({
+                            x: this.x,
+                            y: hy + hh / 2 - 2.5,
+                            w: Math.max(8, (hx - this.x) + 2),
+                            h: 5
+                        });
+                    } else if (lotFacing === 'RIGHT') {
+                        this.walkways.push({
+                            x: hx + hw - 2,
+                            y: hy + hh / 2 - 2.5,
+                            w: Math.max(8, (this.x + this.w) - (hx + hw) + 2),
+                            h: 5
+                        });
+                    } else {
+                        this.walkways.push({
+                            x: walkX,
+                            y: fyTop,
+                            w: 5,
+                            h: fyH + 2
+                        });
+                    }
 
-                    // Concrete driveway on side yard for single-house parcels (or outer lot)
-                    if (count === 1 && sideMargin >= 16) {
-                        const driveX = hx - 13;
+                    // Concrete driveway (every Olympic Manor MCM rambler has a wide 2-car driveway; Craftsman lots have side driveways)
+                    if ((isMCM && c === 0) || (count === 1 && sideMargin >= 14) || (isCornerParcel && c === 0)) {
+                        const driveW = isMCM ? 14 : 11;
+                        const driveX = isMCM ? Math.max(lotX + 3, hx - 10) : Math.max(lotX + 2, hx - 12);
                         const driveY = isNorthFront ? this.y : (hy - 4);
                         const driveH = frontYardDepth + hh + 4;
                         this.driveways.push({
                             x: driveX,
                             y: driveY,
-                            w: 11,
+                            w: driveW,
                             h: driveH
                         });
 
-                        // Parked car in the driveway on ~55% of driveways!
-                        if (sRand(63 + c) < 0.55) {
+                        // Parked car in the driveway (~65% in Olympic Manor, ~55% in Ballard)
+                        if (sRand(63 + c) < (isMCM ? 0.68 : 0.55)) {
                             const carCols = ['#3182ce', '#276749', '#d69e2e', '#64748b', '#9b2c2c', '#2b6cb0'];
                             this.parkedCars.push({
-                                x: driveX + 1,
-                                y: isNorthFront ? (this.y + 8) : (this.y + this.h - 26),
+                                x: driveX + Math.floor((driveW - 9) / 2),
+                                y: isNorthFront ? (this.y + 6) : (this.y + this.h - 24),
                                 w: 9,
                                 h: 17,
                                 color: carCols[Math.floor(sRand(64 + c) * carCols.length)]
@@ -496,25 +825,27 @@ class Building {
                         y: isNorthFront ? (this.y + this.h - alleyThickness - 4) : (this.y + alleyThickness + 1)
                     });
 
-                    // Front hedge or low picket fence along the sidewalk edge (with gap for walkway)
-                    const hedgeY = isNorthFront ? (this.y + 1.5) : (this.y + this.h - 4);
-                    if (walkX - (lotX + 4) > 6) {
-                        this.frontHedges.push({
-                            x: lotX + 4,
-                            y: hedgeY,
-                            w: (walkX - 2) - (lotX + 4),
-                            h: 3,
-                            isPicket: sRand(61 + c) < 0.45
-                        });
-                    }
-                    if ((lotX + lotW - 4) - (walkX + 7) > 6) {
-                        this.frontHedges.push({
-                            x: walkX + 7,
-                            y: hedgeY,
-                            w: (lotX + lotW - 4) - (walkX + 7),
-                            h: 3,
-                            isPicket: sRand(61 + c) < 0.45
-                        });
+                    // Front hedge or low picket fence along the sidewalk edge (omitted in Olympic Manor so open lawns sweep to the curb!)
+                    if (!isMCM) {
+                        const hedgeY = isNorthFront ? (this.y + 1.5) : (this.y + this.h - 4);
+                        if (walkX - (lotX + 4) > 6) {
+                            this.frontHedges.push({
+                                x: lotX + 4,
+                                y: hedgeY,
+                                w: (walkX - 2) - (lotX + 4),
+                                h: 3,
+                                isPicket: usePicket
+                            });
+                        }
+                        if ((lotX + lotW - 4) - (walkX + 7) > 6) {
+                            this.frontHedges.push({
+                                x: walkX + 7,
+                                y: hedgeY,
+                                w: (lotX + lotW - 4) - (walkX + 7),
+                                h: 3,
+                                isPicket: usePicket
+                            });
+                        }
                     }
 
                     // Spacious Private Backyard behind the house!
@@ -573,8 +904,8 @@ class Building {
                 // West-facing ('LEFT') or East-facing ('RIGHT') avenue houses
                 const isWestFront = (primaryFacing === 'LEFT');
                 const lotH = Math.floor(this.h / count);
-                const frontYardDepth = 22 + Math.floor(sRand(58) * 4);
-                const houseDepth = Math.min(36, Math.floor((this.w - frontYardDepth - alleyThickness) * 0.48));
+                const frontYardDepth = isMCM ? (20 + Math.floor(sRand(58) * 4)) : (22 + Math.floor(sRand(58) * 4));
+                const houseDepth = Math.min(isMCM ? 38 : 36, Math.floor((this.w - frontYardDepth - alleyThickness) * 0.48));
 
                 this.alleyRect = {
                     x: isWestFront ? (this.x + this.w - alleyThickness) : this.x,
@@ -585,34 +916,69 @@ class Building {
 
                 for (let r = 0; r < count; r++) {
                     const lotY = this.y + r * lotH;
-                    const sideMargin = (count === 1)
-                        ? Math.max(18, Math.floor((lotH - 48) / 2))
-                        : Math.max(11, Math.floor((lotH - 35) / 2));
-                    const hw = houseDepth;
-                    const hh = Math.max(30, lotH - sideMargin * 2);
+                    const osmH = osmHouses[r] || null;
+                    const defaultMargin = (count === 1)
+                        ? Math.max(16, Math.floor((lotH - 52) / 2))
+                        : Math.max(9, Math.floor((lotH - 36) / 2));
+                    let hw = houseDepth;
+                    let hh = Math.max(30, lotH - defaultMargin * 2);
+                    let curFrontYard = frontYardDepth;
+
+                    if (osmH) {
+                        const osmWpx = Math.round(osmH[2] * 2.65);
+                        const osmHpx = Math.round(osmH[3] * 2.85);
+                        const maxAllowedW = Math.min(isMCM ? 40 : 38, this.w - alleyThickness - 34);
+                        hw = Math.max(24, Math.min(maxAllowedW, osmWpx));
+                        const maxAllowedH = Math.max(28, lotH - (count === 1 ? 20 : 14));
+                        hh = Math.max(28, Math.min(maxAllowedH, osmHpx));
+                        const rxNorm = isWestFront ? osmH[0] : (1.0 - osmH[0]);
+                        curFrontYard = Math.max(17, Math.min(28, Math.round(16 + rxNorm * 14)));
+                    }
+
+                    const sideMargin = Math.max(4, Math.floor((lotH - hh) / 2));
                     const hx = isWestFront
-                        ? (this.x + frontYardDepth)
-                        : (this.x + this.w - frontYardDepth - hw);
+                        ? (this.x + curFrontYard)
+                        : (this.x + this.w - curFrontYard - hw);
                     const hy = lotY + sideMargin;
 
-                    this._addResidentialHouse(hx, hy, hw, hh, primaryFacing, r, sRand, craftWalls, craftRoofs, doorPalette);
+                    this._addResidentialHouse(hx, hy, hw, hh, primaryFacing, r, sRand, craftWalls, craftRoofs, doorPalette, osmH);
 
                     const fyLeft = isWestFront ? this.x : (hx + hw);
+                    const usePicket = !isMCM && (sRand(61 + r) < 0.45);
                     this.frontYards.push({
                         x: fyLeft,
                         y: lotY + 2,
-                        w: frontYardDepth,
+                        w: curFrontYard,
                         h: lotH - 4,
-                        isPicket: sRand(61 + r) < 0.45
+                        isPicket: usePicket
                     });
 
                     // Front concrete walkway from avenue sidewalk to front porch
+                    const walkY = hy + hh / 2 - 2.5;
                     this.walkways.push({
                         x: fyLeft,
-                        y: hy + hh / 2 - 2.5,
-                        w: frontYardDepth + 2,
+                        y: walkY,
+                        w: curFrontYard + 2,
                         h: 5
                     });
+
+                    // Front-yard mailbox & front hedges along N-S Avenue
+                    this.mailboxes.push({
+                        x: isWestFront ? (this.x + 3) : (this.x + this.w - 5),
+                        y: walkY + 6.5
+                    });
+                    if (!isMCM) {
+                        const hedgeX = isWestFront ? (this.x + 1.5) : (this.x + this.w - 4);
+                        if (walkY - (lotY + 4) > 6) {
+                            this.frontHedges.push({
+                                x: hedgeX,
+                                y: lotY + 4,
+                                w: 3,
+                                h: (walkY - 2) - (lotY + 4),
+                                isPicket: usePicket
+                            });
+                        }
+                    }
 
                     // Spacious Private Backyard behind the house!
                     const byLeft = isWestFront ? (hx + hw) : (this.x + alleyThickness);
@@ -666,38 +1032,148 @@ class Building {
         }
     }
 
-    _addResidentialHouse(hx, hy, hw, hh, houseFacing, idx, sRand, craftWalls, craftRoofs, doorPalette) {
+    _addResidentialHouse(hx, hy, hw, hh, houseFacing, idx, sRand, craftWalls, craftRoofs, doorPalette, osmH) {
         const baseSeed = 200 + idx * 11;
-        const isTownhome = (this.archStyle === 'NORDIC_TOWNHOMES');
+        const isTownhome = (this.archStyle === 'NORDIC_TOWNHOMES') || (osmH && osmH[4] === 'T');
+        const isMCM = (this.archStyle === 'OLYMPIC_MANOR_MCM') || (osmH && osmH[4] === 'M');
+        const osmLvl = osmH ? (osmH[5] || 0) : 0;
+        const rawHouseNum = (osmH && osmH[7] && /^\d+/.test(String(osmH[7]))) ? String(osmH[7]) : '';
+        const synthHouseNum = (houseFacing === 'UP' || houseFacing === 'DOWN')
+            ? String(Math.max(800, Math.round((36 - (this.ox || 24) * 0.5) * 100 + idx * 4 + (houseFacing === 'UP' ? 1 : 2))))
+            : String(Math.max(4800, Math.round(8500 - (this.oy || 20) * 62.5 + idx * 4 + (houseFacing === 'LEFT' ? 1 : 2))));
+        const houseNumber = rawHouseNum || synthHouseNum;
+        const shapeCode = (osmH && osmH[8]) || (hw >= 36 && sRand(baseSeed + 15) < 0.42 ? 'L' : '');
+        const hasBluffViewDeck = Boolean(this.isCoastalBluff && sRand(baseSeed + 14) < 0.78);
 
         if (isTownhome) {
             const townColors = ['#334155', '#b86f3c', '#cbd5e0', '#475569'];
-            const zH = 26 + Math.floor(sRand(baseSeed + 1) * 8);
+            const zH = (osmLvl >= 3 ? 34 : (26 + Math.floor(sRand(baseSeed + 1) * 8))) + this.elevRelief;
             this.subStructures.push({
                 x: hx,
                 y: hy,
                 w: hw,
                 h: hh,
                 zHeight: zH,
+                foundationH: this.foundationStep,
                 roofType: 'TOWNHOME_ROOF',
                 wallColor: townColors[Math.floor(sRand(baseSeed + 2) * townColors.length)],
                 trimColor: '#0f172a',
                 roofColor: '#1e293b',
                 doorColor: '#b86f3c',
-                floors: 2,
+                floors: osmLvl >= 3 ? 3 : 2,
                 winCols: 2,
                 hasPorch: true,
+                houseNumber,
+                hasBluffViewDeck,
                 facing: houseFacing,
                 seed: sRand(baseSeed + 3)
             });
             return;
         }
 
+        if (isMCM) {
+            // =================================================================
+            // OLYMPIC MANOR 1950s MID-CENTURY MODERN (MCM) SINGLE-STORY RAMBLER
+            // - Strictly 1-story low-slung profile (zHeight: 13..16) to preserve Sound/Mountain views
+            // - Wide overhanging eaves (overhang: 3.2) & low-pitched hipped/gable roofs (pitch: 5..8)
+            // - Iconic 1950s white-gravel tar roofs, charcoal slate, or cedar shake
+            // - Roman brick / western red cedar / eucalyptus sage walls + Eichler orange/turquoise doors
+            // =================================================================
+            const mcmWalls = [
+                '#dfd7c8', // Roman Brick Cream
+                '#8fa89b', // Mid-Century Eucalyptus Sage
+                '#b38256', // Western Red Cedar Tongue-and-Groove
+                '#d2c0a5', // Warm Desert Sand Stucco
+                '#8496a8', // Puget Sound Slate Mist
+                '#e2e8f0', // Eichler Crisp White
+                '#9c7e65'  // Warm Driftwood Cedar
+            ];
+            const mcmRoofs = [
+                '#cbd5e1', // Iconic 1950s Seattle White-Gravel Built-Up Roof
+                '#94a3b8', // Light Pebble-Gravel MCM Roof
+                '#2b313a', // Mid-Century Charcoal Slate
+                '#4a3b31', // Weathered Low-Slope Cedar Shake
+                '#334155'  // Dark Slate
+            ];
+            const mcmDoors = ['#ea580c', '#0284c7', '#eab308', '#dc2626', '#0d9488'];
+
+            const wc = mcmWalls[Math.floor(sRand(baseSeed + 4) * mcmWalls.length)];
+            const rc = mcmRoofs[Math.floor(sRand(baseSeed + 5) * mcmRoofs.length)];
+            const dc = mcmDoors[Math.floor(sRand(baseSeed + 6) * mcmDoors.length)];
+            const zH = 13 + Math.floor(sRand(baseSeed + 7) * 4) + Math.min(3, this.elevRelief); // 13..16px single-story ranch!
+            const pitch = 5 + Math.floor(sRand(baseSeed + 8) * 4); // 5..8px low-slope mid-century roof!
+            const roofRoll = sRand(baseSeed + 9);
+            const roofType = roofRoll < 0.55 ? 'HIPPED' : 'GABLE';
+            const ridgeAxis = (houseFacing === 'UP' || houseFacing === 'DOWN') ? 'EW' : 'NS';
+
+            this.subStructures.push({
+                x: hx,
+                y: hy,
+                w: hw,
+                h: hh,
+                zHeight: zH,
+                foundationH: this.foundationStep,
+                roofType,
+                ridgeAxis,
+                pitch,
+                overhang: 3.2,
+                wallColor: wc,
+                trimColor: '#f8fafc',
+                roofColor: rc,
+                doorColor: dc,
+                floors: 1,
+                winCols: Math.max(3, Math.floor(hw / 12)),
+                hasPorch: true,
+                hasChimney: sRand(baseSeed + 11) < 0.82,
+                hasDormer: false,
+                isMCM: true,
+                houseNumber,
+                hasBluffViewDeck,
+                facing: houseFacing,
+                seed: sRand(baseSeed + 13)
+            });
+
+            // L-shaped ranch wing when OpenStreetMap polygon has >= 7 vertices ('L' or 'U')
+            if ((shapeCode === 'L' || shapeCode === 'U') && hw >= 30 && hh >= 24) {
+                const wingW = Math.max(13, Math.round(hw * 0.42));
+                const wingH = Math.max(10, Math.round(hh * 0.36));
+                const wingLeft = sRand(baseSeed + 16) < 0.5;
+                const wx = wingLeft ? hx : (hx + hw - wingW);
+                const wy = (houseFacing === 'UP') ? (hy + hh - 2) : (hy - wingH + 2);
+                if (wy >= this.y + 4 && wy + wingH <= this.y + this.h - 6) {
+                    this.subStructures.push({
+                        x: wx,
+                        y: wy,
+                        w: wingW,
+                        h: wingH,
+                        zHeight: Math.max(11, zH - 1),
+                        foundationH: this.foundationStep,
+                        roofType: 'GABLE',
+                        ridgeAxis: ridgeAxis === 'EW' ? 'NS' : 'EW',
+                        pitch: Math.max(4, pitch - 1),
+                        overhang: 2.6,
+                        wallColor: wc,
+                        trimColor: '#f8fafc',
+                        roofColor: rc,
+                        floors: 1,
+                        winCols: 1,
+                        isWing: true,
+                        isMCM: true,
+                        facing: houseFacing,
+                        seed: sRand(baseSeed + 17)
+                    });
+                }
+            }
+            return;
+        }
+
         const wc = craftWalls[Math.floor(sRand(baseSeed + 4) * craftWalls.length)];
         const rc = craftRoofs[Math.floor(sRand(baseSeed + 5) * craftRoofs.length)];
         const dc = doorPalette[Math.floor(sRand(baseSeed + 6) * doorPalette.length)];
-        // Cozy 1- to 1.5-story Ballard Craftsman home height (18..25px) so 3D extrusion doesn't crowd yards
-        const zH = 18 + Math.floor(sRand(baseSeed + 7) * 8);
+        // Calibrate Craftsman house height from OpenStreetMap levels (1-story bungalow vs 2-story Craftsman)
+        const zH = (osmLvl === 1
+            ? (17 + Math.floor(sRand(baseSeed + 7) * 4))
+            : (osmLvl >= 2 ? (22 + Math.floor(sRand(baseSeed + 7) * 5)) : (18 + Math.floor(sRand(baseSeed + 7) * 8)))) + this.elevRelief;
         const pitch = 11 + Math.floor(sRand(baseSeed + 8) * 5);
         const roofRoll = sRand(baseSeed + 9);
         const roofType = roofRoll < 0.25 ? 'HIPPED' : 'GABLE';
@@ -711,6 +1187,7 @@ class Building {
             w: hw,
             h: hh,
             zHeight: zH,
+            foundationH: this.foundationStep,
             roofType,
             ridgeAxis,
             pitch,
@@ -718,14 +1195,46 @@ class Building {
             trimColor: '#f8fafc',
             roofColor: rc,
             doorColor: dc,
-            floors: zH >= 23 ? 2 : 1,
+            floors: zH >= 22 ? 2 : 1,
             winCols: Math.max(2, Math.floor(hw / 14)),
             hasPorch: true,
             hasChimney: sRand(baseSeed + 11) < 0.70,
             hasDormer: roofType === 'GABLE' && sRand(baseSeed + 12) < 0.45,
+            houseNumber,
+            hasBluffViewDeck,
             facing: houseFacing,
             seed: sRand(baseSeed + 13)
         });
+
+        // L-shaped Craftsman cross-gable wing when OpenStreetMap polygon has >= 7 vertices ('L' or 'U')
+        if ((shapeCode === 'L' || shapeCode === 'U') && hw >= 28 && hh >= 24) {
+            const wingW = Math.max(12, Math.round(hw * 0.44));
+            const wingH = Math.max(9, Math.round(hh * 0.34));
+            const wingLeft = sRand(baseSeed + 16) < 0.5;
+            const wx = wingLeft ? hx : (hx + hw - wingW);
+            const wy = (houseFacing === 'UP') ? (hy + hh - 2) : (hy - wingH + 2);
+            if (wy >= this.y + 4 && wy + wingH <= this.y + this.h - 6) {
+                this.subStructures.push({
+                    x: wx,
+                    y: wy,
+                    w: wingW,
+                    h: wingH,
+                    zHeight: Math.max(14, zH - 3),
+                    foundationH: this.foundationStep,
+                    roofType: 'GABLE',
+                    ridgeAxis: ridgeAxis === 'EW' ? 'NS' : 'EW',
+                    pitch: Math.max(8, pitch - 3),
+                    wallColor: wc,
+                    trimColor: '#f8fafc',
+                    roofColor: rc,
+                    floors: 1,
+                    winCols: 1,
+                    isWing: true,
+                    facing: houseFacing,
+                    seed: sRand(baseSeed + 17)
+                });
+            }
+        }
     }
 
     shadeColor(hex, percent) {
@@ -755,6 +1264,24 @@ class Building {
             ctx.fillStyle = isRainy ? '#3b4454' : '#64748b';
             ctx.fillRect(screenX, screenY, this.w, this.h);
 
+            if (this.officePlaza) {
+                // Architectural forecourt plaza pavers & entry planters for Office / Civic buildings
+                ctx.fillStyle = isRainy ? '#475569' : '#94a3b8';
+                ctx.fillRect(screenX + 3, screenY + 3, this.w - 6, this.h - 6);
+                ctx.strokeStyle = isRainy ? 'rgba(15,23,42,0.25)' : 'rgba(255,255,255,0.22)';
+                ctx.lineWidth = 0.8;
+                for (let px = 14; px < this.w - 8; px += 16) {
+                    ctx.beginPath();
+                    ctx.moveTo(screenX + px, screenY + 3);
+                    ctx.lineTo(screenX + px, screenY + this.h - 3);
+                    ctx.stroke();
+                }
+                // Corner plaza planter beds
+                ctx.fillStyle = isRainy ? '#1e4631' : '#2f855a';
+                ctx.fillRect(screenX + 5, screenY + 5, 10, 10);
+                ctx.fillRect(screenX + this.w - 15, screenY + 5, 10, 10);
+            }
+
             if (this.archStyle === 'BREWERY_INDUSTRIAL') {
                 ctx.fillStyle = isRainy ? '#4a3b2c' : '#785f47';
                 ctx.fillRect(screenX + 2, screenY + this.h * 0.62, this.w - 4, this.h * 0.35);
@@ -775,11 +1302,35 @@ class Building {
                         ctx.stroke();
                     }
                 }
+            } else if (this.patioTables && this.patioTables.length > 0) {
+                // Historic Ballard Ave NW & Market St sidewalk cafe bistro tables & umbrellas
+                for (let pt of this.patioTables) {
+                    const ptx = pt.x - camX;
+                    const pty = pt.y - camY;
+                    ctx.fillStyle = '#78350f';
+                    ctx.beginPath();
+                    ctx.arc(ptx, pty, 3.2, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = '#dc2626';
+                    ctx.beginPath();
+                    ctx.arc(ptx, pty, 2.1, 0, Math.PI * 2);
+                    ctx.fill();
+                }
             }
         } else {
-            // Base residential lot lawn (covers side yards & front/back transitions)
-            ctx.fillStyle = isRainy ? '#224d38' : '#348052';
+            // Base residential lot lawn (with 2.5D terrain slope directional hillshading)
+            const slopeLight = Math.max(-14, Math.min(14, Math.round(((this.slopeVec ? this.slopeVec.gx : 0) * 55 + (this.slopeVec ? this.slopeVec.gy : 0) * 45))));
+            const baseLawn = isRainy ? '#224d38' : '#348052';
+            ctx.fillStyle = slopeLight !== 0 ? this.shadeColor(baseLawn, slopeLight) : baseLawn;
             ctx.fillRect(screenX, screenY, this.w, this.h);
+
+            // Terraced stone hillside retaining wall on sloped bluff/ravine lots (Olympic Manor, Sunset Hill, Golden Gardens)
+            if (this.foundationStep >= 3) {
+                ctx.fillStyle = isRainy ? '#475569' : '#94a3b8';
+                ctx.fillRect(screenX + 2, screenY + Math.floor(this.h * 0.48), this.w - 4, 2.5);
+                ctx.fillStyle = 'rgba(15,23,42,0.32)';
+                ctx.fillRect(screenX + 2, screenY + Math.floor(this.h * 0.48) + 2.5, this.w - 4, 1.5);
+            }
 
             // Lush Front Yards between sidewalk and front porches
             if (this.frontYards && this.frontYards.length > 0) {
@@ -931,16 +1482,43 @@ class Building {
                 }
             }
 
-            // Wooden front porch decks with steps
-            ctx.fillStyle = isRainy ? '#5c4033' : '#8b5a2b';
+            // Wooden front porch decks with steps, Sunset Hill / Olympic Manor bluff view decks & real OSM house numbers
             for (let sub of this.subStructures) {
-                if (!sub.hasPorch) continue;
+                if (sub.isWing || sub.isGarage) continue;
                 const sx = sub.x - camX;
                 const sy = sub.y - camY;
-                if (sub.facing === 'DOWN') ctx.fillRect(sx + 5, sy + sub.h - 2, sub.w - 10, 6.5);
-                else if (sub.facing === 'UP') ctx.fillRect(sx + 5, sy - 4.5, sub.w - 10, 6.5);
-                else if (sub.facing === 'LEFT') ctx.fillRect(sx - 4.5, sy + 5, 6.5, sub.h - 10);
-                else if (sub.facing === 'RIGHT') ctx.fillRect(sx + sub.w - 2, sy + 5, 6.5, sub.h - 10);
+                if (sub.hasPorch) {
+                    ctx.fillStyle = isRainy ? '#5c4033' : '#8b5a2b';
+                    if (sub.facing === 'DOWN') ctx.fillRect(sx + 5, sy + sub.h - 2, sub.w - 10, 6.5);
+                    else if (sub.facing === 'UP') ctx.fillRect(sx + 5, sy - 4.5, sub.w - 10, 6.5);
+                    else if (sub.facing === 'LEFT') ctx.fillRect(sx - 4.5, sy + 5, 6.5, sub.h - 10);
+                    else if (sub.facing === 'RIGHT') ctx.fillRect(sx + sub.w - 2, sy + 5, 6.5, sub.h - 10);
+                }
+
+                // Cantilevered cedar & glass coastal view deck on west-facing Sunset Hill / Olympic Manor bluff lots
+                if (sub.hasBluffViewDeck) {
+                    ctx.fillStyle = isRainy ? '#6b4423' : '#a16236';
+                    ctx.fillRect(sx - 5.5, sy + 4, 6, Math.max(8, sub.h - 8));
+                    ctx.strokeStyle = '#7dd3fc';
+                    ctx.lineWidth = 1.1;
+                    ctx.strokeRect(sx - 5.5, sy + 4, 6, Math.max(8, sub.h - 8));
+                }
+
+                // Real OpenStreetMap house number plaque on front walkway
+                if (sub.houseNumber && (!vb || (vb.maxX - vb.minX) < 1650)) {
+                    let nx = sx + sub.w / 2;
+                    let ny = sy + sub.h + 7;
+                    if (sub.facing === 'UP') ny = sy - 7;
+                    else if (sub.facing === 'LEFT') { nx = sx - 8; ny = sy + sub.h / 2; }
+                    else if (sub.facing === 'RIGHT') { nx = sx + sub.w + 8; ny = sy + sub.h / 2; }
+                    ctx.fillStyle = 'rgba(15, 23, 42, 0.72)';
+                    ctx.fillRect(nx - 6.5, ny - 3.5, 13, 6.5);
+                    ctx.fillStyle = '#f8fafc';
+                    ctx.font = 'bold 5.5px "Inter", sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(sub.houseNumber, nx, ny);
+                }
             }
 
             // Shrubs, front-yard trees & flowers
@@ -1076,21 +1654,37 @@ class Building {
                 return { x: bx + (tx - bx) * v, y: by + (ty - by) * v };
             };
 
-            for (let r = 0; r < floors; r++) {
-                const v0 = (r + 0.25) / (floors + 0.15);
-                const v1 = (r + 0.72) / (floors + 0.15);
-                for (let c = 0; c < cols; c++) {
-                    const u0 = (c + 0.22) / (cols + 0.15);
-                    const u1 = (c + 0.78) / (cols + 0.15);
-
-                    const p00 = lerpPt(u0, v0);
-                    const p10 = lerpPt(u1, v0);
-                    const p11 = lerpPt(u1, v1);
-                    const p01 = lerpPt(u0, v1);
-
-                    const litHash = Math.sin((sub.seed || 1) * 97 + r * 13 + c * 29);
-                    const isLit = isNight ? (litHash > -0.15) : (litHash > 0.72);
-                    ctx.fillStyle = isLit ? '#fef08a' : '#0f172a';
+            if (sub.isGarage) {
+                // Detached backyard garage overhead sectional door on alley-facing wall
+                if (isFrontWall) {
+                    const g00 = lerpPt(0.18, 0.0);
+                    const g10 = lerpPt(0.82, 0.0);
+                    const g11 = lerpPt(0.82, 0.72);
+                    const g01 = lerpPt(0.18, 0.72);
+                    ctx.fillStyle = '#e2e8f0';
+                    ctx.beginPath();
+                    ctx.moveTo(g00.x, g00.y);
+                    ctx.lineTo(g10.x, g10.y);
+                    ctx.lineTo(g11.x, g11.y);
+                    ctx.lineTo(g01.x, g01.y);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.strokeStyle = '#64748b';
+                    ctx.lineWidth = 0.7;
+                    ctx.stroke();
+                }
+            } else if (sub.isOffice) {
+                // Reflective glass curtain-wall ribbon windows with vertical aluminum mullions
+                for (let r = 0; r < floors; r++) {
+                    const v0 = (r + 0.18) / (floors + 0.1);
+                    const v1 = (r + 0.82) / (floors + 0.1);
+                    const p00 = lerpPt(0.08, v0);
+                    const p10 = lerpPt(0.92, v0);
+                    const p11 = lerpPt(0.92, v1);
+                    const p01 = lerpPt(0.08, v1);
+                    const litHash = Math.sin((sub.seed || 1) * 97 + r * 19);
+                    const isLit = isNight ? (litHash > -0.25) : (litHash > 0.65);
+                    ctx.fillStyle = isLit ? (isNight ? '#fef08a' : '#7dd3fc') : '#0369a1';
                     ctx.beginPath();
                     ctx.moveTo(p00.x, p00.y);
                     ctx.lineTo(p10.x, p10.y);
@@ -1098,22 +1692,98 @@ class Building {
                     ctx.lineTo(p01.x, p01.y);
                     ctx.closePath();
                     ctx.fill();
-
-                    if (!this.isUrban) {
-                        ctx.strokeStyle = '#f8fafc';
-                        ctx.lineWidth = 0.7;
+                    // Vertical curtain-wall mullions
+                    ctx.strokeStyle = '#cbd5e1';
+                    ctx.lineWidth = 0.75;
+                    for (let m = 1; m < cols; m++) {
+                        const um = 0.08 + (m / cols) * 0.84;
+                        const pm0 = lerpPt(um, v0);
+                        const pm1 = lerpPt(um, v1);
+                        ctx.beginPath();
+                        ctx.moveTo(pm0.x, pm0.y);
+                        ctx.lineTo(pm1.x, pm1.y);
                         ctx.stroke();
+                    }
+                }
+            } else {
+                for (let r = 0; r < floors; r++) {
+                    const v0 = (r + 0.25) / (floors + 0.15);
+                    const v1 = (r + 0.72) / (floors + 0.15);
+                    for (let c = 0; c < cols; c++) {
+                        const u0 = (c + 0.22) / (cols + 0.15);
+                        const u1 = (c + 0.78) / (cols + 0.15);
+
+                        const p00 = lerpPt(u0, v0);
+                        const p10 = lerpPt(u1, v0);
+                        const p11 = lerpPt(u1, v1);
+                        const p01 = lerpPt(u0, v1);
+
+                        const litHash = Math.sin((sub.seed || 1) * 97 + r * 13 + c * 29);
+                        const isLit = isNight ? (litHash > -0.15) : (litHash > 0.72);
+                        ctx.fillStyle = isLit ? '#fef08a' : '#0f172a';
+                        ctx.beginPath();
+                        ctx.moveTo(p00.x, p00.y);
+                        ctx.lineTo(p10.x, p10.y);
+                        ctx.lineTo(p11.x, p11.y);
+                        ctx.lineTo(p01.x, p01.y);
+                        ctx.closePath();
+                        ctx.fill();
+
+                        if (!this.isUrban) {
+                            ctx.strokeStyle = '#f8fafc';
+                            ctx.lineWidth = 0.7;
+                            ctx.stroke();
+                        }
                     }
                 }
             }
 
-            // 5. Front door or storefront awning on street-facing wall
-            if (isFrontWall) {
+            // 4b. 3D Stepped Concrete Hillside Foundation on sloped Ballard terrain (Olympic Manor, Sunset Hill, North Beach, Crown Hill)
+            if (sub.foundationH && sub.foundationH >= 2 && !sub.isGarage) {
+                const fv = Math.min(0.26, sub.foundationH / Math.max(14, sub.zHeight || 18));
+                const f00 = lerpPt(0.0, 0.0);
+                const f10 = lerpPt(1.0, 0.0);
+                const f11 = lerpPt(1.0, fv);
+                const f01 = lerpPt(0.0, fv);
+                ctx.fillStyle = '#64748b';
+                ctx.beginPath();
+                ctx.moveTo(f00.x, f00.y);
+                ctx.lineTo(f10.x, f10.y);
+                ctx.lineTo(f11.x, f11.y);
+                ctx.lineTo(f01.x, f01.y);
+                ctx.closePath();
+                ctx.fill();
+            }
+
+            // 5. Front door, storefront awning, historic brick cornice, or hospital emergency canopy on street-facing wall
+            if (isFrontWall && !sub.isGarage) {
+                if (sub.isBallardAve) {
+                    // Historic Ballard Ave NW 1890s corbelled brick cornice band along top of facade
+                    const c0 = lerpPt(0.02, 0.92);
+                    const c1 = lerpPt(0.98, 0.92);
+                    ctx.strokeStyle = '#e2d9c8';
+                    ctx.lineWidth = 2.4;
+                    ctx.beginPath();
+                    ctx.moveTo(c0.x, c0.y);
+                    ctx.lineTo(c1.x, c1.y);
+                    ctx.stroke();
+                }
+                if (sub.hasBladeSign) {
+                    // Projecting vintage neon blade sign on Historic Ballard Ave / Market St
+                    const bs0 = lerpPt(0.16, 0.55);
+                    const bs1 = lerpPt(0.16, 0.78);
+                    ctx.strokeStyle = isNight ? '#f43f5e' : '#be123c';
+                    ctx.lineWidth = 2.6;
+                    ctx.beginPath();
+                    ctx.moveTo(bs0.x, bs0.y);
+                    ctx.lineTo(bs1.x, bs1.y);
+                    ctx.stroke();
+                }
                 if (sub.awningColor) {
                     const aw0 = lerpPt(0.08, 0.25);
                     const aw1 = lerpPt(0.92, 0.25);
                     ctx.strokeStyle = sub.awningColor;
-                    ctx.lineWidth = 3.5;
+                    ctx.lineWidth = sub.isHospital ? 4.5 : 3.5;
                     ctx.beginPath();
                     ctx.moveTo(aw0.x, aw0.y);
                     ctx.lineTo(aw1.x, aw1.y);
@@ -1153,7 +1823,7 @@ class Building {
         // 3D ROOF GEOMETRY (Overhanging Eaves, Gable/Hipped Slopes, Chimneys)
         // =====================================================================
         if (sub.roofType === 'GABLE' || sub.roofType === 'CORRUGATED_GABLE' || sub.roofType === 'HIPPED') {
-            const overhang = this.isUrban ? 0.5 : 2.0;
+            const overhang = sub.overhang || (this.isUrban ? 0.5 : 2.0);
             const eNW = Projection3D.project(sx1 - overhang, sy1 - overhang, z, centerX, centerY);
             const eNE = Projection3D.project(sx2 + overhang, sy1 - overhang, z, centerX, centerY);
             const eSE = Projection3D.project(sx2 + overhang, sy2 + overhang, z, centerX, centerY);
@@ -1332,6 +2002,15 @@ class Building {
                 ctx.fillStyle = '#8b5a2b';
                 ctx.fillRect(dNW.x, dNW.y, dSE.x - dNW.x, dSE.y - dNW.y);
             }
+            if (sub.hasPenthouse) {
+                const pNW = Projection3D.project(sx1 + sub.w * 0.25, sy1 + sub.h * 0.25, z + 7, centerX, centerY);
+                const pSE = Projection3D.project(sx1 + sub.w * 0.72, sy1 + sub.h * 0.68, z + 7, centerX, centerY);
+                ctx.fillStyle = '#334155';
+                ctx.fillRect(pNW.x, pNW.y, pSE.x - pNW.x, pSE.y - pNW.y);
+                ctx.strokeStyle = '#94a3b8';
+                ctx.lineWidth = 1.1;
+                ctx.strokeRect(pNW.x, pNW.y, pSE.x - pNW.x, pSE.y - pNW.y);
+            }
             if (sub.hasHVAC) {
                 const hvac = Projection3D.project(sx2 - 12, sy2 - 12, z + 4, centerX, centerY);
                 ctx.fillStyle = '#64748b';
@@ -1348,6 +2027,53 @@ class Building {
                 ctx.lineWidth = 0.9;
                 ctx.strokeRect(sky.x - 5, sky.y - 4, 10, 8);
             }
+            if (sub.isHospital) {
+                // Swedish Ballard Hospital Rooftop Helipad [H]
+                const hPos = Projection3D.project((sx1 + sx2) / 2, (sy1 + sy2) / 2, z + 8, centerX, centerY);
+                ctx.strokeStyle = '#facc15';
+                ctx.lineWidth = 1.4;
+                ctx.beginPath();
+                ctx.arc(hPos.x, hPos.y, 7.5, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.fillStyle = '#f8fafc';
+                ctx.font = 'bold 7.5px "Inter", sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('H', hPos.x, hPos.y);
+            } else if (sub.isLibrary) {
+                // Ballard Branch Library Living Green Sedum Roof & Curved Skylight Monitors
+                const gNW = Projection3D.project(sx1 + 4, sy1 + 4, z + 1, centerX, centerY);
+                const gSE = Projection3D.project(sx2 - 4, sy2 - 4, z + 1, centerX, centerY);
+                ctx.fillStyle = '#2f855a';
+                ctx.fillRect(gNW.x, gNW.y, gSE.x - gNW.x, gSE.y - gNW.y);
+                ctx.fillStyle = '#48bb78';
+                ctx.fillRect(gNW.x + 3, gNW.y + 3, (gSE.x - gNW.x) * 0.55, (gSE.y - gNW.y) * 0.45);
+            } else if (sub.isNordicMuseum) {
+                // National Nordic Museum central linear glass "Fjord" atrium
+                const fW = Projection3D.project(sx1 + 2, (sy1 + sy2) / 2 - 3, z + 2, centerX, centerY);
+                const fE = Projection3D.project(sx2 - 2, (sy1 + sy2) / 2 + 3, z + 2, centerX, centerY);
+                ctx.fillStyle = isNight ? '#fef08a' : '#7dd3fc';
+                ctx.fillRect(fW.x, fW.y, fE.x - fW.x, Math.max(4, fE.y - fW.y));
+            }
+        }
+
+        // Architectural nameplate for real OpenStreetMap named offices, commercial buildings, schools & landmarks
+        if (sub.label && sx1 > -40 && sx2 < ctx.canvas.width + 40 && sy1 > -40 && sy2 < ctx.canvas.height + 40) {
+            const lblPos = Projection3D.project((sx1 + sx2) / 2, (sy1 + sy2) / 2, z + 5, centerX, centerY);
+            const shortName = sub.label.length > 22 ? (sub.label.slice(0, 20) + '…') : sub.label;
+            ctx.save();
+            ctx.font = 'bold 8.5px "Inter", sans-serif';
+            const tw = ctx.measureText(shortName).width + 8;
+            ctx.fillStyle = 'rgba(15, 23, 42, 0.82)';
+            ctx.fillRect(lblPos.x - tw / 2, lblPos.y - 6, tw, 12);
+            ctx.strokeStyle = sub.isOffice ? '#38bdf8' : '#cbd5e1';
+            ctx.lineWidth = 0.8;
+            ctx.strokeRect(lblPos.x - tw / 2, lblPos.y - 6, tw, 12);
+            ctx.fillStyle = '#f8fafc';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(shortName, lblPos.x, lblPos.y);
+            ctx.restore();
         }
     }
 

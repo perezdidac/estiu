@@ -94,7 +94,7 @@ const Draw = {
             ctx.fillRect(-12.5 + rx * 0.7, -20 + ry * 0.7, 25, 44);
 
             // Animated windshield wipers on Bus in rain
-            if (isRainy) {
+            if (isRainy && !dyn.isParked) {
                 const wAng = Math.sin(Date.now() / 150) * 0.52;
                 ctx.strokeStyle = 'rgba(226, 232, 240, 0.75)';
                 ctx.lineWidth = 1.1;
@@ -443,8 +443,9 @@ const Draw = {
             ctx.stroke();
         }
 
-        // Tire water spray when rainy
-        if (isRainy && Math.abs(dyn.speed || 0.5) > 0.25) {
+        // Tire water spray when rainy (never on parked or stationary cars!)
+        const carSpd = (typeof dyn.speed === 'number') ? Math.abs(dyn.speed) : (dyn.isParked ? 0 : 0.5);
+        if (isRainy && !dyn.isParked && carSpd > 0.25) {
             ctx.fillStyle = 'rgba(255, 255, 255, 0.22)';
             const t = Date.now() / 80;
             const spray1 = Math.sin(t) * 3;

@@ -157,98 +157,156 @@
 
         <!-- Start Screen -->
         <div id="start-screen" class="screen">
-            <h1>BALLARD<br>DRIVER<br>NIGHTMARE</h1>
-            <div style="text-align: center; max-width: 640px; width: 92%; color: #cbd5e0; margin-bottom: 18px; line-height: 1.4; z-index: 2;">
-                <p style="font-size: 0.9rem; margin-bottom: 10px;">It's 5:00 PM in Ballard. Navigate every real street from 85th to Salmon Bay.</p>
+            <div class="splash-card">
+                <div class="splash-badge">SEATTLE, WA • 5:00 PM RUSH HOUR • GOLDEN GARDENS TO CROWN HILL</div>
+                <h1 class="splash-title">
+                    <span class="splash-title-main">BALLARD DRIVER</span>
+                    <span class="splash-title-sub">NIGHTMARE</span>
+                </h1>
+                <p class="splash-lead">
+                    Golden hour over Salmon Bay, espresso in the cupholder, and 400 neighbors all trying to make the light on 15th &amp; Market.
+                </p>
 
-                <div style="font-size: 10px; color: #4fd1c5; letter-spacing: 1px; font-weight: bold; margin-bottom: 6px; font-family: 'Press Start 2P', monospace;">CHOOSE YOUR BALLARD RIDE</div>
+                <!-- Prominent Live Seattle FM Stereo Deck on Splash Screen -->
+                <div class="splash-radio-deck">
+                    <div class="splash-radio-top">
+                        <div class="splash-radio-brand">
+                            <span class="splash-radio-dot" id="splash-radio-dot"></span>
+                            <span id="splash-radio-status">SEATTLE FM STEREO • LIVE SOUNDTRACK</span>
+                        </div>
+                        <div class="splash-vu" id="splash-vu">
+                            <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+                        </div>
+                        <button class="splash-shuffle-btn" onclick="Game.shuffleRadioStation(true)" title="Shuffle Seattle Station &amp; Song">🔀 SHUFFLE TRACK</button>
+                    </div>
+                    <div class="splash-radio-nowplaying" id="splash-radio-ticker">
+                        90.3 KEXP SEATTLE INDIE — "Golden Gardens Bonfire" — Fleet Salmon
+                    </div>
+                    <div class="splash-station-row">
+                        <button class="splash-station-btn active" data-station="KEXP" onclick="Game.toggleRadio('KEXP')">90.3 KEXP INDIE</button>
+                        <button class="splash-station-btn" data-station="GRUNGE" onclick="Game.toggleRadio('GRUNGE')">99.9 SUB POP GRUNGE</button>
+                        <button class="splash-station-btn" data-station="LOFI" onclick="Game.toggleRadio('LOFI')">88.5 RAIN CITY LO-FI</button>
+                        <button class="splash-station-btn" data-station="JAZZ" onclick="Game.toggleRadio('JAZZ')">91.3 BALLARD JAZZ</button>
+                        <button class="splash-station-btn" data-station="SYNTH" onclick="Game.toggleRadio('SYNTH')">104.9 AURORA SYNTH</button>
+                        <button class="splash-station-btn mute-btn" data-station="OFF" onclick="Game.toggleRadio('OFF')">MUTE</button>
+                    </div>
+                </div>
+
+                <div class="splash-section-label">SELECT YOUR NORTHWEST RIDE</div>
                 <div id="vehicle-selector" class="vehicle-grid">
                     <div class="vehicle-card selected" data-vehicle="SUBARU" onclick="Game.selectVehicle('SUBARU')">
-                        <div class="vehicle-title" style="color: #63b3ed;">Outback AWD</div>
-                        <div class="vehicle-sub">The Ballard Standard</div>
-                        <div class="vehicle-stats">Grip ★★★★★ | Speed ★★★☆☆</div>
-                        <div class="vehicle-desc">50% better wet grip + roof box</div>
+                        <div class="vehicle-card-header">
+                            <div class="vehicle-title">Outback AWD</div>
+                            <span class="vehicle-tag">BALLARD STANDARD</span>
+                        </div>
+                        <div class="vehicle-stats">GRIP ★★★★★ &nbsp;•&nbsp; SPEED ★★★☆☆</div>
+                        <div class="vehicle-desc">50% better wet-asphalt traction + rooftop cargo box</div>
                     </div>
                     <div class="vehicle-card" data-vehicle="PRIUS" onclick="Game.selectVehicle('PRIUS')">
-                        <div class="vehicle-title" style="color: #4fd1c5;">Hybrid Hatch</div>
-                        <div class="vehicle-sub">Eco Errand Runner</div>
-                        <div class="vehicle-stats">Fuel ★★★★★ | Turn ★★★★★</div>
-                        <div class="vehicle-desc">Nimble steering &amp; 45% less fuel burn</div>
+                        <div class="vehicle-card-header">
+                            <div class="vehicle-title">Hybrid Hatch</div>
+                            <span class="vehicle-tag">CO-OP RUNNER</span>
+                        </div>
+                        <div class="vehicle-stats">FUEL ★★★★★ &nbsp;•&nbsp; TURN ★★★★★</div>
+                        <div class="vehicle-desc">Nimble cornering &amp; 45% slower fuel burn</div>
                     </div>
                     <div class="vehicle-card" data-vehicle="VOLVO" onclick="Game.selectVehicle('VOLVO')">
-                        <div class="vehicle-title" style="color: #ecc94b;">Nordic Wagon</div>
-                        <div class="vehicle-sub">Loyal Heights Brick</div>
-                        <div class="vehicle-stats">Armor ★★★★★ | Chill ★★★★★</div>
-                        <div class="vehicle-desc">35% less stress from crashes &amp; potholes</div>
+                        <div class="vehicle-card-header">
+                            <div class="vehicle-title">Nordic Wagon</div>
+                            <span class="vehicle-tag">LOYAL HEIGHTS BRICK</span>
+                        </div>
+                        <div class="vehicle-stats">ARMOR ★★★★★ &nbsp;•&nbsp; CHILL ★★★★★</div>
+                        <div class="vehicle-desc">35% less stress from fender-benders &amp; potholes</div>
                     </div>
                     <div class="vehicle-card" data-vehicle="COUPE" onclick="Game.selectVehicle('COUPE')">
-                        <div class="vehicle-title" style="color: #fc8181;">Espresso GT</div>
-                        <div class="vehicle-sub">Caffeine Rocket</div>
-                        <div class="vehicle-stats">Speed ★★★★★ | Accel ★★★★★</div>
-                        <div class="vehicle-desc">Fastest down 15th Ave NW, watch puddles!</div>
+                        <div class="vehicle-card-header">
+                            <div class="vehicle-title">Espresso GT</div>
+                            <span class="vehicle-tag">CAFFEINE ROCKET</span>
+                        </div>
+                        <div class="vehicle-stats">SPEED ★★★★★ &nbsp;•&nbsp; ACCEL ★★★★★</div>
+                        <div class="vehicle-desc">Blistering down 15th &amp; Holman Rd — watch puddles!</div>
                     </div>
                 </div>
 
-                <div
-                    style="font-size: 0.75em; margin-top: 10px; color: #a0aec0; text-align: left; display: grid; grid-template-columns: 1fr 1fr; gap: 3px 14px; background: rgba(15, 23, 42, 0.7); padding: 8px 12px; border-radius: 6px; border: 1px solid #2d3748;">
-                    <p><span style="color:#ed8936">■</span> Orange: Grandma (Slow)</p>
-                    <p><span style="color:#ecc94b">■</span> Yellow: Aggressive (Honks)</p>
-                    <p><span style="color:#f56565">■</span> Red: Distracted (Sleeps at green)</p>
-                    <p><span style="color:#9f7aea">■</span> Purple: Rideshare (Stops randomly)</p>
-                    <p><span style="color:#fff">■</span> White: Student (Wobbles/Brakes)</p>
-                    <p><span style="color:#68d391">■</span> Pastel: Biker (Ignores stop signs!)</p>
+                <div class="splash-legend">
+                    <div><span class="legend-swatch" style="background:#e8833a"></span><strong>Grandma:</strong> 18 MPH sightseeing</div>
+                    <div><span class="legend-swatch" style="background:#f4b942"></span><strong>Speedster:</strong> Tailgates &amp; honks</div>
+                    <div><span class="legend-swatch" style="background:#e76f51"></span><strong>Texter:</strong> Zones out at green lights</div>
+                    <div><span class="legend-swatch" style="background:#c084fc"></span><strong>Rideshare:</strong> Sudden curb drop-offs</div>
+                    <div><span class="legend-swatch" style="background:#fdf6e9"></span><strong>Student Driver:</strong> Nervous braking</div>
+                    <div><span class="legend-swatch" style="background:#68b684"></span><strong>Biker:</strong> Blows right through stop signs</div>
                 </div>
-                <p style="margin-top: 10px; font-size: 0.8rem;">WASD / Arrows or Touch Joystick to Drive • SPACE to Honk</p>
-                <p style="margin-top: 4px; color: #fc8181; font-size: 0.78rem;">Stop at Red Lights &amp; Stop Signs! Arterials have right-of-way at side streets.</p>
+
+                <div class="splash-footer-row">
+                    <div class="splash-controls-hint">
+                        <div><strong>WASD / Arrows</strong> Drive &nbsp;•&nbsp; <strong>C / Shift</strong> Cruise Control &nbsp;•&nbsp; <strong>Space</strong> Honk</div>
+                        <div class="splash-rules-note">Respect Red Lights, Stop Signs &amp; Puget Sound Water!</div>
+                    </div>
+                    <button class="btn" id="start-btn" onclick="Game.restartGame()">TURN THE KEY &rarr;</button>
+                </div>
             </div>
-            <button class="btn" id="start-btn" onclick="Game.restartGame()">START ENGINE</button>
         </div>
 
         <!-- Game Over -->
         <div id="game-over-screen" class="screen hidden">
-            <h1 style="color: #e53e3e;">GAME OVER</h1>
-            <p id="fail-reason" style="margin-bottom: 10px; font-size: 1.2rem;">You lost your cool.</p>
-            <div id="final-total-score"
-                style="font-family: 'Press Start 2P'; color: #ecc94b; margin-bottom: 20px; font-size: 1rem;"></div>
-            <button class="btn" id="game-over-btn" onclick="Game.restartGame()">TRY AGAIN</button>
+            <div class="splash-card modal-card">
+                <div class="splash-badge" style="background: rgba(231, 111, 81, 0.2); color: #f4a261; border-color: rgba(231, 111, 81, 0.45);">BALLARD TRAFFIC REPORT</div>
+                <h1 class="splash-title" style="margin-bottom: 10px;">
+                    <span class="splash-title-main" style="color: #e76f51;">TRIP CANCELLED</span>
+                </h1>
+                <p id="fail-reason" style="margin-bottom: 14px; font-size: 1.15rem; color: #fdf6e9; font-weight: 600;">You lost your cool.</p>
+                <div id="final-total-score"
+                    style="font-family: 'Space Mono', monospace; font-weight: 700; color: #f4b942; margin-bottom: 24px; font-size: 1.2rem; letter-spacing: 1px;"></div>
+                <button class="btn" id="game-over-btn" onclick="Game.restartGame()">TRY ANOTHER ROUTE &rarr;</button>
+            </div>
         </div>
 
         <!-- Win -->
         <div id="win-screen" class="screen hidden">
-            <h1 style="color: #48bb78;">ERRAND COMPLETE!</h1>
-            <p style="margin-bottom: 20px;">You survived this trip.</p>
-            <div id="score-details"
-                style="font-family: 'Press Start 2P'; color: #ecc94b; margin-bottom: 30px; text-align: center; line-height: 1.8;">
+            <div class="splash-card modal-card">
+                <div class="splash-badge" style="background: rgba(104, 182, 132, 0.22); color: #8ce0a8; border-color: rgba(104, 182, 132, 0.45);">PARKED &amp; DELIVERED</div>
+                <h1 class="splash-title" style="margin-bottom: 8px;">
+                    <span class="splash-title-main" style="color: #8ce0a8;">ERRAND COMPLETE!</span>
+                </h1>
+                <p style="margin-bottom: 16px; color: #e6dac6;">You made it through Ballard with your sanity intact.</p>
+                <div id="score-details"
+                    style="font-family: 'Space Mono', monospace; color: #f4b942; margin-bottom: 24px; text-align: center; line-height: 1.8; font-size: 0.95rem;">
+                </div>
+                <button class="btn" id="win-next-btn" onclick="Game.openGarage()">VISIT BALLARD GARAGE &rarr;</button>
             </div>
-            <button class="btn" id="win-next-btn" onclick="Game.openGarage()">NEXT LEVEL</button>
         </div>
 
         <!-- Garage Upgrade Shop Screen -->
         <div id="garage-screen" class="screen hidden">
-            <h1 style="color: #ecc94b;">BALLARD GARAGE</h1>
-            <p style="margin-bottom: 20px; color: #a0aec0; max-width: 450px; text-align: center; line-height: 1.5;">Spend your Errand Bucks on upgrades to survive the Ballard rush hour!</p>
-            <div id="garage-bucks" style="font-family: 'Press Start 2P'; color: #48bb78; font-size: 1.2rem; margin-bottom: 25px;">BUCKS: $0</div>
-            
-            <div style="display: flex; flex-direction: column; gap: 12px; width: 80%; max-width: 500px; margin-bottom: 30px;">
-                <div class="shop-item" id="shop-tires" onclick="Game.buyUpgrade('tires', 1500)">
-                    <div class="shop-title" style="font-weight: bold; font-size: 0.9em; pointer-events: none;">PREMIUM TIRES ($1500)</div>
-                    <div style="font-size: 0.7em; color: #a0aec0; margin-top: 4px; pointer-events: none;">Reduces slipping and sliding on rainy wet roads.</div>
+            <div class="splash-card modal-card">
+                <div class="splash-badge">15TH AVE NW AUTO &amp; ESPRESSO</div>
+                <h1 class="splash-title" style="margin-bottom: 6px;">
+                    <span class="splash-title-main" style="color: #f4b942;">BALLARD GARAGE</span>
+                </h1>
+                <p style="margin-bottom: 12px; color: #e6dac6; max-width: 480px; text-align: center; font-size: 0.9rem;">Spend your Errand Bucks on local upgrades before your next trip.</p>
+                <div id="garage-bucks" style="font-family: 'Space Mono', monospace; font-weight: 700; color: #8ce0a8; font-size: 1.25rem; margin-bottom: 16px;">BUCKS: $0</div>
+                
+                <div style="display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 520px; margin-bottom: 22px;">
+                    <div class="shop-item" id="shop-tires" onclick="Game.buyUpgrade('tires', 1500)">
+                        <div class="shop-title" style="font-weight: 700; font-size: 0.92em; color: #fdf6e9; pointer-events: none;">ALL-WEATHER PNW TIRES ($1500)</div>
+                        <div style="font-size: 0.78em; color: #d5c5ae; margin-top: 3px; pointer-events: none;">Cuts hydroplaning and wet-asphalt slip on rainy Seattle streets.</div>
+                    </div>
+                    <div class="shop-item" id="shop-cupholder" onclick="Game.buyUpgrade('cupholder', 2000)">
+                        <div class="shop-title" style="font-weight: 700; font-size: 0.92em; color: #fdf6e9; pointer-events: none;">GYROSCOPIC CORTADO HOLDER ($2000)</div>
+                        <div style="font-size: 0.78em; color: #d5c5ae; margin-top: 3px; pointer-events: none;">Keeps your espresso steady, slowing mental stress drain by 30%.</div>
+                    </div>
+                    <div class="shop-item" id="shop-fueltank" onclick="Game.buyUpgrade('fueltank', 2500)">
+                        <div class="shop-title" style="font-weight: 700; font-size: 0.92em; color: #fdf6e9; pointer-events: none;">EXTENDED TOURING TANK ($2500)</div>
+                        <div style="font-size: 0.78em; color: #d5c5ae; margin-top: 3px; pointer-events: none;">Saves trips to the gas station (25% slower fuel burn).</div>
+                    </div>
+                    <div class="shop-item" id="shop-sticker" onclick="Game.buyUpgrade('sticker', 1000)">
+                        <div class="shop-title" style="font-weight: 700; font-size: 0.92em; color: #fdf6e9; pointer-events: none;">"FREE BALLARD" BUMPER STICKER ($1000)</div>
+                        <div style="font-size: 0.78em; color: #d5c5ae; margin-top: 3px; pointer-events: none;">Authentic Nordic heritage pride — boosts all errand scores by 1.2x!</div>
+                    </div>
                 </div>
-                <div class="shop-item" id="shop-cupholder" onclick="Game.buyUpgrade('cupholder', 2000)">
-                    <div class="shop-title" style="font-weight: bold; font-size: 0.9em; pointer-events: none;">COFFEE CUPHOLDER ($2000)</div>
-                    <div style="font-size: 0.7em; color: #a0aec0; margin-top: 4px; pointer-events: none;">Keeps coffee hot, slowing mental stress drain by 30%.</div>
-                </div>
-                <div class="shop-item" id="shop-fueltank" onclick="Game.buyUpgrade('fueltank', 2500)">
-                    <div class="shop-title" style="font-weight: bold; font-size: 0.9em; pointer-events: none;">EXTENDED FUEL TANK ($2500)</div>
-                    <div style="font-size: 0.7em; color: #a0aec0; margin-top: 4px; pointer-events: none;">Saves trips to the gas station (25% slower fuel drainage).</div>
-                </div>
-                <div class="shop-item" id="shop-sticker" onclick="Game.buyUpgrade('sticker', 1000)">
-                    <div class="shop-title" style="font-weight: bold; font-size: 0.9em; pointer-events: none;">BALLARD BUMPER STICKER ($1000)</div>
-                    <div style="font-size: 0.7em; color: #a0aec0; margin-top: 4px; pointer-events: none;">Show off your local pride! Increases score multiplier.</div>
-                </div>
+                
+                <button class="btn" id="garage-next-btn" onclick="Game.closeGarage()">NEXT ERRAND &rarr;</button>
             </div>
-            
-            <button class="btn" id="garage-next-btn" onclick="Game.closeGarage()">START NEXT TRIP</button>
         </div>
 
         <!-- Mobile Controls -->
@@ -266,9 +324,10 @@
     <script src="js/utils.js"></script>
     <script src="js/systems/audio.js"></script>
     <script src="js/systems/draw.js"></script>
+    <script src="js/osmBuildings.js"></script>
     <script src="js/entities/props.js"></script>
-    <script src="js/entities/biker.js"></script>
     <script src="js/entities/car.js"></script>
+    <script src="js/entities/biker.js"></script>
     <script src="js/mapData.js"></script>
     <script src="js/game.js"></script>
     <script src="js/main.js"></script>

@@ -2,8 +2,10 @@ const TILE_SIZE = 120;
 const MAP_SCALE = 3;
 const MAP_SCALE_X = 3;
 const MAP_SCALE_Y = 1.5;
-const MAP_W = Math.round(64 * MAP_SCALE_X); // 192 tiles wide (23,040px)
-const MAP_H = Math.round(56 * MAP_SCALE_Y); // 84 tiles tall (10,080px) - 2 back-to-back lots per N-S block!
+const BASE_OFFSET_X = 6;  // West expansion for Golden Gardens Beach, Seaview Ave NW & Puget Sound
+const BASE_OFFSET_Y = 16; // North expansion from NW 85th St up to NW 100th St (North Beach, Blue Ridge & Crown Hill)
+const MAP_W = Math.round((64 + BASE_OFFSET_X) * MAP_SCALE_X); // 210 tiles wide (25,200px)
+const MAP_H = Math.round((56 + BASE_OFFSET_Y) * MAP_SCALE_Y); // 108 tiles tall (12,960px)
 
 const PLAYER_VEHICLES = {
     SUBARU: {
@@ -72,5 +74,6 @@ const DESTINATIONS = [
     "LOYAL HEIGHTS FIELD", "SONIC BOOM RECORDS", "CUPCAKE ROYALE", "SALT & STRAW", "BITTERROOT BBQ",
     "THE MATADOR", "KINGS HARDWARE", "HATTIE'S HAT", "MAJESTIC BAY THEATRE", "TRACTOR TAVERN",
     "BALLARD LIBRARY", "BALLARD COMMONS", "BALLARD HIGH SCHOOL", "BALLARD POOL", "SALMON BAY PARK",
-    "SUNSET HILL PARK"
+    "SUNSET HILL PARK", "GOLDEN GARDENS BEACH", "DICK'S DRIVE-IN", "SWANSON'S NURSERY",
+    "CHUCK'S HOP SHOP", "SHILSHOLE BAY MARINA", "LITTLE CONEY", "CROWN HILL PARK", "NORTH BEACH CAFE"
 ];

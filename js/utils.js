@@ -29,6 +29,59 @@ const Utils = {
         }
         return true;
     },
+    getPolyMTV: (poly1, poly2) => {
+        if (!poly1 || !poly2 || poly1.length < 3 || poly2.length < 3) return null;
+        let minOverlap = Infinity;
+        let mtvX = 0;
+        let mtvY = 0;
+        const polygons = [poly1, poly2];
+        for (let i = 0; i < 2; i++) {
+            const polygon = polygons[i];
+            // For rectangles, only the first 2 adjacent edges have unique normals
+            const edgeCount = (polygon.length === 4) ? 2 : polygon.length;
+            for (let j = 0; j < edgeCount; j++) {
+                const p1 = polygon[j];
+                const p2 = polygon[(j + 1) % polygon.length];
+                let nx = p2.y - p1.y;
+                let ny = p1.x - p2.x;
+                const len = Math.hypot(nx, ny);
+                if (len < 1e-6) continue;
+                nx /= len;
+                ny /= len;
+
+                let minA = Infinity, maxA = -Infinity;
+                for (let k = 0; k < poly1.length; k++) {
+                    const proj = nx * poly1[k].x + ny * poly1[k].y;
+                    if (proj < minA) minA = proj;
+                    if (proj > maxA) maxA = proj;
+                }
+                let minB = Infinity, maxB = -Infinity;
+                for (let k = 0; k < poly2.length; k++) {
+                    const proj = nx * poly2[k].x + ny * poly2[k].y;
+                    if (proj < minB) minB = proj;
+                    if (proj > maxB) maxB = proj;
+                }
+                if (maxA < minB || maxB < minA) return null;
+                const overlap = Math.min(maxA, maxB) - Math.max(minA, minB);
+                if (overlap < minOverlap) {
+                    minOverlap = overlap;
+                    mtvX = nx;
+                    mtvY = ny;
+                }
+            }
+        }
+        // Orient MTV normal from poly1 center toward poly2 center
+        let c1x = 0, c1y = 0, c2x = 0, c2y = 0;
+        for (let k = 0; k < poly1.length; k++) { c1x += poly1[k].x; c1y += poly1[k].y; }
+        for (let k = 0; k < poly2.length; k++) { c2x += poly2[k].x; c2y += poly2[k].y; }
+        c1x /= poly1.length; c1y /= poly1.length;
+        c2x /= poly2.length; c2y /= poly2.length;
+        if ((c2x - c1x) * mtvX + (c2y - c1y) * mtvY < 0) {
+            mtvX = -mtvX;
+            mtvY = -mtvY;
+        }
+        return { nx: mtvX, ny: mtvY, overlap: minOverlap };
+    },
     getRectCorners: (x, y, w, h, angle) => {
         const cos = Math.cos(angle);
         const sin = Math.sin(angle);

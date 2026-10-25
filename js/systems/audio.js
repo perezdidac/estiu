@@ -105,10 +105,10 @@ const AudioSys = {
         comp.release.setValueAtTime(0.18, this.ctx.currentTime);
 
         this.masterGain = this.ctx.createGain();
-        this.masterGain.gain.setValueAtTime(0.65, this.ctx.currentTime);
+        this.masterGain.gain.setValueAtTime(0.85, this.ctx.currentTime);
 
         this.radioBus = this.ctx.createGain();
-        this.radioBus.gain.setValueAtTime(0.55, this.ctx.currentTime);
+        this.radioBus.gain.setValueAtTime(0.80, this.ctx.currentTime);
 
         // Stereo delay / ambience bus
         this.delayNode = this.ctx.createDelay(1.0);
@@ -663,14 +663,13 @@ const AudioSys = {
         this.songVariation = Math.floor(Math.random() * 4);
         if (meta && typeof document !== 'undefined') {
             this.currentTrackIndex = Math.floor(Math.random() * meta.tracks.length);
+            const trackLabel = this.lyriaLyricsCache[this.currentStation]
+                ? `✨ LYRIA 3.5 AI: ${this.lyriaLyricsCache[this.currentStation]}`
+                : `${meta.name}: ${meta.tracks[this.currentTrackIndex]}`;
             const ticker = document.getElementById('radio-ticker');
-            if (ticker) {
-                if (this.lyriaLyricsCache[this.currentStation]) {
-                    ticker.innerText = `✨ LYRIA 3.5 AI: ${this.lyriaLyricsCache[this.currentStation]}`;
-                } else {
-                    ticker.innerText = `${meta.name}: ${meta.tracks[this.currentTrackIndex]}`;
-                }
-            }
+            if (ticker) ticker.innerText = trackLabel;
+            const splashTicker = document.getElementById('splash-radio-ticker');
+            if (splashTicker) splashTicker.innerText = trackLabel;
         }
 
         // If we have a Lyria 3.5 generated audio track cached for this station, play it!
@@ -827,8 +826,11 @@ const AudioSys = {
             if (meta) {
                 this.currentTrackIndex = (this.currentTrackIndex + 1) % meta.tracks.length;
                 this.songVariation = (this.songVariation + 1) % 4;
+                const trackLabel = `${meta.name}: ${meta.tracks[this.currentTrackIndex]}`;
                 const ticker = document.getElementById('radio-ticker');
-                if (ticker) ticker.innerText = `${meta.name}: ${meta.tracks[this.currentTrackIndex]}`;
+                if (ticker) ticker.innerText = trackLabel;
+                const splashTicker = document.getElementById('splash-radio-ticker');
+                if (splashTicker) splashTicker.innerText = trackLabel;
             }
         }
 

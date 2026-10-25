@@ -1,9 +1,9 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Press+Start+2P&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Fraunces:ital,opsz,wght@0,9..144,800;0,9..144,900;1,9..144,800&family=Plus+Jakarta+Sans:wght@400;600;700&family=Press+Start+2P&family=Space+Mono:wght@400;700&display=swap');
 
 body {
-    background-color: #1a202c;
-    color: white;
-    font-family: 'Inter', sans-serif;
+    background-color: #1c1411;
+    color: #fdf6e9;
+    font-family: 'Plus Jakarta Sans', sans-serif;
     overflow: hidden;
     touch-action: none;
     margin: 0;
@@ -14,7 +14,7 @@ body {
     position: relative;
     width: 100vw;
     height: 100vh;
-    background-color: #111;
+    background-color: #16100d;
 }
 
 canvas {
@@ -41,50 +41,53 @@ canvas {
 }
 
 .hud-panel {
-    background: rgba(0, 0, 0, 0.7);
-    backdrop-filter: blur(4px);
+    background: rgba(24, 18, 15, 0.82);
+    backdrop-filter: blur(6px);
     padding: 10px 15px;
-    border-left: 4px solid #48bb78;
-    border-radius: 0 4px 4px 0;
-    color: #fff;
-    box-shadow: 2px 2px 10px rgba(0, 0, 0, 0.5);
+    border-left: 4px solid #68b684;
+    border-radius: 0 6px 6px 0;
+    color: #fdf6e9;
+    box-shadow: 2px 4px 14px rgba(0, 0, 0, 0.55);
 }
 
 .timer-panel {
-    background: rgba(0, 0, 0, 0.7);
-    backdrop-filter: blur(4px);
+    background: rgba(24, 18, 15, 0.82);
+    backdrop-filter: blur(6px);
     padding: 10px 20px;
-    border-right: 4px solid #ed8936;
-    border-radius: 4px 0 0 4px;
-    color: #fff;
-    box-shadow: -2px 2px 10px rgba(0, 0, 0, 0.5);
+    border-right: 4px solid #e8833a;
+    border-radius: 6px 0 0 6px;
+    color: #fdf6e9;
+    box-shadow: -2px 4px 14px rgba(0, 0, 0, 0.55);
     text-align: right;
 }
 
 #timer-display {
-    font-family: 'Press Start 2P', monospace;
-    font-size: 1.2rem;
-    color: #ed8936;
-    margin-top: 5px;
+    font-family: 'Space Mono', monospace;
+    font-weight: 700;
+    font-size: 1.45rem;
+    color: #f4b942;
+    margin-top: 2px;
 }
 
 #score-hud-display {
-    font-family: 'Press Start 2P', monospace;
-    font-size: 0.9rem;
-    color: #63b3ed;
-    margin-top: 5px;
+    font-family: 'Space Mono', monospace;
+    font-weight: 700;
+    font-size: 1.1rem;
+    color: #e8833a;
+    margin-top: 2px;
 }
 
 #level-display {
-    font-size: 0.8rem;
-    color: #a0aec0;
+    font-family: 'Space Mono', monospace;
+    font-size: 0.78rem;
+    color: #d5c5ae;
     margin-bottom: 2px;
 }
 
 .meter-bar {
     width: 200px;
     height: 12px;
-    background: #2d3748;
+    background: #2b211c;
     margin-top: 5px;
     border-radius: 6px;
     overflow: hidden;
@@ -93,14 +96,14 @@ canvas {
 #chill-fill {
     height: 100%;
     width: 100%;
-    background: linear-gradient(90deg, #48bb78, #38b2ac);
+    background: linear-gradient(90deg, #68b684, #8ce0a8);
     transition: width 0.1s linear, background 0.3s;
 }
 
 #gas-fill {
     height: 100%;
     width: 100%;
-    background: linear-gradient(90deg, #ecc94b, #d69e2e);
+    background: linear-gradient(90deg, #f4b942, #e8833a);
     transition: width 0.1s linear;
 }
 
@@ -118,11 +121,13 @@ canvas {
 }
 
 .notif {
-    font-family: 'Press Start 2P', cursive;
-    font-size: 14px;
-    padding: 8px 12px;
-    border-radius: 4px;
-    text-shadow: 1px 1px 0 #000;
+    font-family: 'Bricolage Grotesque', sans-serif;
+    font-weight: 800;
+    font-size: 15px;
+    letter-spacing: 0.5px;
+    padding: 8px 16px;
+    border-radius: 6px;
+    text-shadow: 1px 2px 0 rgba(0, 0, 0, 0.85);
     animation: popFade 2s forwards;
 }
 
@@ -131,56 +136,48 @@ canvas {
         transform: scale(0.8) translateY(10px);
         opacity: 0;
     }
-
     10% {
-        transform: scale(1.1) translateY(0);
+        transform: scale(1.06) translateY(0);
         opacity: 1;
     }
-
     80% {
         opacity: 1;
     }
-
     100% {
         transform: translateY(-20px);
         opacity: 0;
     }
 }
 
-/* Screens */
+/* =====================================================================
+   WARM PACIFIC NORTHWEST VINTAGE PRINT SPLASH & MODAL SCREENS
+   ===================================================================== */
 .screen {
     position: absolute;
     inset: 0;
-    background: radial-gradient(circle at 50% 30%, #221138 0%, #080312 100%);
+    background:
+        radial-gradient(ellipse at 50% 15%, rgba(232, 131, 58, 0.32) 0%, rgba(44, 27, 20, 0.84) 55%, rgba(18, 12, 10, 0.94) 100%);
+    backdrop-filter: blur(4px);
     display: flex;
     flex-direction: column;
     justify-content: center;
     align-items: center;
     z-index: 50;
-    transition: opacity 0.3s;
-    overflow: hidden;
+    transition: opacity 0.35s ease;
+    overflow-y: auto;
+    padding: 16px;
 }
+
 .screen::before {
     content: "";
     position: absolute;
-    bottom: 0;
-    left: -50%;
-    width: 200%;
-    height: 60%;
-    background-image: 
-        linear-gradient(to right, rgba(162, 155, 254, 0.1) 1px, transparent 1px),
-        linear-gradient(to bottom, rgba(162, 155, 254, 0.1) 1px, transparent 1px);
-    background-size: 50px 50px;
-    transform: perspective(150px) rotateX(60deg);
-    transform-origin: top center;
-    animation: gridScroll 15s linear infinite;
-    mask-image: linear-gradient(to bottom, transparent, rgba(0, 0, 0, 0.85));
-    -webkit-mask-image: linear-gradient(to bottom, transparent, rgba(0, 0, 0, 0.85));
+    inset: 0;
+    background-image:
+        radial-gradient(rgba(244, 185, 66, 0.07) 1px, transparent 1px),
+        radial-gradient(rgba(231, 111, 81, 0.05) 1px, transparent 1px);
+    background-size: 28px 28px;
+    background-position: 0 0, 14px 14px;
     pointer-events: none;
-}
-@keyframes gridScroll {
-    0% { background-position: 0 0; }
-    100% { background-position: 0 1000px; }
 }
 
 .hidden {
@@ -188,31 +185,395 @@ canvas {
     pointer-events: none;
 }
 
-h1 {
-    font-family: 'Press Start 2P';
-    color: #4fd1c5;
-    text-shadow: 4px 4px #2d3748;
+.splash-card {
+    position: relative;
+    z-index: 2;
+    max-width: 720px;
+    width: 96%;
+    background: linear-gradient(165deg, rgba(43, 29, 23, 0.95) 0%, rgba(28, 19, 15, 0.97) 100%);
+    border: 2px solid rgba(244, 185, 66, 0.38);
+    border-radius: 16px;
+    padding: 22px 26px 20px;
+    box-shadow:
+        0 24px 60px rgba(0, 0, 0, 0.72),
+        0 0 0 1px rgba(253, 246, 233, 0.06) inset,
+        0 6px 0 #8a391b;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
     text-align: center;
+}
+
+.modal-card {
+    max-width: 560px;
+    padding: 28px 30px;
+}
+
+.splash-badge {
+    font-family: 'Space Mono', monospace;
+    font-weight: 700;
+    font-size: 0.68rem;
+    letter-spacing: 1.6px;
+    color: #f4b942;
+    background: rgba(244, 185, 66, 0.13);
+    border: 1px solid rgba(244, 185, 66, 0.38);
+    padding: 4px 12px;
+    border-radius: 999px;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+}
+
+.splash-title {
+    margin: 0 0 6px 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    line-height: 0.98;
+}
+
+.splash-title-main {
+    font-family: 'Fraunces', Georgia, serif;
+    font-weight: 900;
+    font-size: clamp(2.1rem, 4.6vw, 3.35rem);
+    color: #fdf6e9;
+    letter-spacing: -0.02em;
+    text-shadow:
+        0 3px 0 #b84a27,
+        0 6px 0 #26140e,
+        0 10px 24px rgba(0, 0, 0, 0.55);
+}
+
+.splash-title-sub {
+    font-family: 'Bricolage Grotesque', sans-serif;
+    font-weight: 800;
+    font-size: clamp(1.05rem, 2.2vw, 1.45rem);
+    letter-spacing: 0.28em;
+    color: #1c1411;
+    background: linear-gradient(90deg, #f4b942 0%, #e8833a 100%);
+    padding: 3px 16px 3px 20px;
+    border-radius: 6px;
+    margin-top: 6px;
+    box-shadow: 0 3px 0 #7c2d12;
+    transform: rotate(-1deg);
+}
+
+.splash-lead {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 0.92rem;
+    color: #e6dac6;
+    max-width: 560px;
+    line-height: 1.45;
+    margin: 8px 0 12px;
+}
+
+/* =====================================================================
+   PROMINENT SEATTLE FM STEREO DECK ON SPLASH SCREEN
+   ===================================================================== */
+.splash-radio-deck {
+    width: 100%;
+    background: linear-gradient(180deg, #211713 0%, #17100d 100%);
+    border: 1.5px solid rgba(232, 131, 58, 0.48);
+    border-radius: 12px;
+    padding: 10px 14px;
+    margin-bottom: 14px;
+    box-shadow:
+        0 4px 16px rgba(0, 0, 0, 0.45),
+        inset 0 1px 0 rgba(255, 235, 200, 0.08);
+    pointer-events: auto;
+}
+
+.splash-radio-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.splash-radio-brand {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-family: 'Space Mono', monospace;
+    font-weight: 700;
+    font-size: 0.68rem;
+    letter-spacing: 1px;
+    color: #f4b942;
+}
+
+.splash-radio-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #68b684;
+    box-shadow: 0 0 8px #68b684;
+    animation: radioPulse 1.4s ease-in-out infinite alternate;
+}
+
+@keyframes radioPulse {
+    0% { opacity: 0.45; transform: scale(0.9); }
+    100% { opacity: 1; transform: scale(1.15); }
+}
+
+.splash-vu {
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+    height: 16px;
+    padding: 0 6px;
+}
+
+.splash-vu span {
+    display: block;
+    width: 4px;
+    height: 4px;
+    border-radius: 2px;
+    background: linear-gradient(180deg, #e76f51 0%, #f4b942 60%, #68b684 100%);
+    animation: vuBounce 0.65s ease-in-out infinite alternate;
+}
+.splash-vu.muted span {
+    animation: none !important;
+    height: 3px !important;
+    opacity: 0.3;
+}
+.splash-vu span:nth-child(1) { animation-duration: 0.42s; animation-delay: 0.05s; }
+.splash-vu span:nth-child(2) { animation-duration: 0.61s; animation-delay: 0.18s; }
+.splash-vu span:nth-child(3) { animation-duration: 0.36s; animation-delay: 0.02s; }
+.splash-vu span:nth-child(4) { animation-duration: 0.54s; animation-delay: 0.27s; }
+.splash-vu span:nth-child(5) { animation-duration: 0.47s; animation-delay: 0.11s; }
+.splash-vu span:nth-child(6) { animation-duration: 0.68s; animation-delay: 0.31s; }
+.splash-vu span:nth-child(7) { animation-duration: 0.39s; animation-delay: 0.14s; }
+.splash-vu span:nth-child(8) { animation-duration: 0.58s; animation-delay: 0.22s; }
+.splash-vu span:nth-child(9) { animation-duration: 0.45s; animation-delay: 0.08s; }
+
+@keyframes vuBounce {
+    0% { height: 3px; }
+    100% { height: 16px; }
+}
+
+.splash-shuffle-btn {
+    font-family: 'Space Mono', monospace;
+    font-weight: 700;
+    font-size: 0.68rem;
+    color: #fdf6e9;
+    background: rgba(231, 111, 81, 0.24);
+    border: 1px solid rgba(231, 111, 81, 0.6);
+    padding: 4px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.15s, transform 0.1s;
+}
+.splash-shuffle-btn:hover {
+    background: rgba(231, 111, 81, 0.42);
+    transform: translateY(-1px);
+}
+
+.splash-radio-nowplaying {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.78rem;
+    color: #fdf6e9;
+    background: rgba(12, 8, 6, 0.65);
+    border: 1px solid rgba(244, 185, 66, 0.22);
+    border-radius: 6px;
+    padding: 6px 10px;
+    margin: 7px 0 8px;
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.splash-station-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    justify-content: center;
+}
+
+.splash-station-btn {
+    font-family: 'Space Mono', monospace;
+    font-weight: 700;
+    font-size: 0.66rem;
+    padding: 5px 9px;
+    border-radius: 6px;
+    background: #2b1f1a;
+    border: 1px solid #4d382e;
+    color: #d5c5ae;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.splash-station-btn:hover {
+    background: #3d2c24;
+    color: #fdf6e9;
+    border-color: #e8833a;
+}
+
+.splash-station-btn.active {
+    background: linear-gradient(180deg, #e8833a 0%, #c85a32 100%);
+    color: #fdf6e9;
+    border-color: #f4b942;
+    box-shadow: 0 2px 8px rgba(232, 131, 58, 0.4);
+}
+
+.splash-station-btn.mute-btn {
+    color: #b5a18a;
+}
+
+/* =====================================================================
+   WARM NORTHWEST VEHICLE SELECTOR CARDS
+   ===================================================================== */
+.splash-section-label {
+    font-family: 'Space Mono', monospace;
+    font-weight: 700;
+    font-size: 0.7rem;
+    letter-spacing: 1.5px;
+    color: #f4b942;
+    margin-bottom: 7px;
+}
+
+.vehicle-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 9px;
+    width: 100%;
+    margin-bottom: 11px;
+    pointer-events: auto;
+}
+
+.vehicle-card {
+    background: rgba(38, 27, 22, 0.92);
+    border: 1.5px solid rgba(213, 197, 174, 0.22);
+    border-radius: 10px;
+    padding: 9px 13px;
+    text-align: left;
+    cursor: pointer;
+    transition: transform 0.12s ease, border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+    user-select: none;
+}
+
+.vehicle-card:hover {
+    border-color: rgba(244, 185, 66, 0.65);
+    background: rgba(52, 36, 29, 0.95);
+    transform: translateY(-1px);
+}
+
+.vehicle-card.selected {
+    background: linear-gradient(135deg, rgba(184, 74, 39, 0.32) 0%, rgba(56, 36, 26, 0.95) 100%);
+    border-color: #f4b942;
+    box-shadow: 0 0 0 1px rgba(244, 185, 66, 0.35), 0 6px 16px rgba(0, 0, 0, 0.4);
+}
+
+.vehicle-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 3px;
+}
+
+.vehicle-title {
+    font-family: 'Bricolage Grotesque', sans-serif;
+    font-weight: 800;
+    font-size: 0.98rem;
+    color: #fdf6e9;
+}
+
+.vehicle-tag {
+    font-family: 'Space Mono', monospace;
+    font-weight: 700;
+    font-size: 0.58rem;
+    color: #f4b942;
+    background: rgba(244, 185, 66, 0.14);
+    border: 1px solid rgba(244, 185, 66, 0.32);
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+.vehicle-stats {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.66rem;
+    color: #e8833a;
+    font-weight: 700;
+}
+
+.vehicle-desc {
+    font-size: 0.74rem;
+    color: #d5c5ae;
+    margin-top: 2px;
+}
+
+.splash-legend {
+    width: 100%;
+    font-size: 0.76rem;
+    color: #e6dac6;
+    text-align: left;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 5px 12px;
+    background: rgba(20, 14, 11, 0.72);
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(213, 197, 174, 0.16);
+    margin-bottom: 12px;
+}
+
+.legend-swatch {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    border-radius: 2px;
+    margin-right: 5px;
+    vertical-align: middle;
+}
+
+.splash-footer-row {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    flex-wrap: wrap;
+}
+
+.splash-controls-hint {
+    text-align: left;
+    font-size: 0.78rem;
+    color: #d5c5ae;
     line-height: 1.4;
-    margin-bottom: 30px;
-    font-size: 2rem;
+}
+
+.splash-rules-note {
+    color: #f4a261;
+    font-size: 0.74rem;
+    font-weight: 600;
 }
 
 .btn {
-    background: linear-gradient(to bottom, #4299e1, #3182ce);
-    border: 2px solid #63b3ed;
-    color: white;
-    padding: 16px 40px;
-    font-family: 'Press Start 2P';
-    font-size: 1.2rem;
+    background: linear-gradient(180deg, #e8833a 0%, #c84b31 100%);
+    border: 2px solid #f4b942;
+    border-radius: 10px;
+    color: #fdf6e9;
+    padding: 13px 28px;
+    font-family: 'Bricolage Grotesque', sans-serif;
+    font-weight: 800;
+    font-size: 1.12rem;
+    letter-spacing: 0.04em;
     cursor: pointer;
-    box-shadow: 0 4px 0 #2b6cb0;
-    transition: transform 0.1s, box-shadow 0.1s;
+    box-shadow: 0 5px 0 #6b2414, 0 8px 20px rgba(200, 75, 49, 0.4);
+    transition: transform 0.1s ease, box-shadow 0.1s ease, filter 0.15s ease;
+    white-space: nowrap;
+}
+
+.btn:hover {
+    filter: brightness(1.08);
+    transform: translateY(-1px);
+    box-shadow: 0 6px 0 #6b2414, 0 10px 24px rgba(200, 75, 49, 0.5);
 }
 
 .btn:active {
     transform: translateY(4px);
-    box-shadow: 0 0 0 #2b6cb0;
+    box-shadow: 0 1px 0 #6b2414;
 }
 
 /* Mobile Controls */
@@ -240,8 +601,8 @@ h1 {
 #joystick-knob {
     width: 60px;
     height: 60px;
-    background: radial-gradient(#4299e1, #2b6cb0);
-    border: 2px solid rgba(255, 255, 255, 0.5);
+    background: radial-gradient(#e8833a, #c84b31);
+    border: 2px solid rgba(255, 255, 255, 0.6);
     border-radius: 50%;
     position: absolute;
     top: 50%;
@@ -249,7 +610,6 @@ h1 {
     transform: translate(-50%, -50%);
     box-shadow: 0 4px 10px rgba(0, 0, 0, 0.6);
     pointer-events: none;
-    /* Important for touch tracking on container */
 }
 
 #honk-area {
@@ -264,17 +624,18 @@ h1 {
     width: 90px;
     height: 90px;
     border-radius: 50%;
-    background: radial-gradient(#f56565, #c53030);
-    border: 4px solid #fff;
+    background: radial-gradient(#e76f51, #b83b24);
+    border: 4px solid #fdf6e9;
     display: flex;
     justify-content: center;
     align-items: center;
     font-weight: 900;
     box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
     cursor: pointer;
-    color: white;
-    font-family: 'Press Start 2P';
-    font-size: 12px;
+    color: #fdf6e9;
+    font-family: 'Bricolage Grotesque', sans-serif;
+    font-size: 15px;
+    letter-spacing: 1px;
     user-select: none;
 }
 
@@ -284,31 +645,32 @@ h1 {
 
 /* Radio buttons in HUD */
 .radio-btn {
-    background: #2d3748;
-    border: 1px solid #4a5568;
-    color: #a0aec0;
+    background: #2b1f1a;
+    border: 1px solid #4d382e;
+    color: #d5c5ae;
     padding: 3px 6px;
     font-size: 7px;
-    font-family: 'Press Start 2P', monospace;
+    font-family: 'Space Mono', monospace;
+    font-weight: 700;
     cursor: pointer;
     border-radius: 3px;
     transition: background 0.15s, color 0.15s;
 }
 .radio-btn:hover {
-    background: #4a5568;
-    color: #fff;
+    background: #3d2c24;
+    color: #fdf6e9;
 }
 .radio-btn.active {
-    background: #6b46c1;
-    color: #fff;
-    border-color: #a29bfe;
+    background: #c85a32;
+    color: #fdf6e9;
+    border-color: #f4b942;
 }
 
 /* Shop item in Garage */
 .shop-item {
-    background: rgba(45, 55, 72, 0.85);
-    border: 2px solid #4a5568;
-    border-radius: 6px;
+    background: rgba(38, 27, 22, 0.9);
+    border: 1.5px solid rgba(213, 197, 174, 0.25);
+    border-radius: 8px;
     padding: 10px 16px;
     cursor: pointer;
     text-align: left;
@@ -317,12 +679,12 @@ h1 {
     pointer-events: auto;
 }
 .shop-item:hover {
-    border-color: #ecc94b;
+    border-color: #f4b942;
     transform: scale(1.01);
 }
 .shop-item.owned {
-    background: rgba(39, 103, 73, 0.35);
-    border-color: #48bb78;
+    background: rgba(45, 90, 67, 0.4);
+    border-color: #68b684;
     cursor: default;
 }
 .shop-item.owned:hover {
@@ -345,7 +707,7 @@ h1 {
     display: block;
     width: 3px;
     height: 2px;
-    background-color: #a29bfe;
+    background-color: #f4b942;
     border-radius: 1px;
 }
 .visualizer-container.playing .bar {
@@ -360,6 +722,31 @@ h1 {
 @keyframes bounce {
     0% { height: 2px; }
     100% { height: 12px; }
+}
+
+/* Camera & Debug Studio Panel */
+.debug-panel {
+    padding: 8px 12px;
+}
+
+.dbg-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+}
+
+.dbg-label {
+    font-size: 9px;
+    font-weight: bold;
+    color: #e6dac6;
+    letter-spacing: 0.5px;
+}
+
+.dbg-btns {
+    display: flex;
+    gap: 3px;
+    align-items: center;
 }
 
 /* Responsive adjustments for mobile viewports */
@@ -379,176 +766,51 @@ h1 {
         right: 10px;
         gap: 6px;
     }
-    
     .hud-left {
         gap: 6px;
     }
-    
     .hud-panel {
         padding: 6px 10px;
     }
-    
     .timer-panel {
         padding: 6px 12px;
         min-width: 130px !important;
     }
-    
     .meter-bar {
         width: 120px;
         height: 10px;
     }
-    
     #timer-display {
         font-size: 1rem;
     }
-    
     #score-hud-display {
         font-size: 0.8rem;
     }
-    
     #radio-ticker {
         width: 110px !important;
         font-size: 7px !important;
     }
-    
-    h1 {
-        font-size: 1.5rem;
-        margin-bottom: 15px;
+    .splash-card {
+        padding: 14px 16px;
     }
-    
-    .screen p {
-        font-size: 0.85rem;
-        padding: 0 15px;
+    .splash-legend {
+        grid-template-columns: 1fr 1fr;
     }
-    
+    .splash-footer-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
     .btn {
-        padding: 12px 30px;
+        width: 100%;
+        text-align: center;
+        padding: 12px 20px;
         font-size: 1rem;
     }
-    
-    #mobile-controls {
-        bottom: 65px;
-        right: 25px;
-    }
-    
-    #honk-area {
-        bottom: 65px;
-        left: 25px;
-    }
-
-    #joystick-container {
-        width: 110px;
-        height: 110px;
-    }
-
-    #joystick-knob {
-        width: 50px;
-        height: 50px;
-    }
-
-    .honk-btn {
-        width: 75px;
-        height: 75px;
-        font-size: 10px;
-    }
-    .radio-btn {
-        padding: 2px 4px !important;
-        font-size: 6px !important;
-    }
-
-    #minimapCanvas {
-        width: 112px !important;
-        height: 98px !important;
-    }
-
     .vehicle-grid {
         grid-template-columns: 1fr 1fr !important;
         gap: 6px !important;
     }
-
     .vehicle-card {
-        padding: 6px 8px !important;
+        padding: 7px 9px !important;
     }
-}
-
-/* Ballard Vehicle Selector Cards */
-.vehicle-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 10px;
-    margin-bottom: 10px;
-    pointer-events: auto;
-}
-
-.vehicle-card {
-    background: rgba(30, 41, 59, 0.88);
-    border: 2px solid #4a5568;
-    border-radius: 6px;
-    padding: 8px 12px;
-    text-align: left;
-    cursor: pointer;
-    transition: transform 0.12s, border-color 0.15s, background 0.15s;
-    user-select: none;
-}
-
-.vehicle-card:hover {
-    border-color: #63b3ed;
-    transform: translateY(-1px);
-}
-
-.vehicle-card.selected {
-    background: rgba(43, 108, 176, 0.35);
-    border-color: #4fd1c5;
-    box-shadow: 0 0 12px rgba(79, 209, 197, 0.35);
-}
-
-.vehicle-title {
-    font-family: 'Press Start 2P', monospace;
-    font-size: 0.72rem;
-    margin-bottom: 3px;
-}
-
-.vehicle-sub {
-    font-size: 0.7rem;
-    color: #cbd5e0;
-    font-weight: bold;
-}
-
-.vehicle-stats {
-    font-size: 0.65rem;
-    color: #ecc94b;
-    margin-top: 3px;
-}
-
-.vehicle-desc {
-    font-size: 0.65rem;
-    color: #a0aec0;
-    margin-top: 2px;
-}
-
-
-
-/* Camera & Debug Studio Panel */
-.debug-panel {
-    padding: 8px 12px;
-}
-
-.dbg-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 8px;
-}
-
-.dbg-label {
-    font-size: 9px;
-    font-weight: bold;
-    color: #cbd5e0;
-    letter-spacing: 0.5px;
-}
-
-.dbg-btns {
-    display: flex;
-    gap: 3px;
-    align-items: center;
 }

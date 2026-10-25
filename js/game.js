@@ -182,6 +182,9 @@ const Game = {
     puddles: [],
     skidMarks: [],
     seagulls: [],
+    parkedCars: [],
+    parkedGrid: [],
+    openParkingSpots: [],
     screenShake: 0,
     timeOfDay: 0,
     zoom: 1.0,
@@ -194,18 +197,72 @@ const Game = {
     viewBounds: null,
     entityGrid: new Map(),
 
+    toggleCruiseControl() {
+        if (!this.player || this.state !== 'PLAYING') return;
+        this.player.cruiseControl = !this.player.cruiseControl;
+        if (this.player.cruiseControl) {
+            if (this.player.speed >= 0.55) {
+                this.player.cruiseSpeed = Math.min(this.player.maxSpeed, this.player.speed);
+            } else {
+                // Default comfortable 65% cruising speed (~25 MPH) when engaged from a stop/crawl
+                this.player.cruiseSpeed = Math.round(this.player.maxSpeed * 0.65 * 100) / 100;
+            }
+            const mph = Math.round((this.player.cruiseSpeed / this.player.maxSpeed) * 35);
+            this.showNotification(`⚡ CRUISE CONTROL ON: ${mph} MPH`, '#48bb78');
+        } else {
+            this.showNotification('⚡ CRUISE CONTROL OFF', '#a0aec0');
+        }
+        this.updateCruiseUI();
+    },
+
+    adjustCruiseSpeed(delta) {
+        if (!this.player || this.state !== 'PLAYING') return;
+        if (!this.player.cruiseControl) {
+            this.player.cruiseControl = true;
+            this.player.cruiseSpeed = Math.round(this.player.maxSpeed * 0.65 * 100) / 100;
+        }
+        this.player.cruiseSpeed = Math.max(0.55, Math.min(this.player.maxSpeed, this.player.cruiseSpeed + delta));
+        this.updateCruiseUI();
+    },
+
+    updateCruiseUI() {
+        const statusEl = document.getElementById('cruise-status-text');
+        const btnEl = document.getElementById('cruise-toggle-btn');
+        if (!this.player || !this.player.cruiseControl) {
+            if (statusEl) {
+                statusEl.innerText = '⚡ CRUISE: OFF';
+                statusEl.style.color = '#a0aec0';
+            }
+            if (btnEl) btnEl.classList.remove('active');
+        } else {
+            const mph = Math.max(12, Math.round((this.player.cruiseSpeed / (this.player.maxSpeed || 2.5)) * 35));
+            if (statusEl) {
+                statusEl.innerText = `⚡ CRUISE: ${mph} MPH`;
+                statusEl.style.color = '#48bb78';
+            }
+            if (btnEl) btnEl.classList.add('active');
+        }
+    },
+
     addSkidMark(x, y, angle, alpha = 0.3, isWet = false) {
         if (!this.skidMarks) this.skidMarks = [];
         if (this.skidMarks.length >= 260) {
             this.skidMarks.shift();
         }
+        const dx = Math.cos(angle) * 5;
+        const dy = Math.sin(angle) * 5;
         this.skidMarks.push({
             x,
             y,
+            x1: x - dx,
+            y1: y - dy,
+            x2: x + dx,
+            y2: y + dy,
             angle,
             alpha,
             isWet,
-            life: 1.0
+            life: 1.0,
+            maxLife: 1.0
         });
     },
 
@@ -409,9 +466,17 @@ const Game = {
     rebuildEntityGrid() {
         if (!this.entityGrid) this.entityGrid = new Map();
         else this.entityGrid.clear();
+        if (typeof MapData !== 'undefined' && MapData.roads) {
+            for (let i = 0; i < MapData.roads.length; i++) {
+                MapData.roads[i].activeCarCount = 0;
+            }
+        }
         const cellSize = 240;
         for (let i = 0; i < this.entities.length; i++) {
             const e = this.entities[i];
+            if (e.currentRoad) {
+                e.currentRoad.activeCarCount = (e.currentRoad.activeCarCount || 0) + 1;
+            }
             const gx = Math.floor(e.x / cellSize);
             const gy = Math.floor(e.y / cellSize);
             const key = (gy << 16) ^ (gx & 0xffff);
@@ -421,6 +486,219 @@ const Game = {
                 this.entityGrid.set(key, bucket);
             }
             bucket.push(e);
+        }
+    },
+
+    assignCarTrip(car) {
+        if (!car) return;
+        // 68% of Ballard trips target a commercial/arterial destination; 32% target a specific residential house block
+        const goToArterial = Math.random() < 0.68 || !this.buildings || this.buildings.length === 0;
+        if (goToArterial && typeof MapData !== 'undefined') {
+            const artInters = this.intersections ? this.intersections.filter(it => it.hasArterial) : [];
+            if (Math.random() < 0.45 && MapData.destinations && MapData.destinations.length > 0) {
+                const d = MapData.destinations[Math.floor(Math.random() * MapData.destinations.length)];
+                car.destX = d.x * TILE_SIZE + TILE_SIZE / 2;
+                car.destY = d.y * TILE_SIZE + TILE_SIZE / 2;
+            } else if (artInters.length > 0) {
+                // Pick an arterial destination at least 700px away so the commuter has a real trip across Ballard
+                for (let tries = 0; tries < 8; tries++) {
+                    const it = artInters[Math.floor(Math.random() * artInters.length)];
+                    if (Utils.dist(car.x, car.y, it.worldX, it.worldY) > 700 || tries === 7) {
+                        car.destX = it.worldX;
+                        car.destY = it.worldY;
+                        break;
+                    }
+                }
+            }
+            car.destType = 'ARTERIAL';
+        } else if (this.buildings && this.buildings.length > 0) {
+            for (let tries = 0; tries < 8; tries++) {
+                const b = this.buildings[Math.floor(Math.random() * this.buildings.length)];
+                const bx = b.x + b.w / 2;
+                const by = b.y + b.h / 2;
+                if (Utils.dist(car.x, car.y, bx, by) > 650 || tries === 7) {
+                    car.destX = bx;
+                    car.destY = by;
+                    break;
+                }
+            }
+            car.destType = 'HOUSE';
+        }
+    },
+
+    addParkedCar(x, y, angle, color, vehicleId = null) {
+        const tx = Math.floor(x / TILE_SIZE);
+        const ty = Math.floor(y / TILE_SIZE);
+        if (tx < 0 || tx >= MAP_W || ty < 0 || ty >= MAP_H) return null;
+        if (!this.parkedGrid || !this.parkedGrid[ty]) return null;
+
+        // Avoid overlapping an existing parked car within 44px
+        for (let py = Math.max(0, ty - 1); py <= Math.min(MAP_H - 1, ty + 1); py++) {
+            for (let px = Math.max(0, tx - 1); px <= Math.min(MAP_W - 1, tx + 1); px++) {
+                const cell = this.parkedGrid[py][px];
+                if (!cell) continue;
+                for (let k = 0; k < cell.length; k++) {
+                    if (Utils.dist(x, y, cell[k].x, cell[k].y) < 44) return null;
+                }
+            }
+        }
+
+        const pObj = {
+            x,
+            y,
+            angle,
+            color: color || '#64748b',
+            vehicleId: vehicleId || null,
+            alarmTimer: 0,
+            tx,
+            ty
+        };
+        this.parkedCars.push(pObj);
+        this.parkedGrid[ty][tx].push(pObj);
+        return pObj;
+    },
+
+    onCarReachedDestination(car) {
+        if (!car || car.isPlayer) return;
+        const r = car.currentRoad;
+        const isLocalStreet = r && (r.type === 1 || r.type === 2) && !r.isBoulevard;
+        if (isLocalStreet) {
+            // Pull into the curbside parking bay and stay parked on the street!
+            this.addParkedCar(car.x, car.y, car.angle + Math.PI / 2, car.color, car.vehicleId);
+        }
+        car.markedForDeletion = true;
+    },
+
+    getVertRoadAt(c, r) {
+        return (this.vertRoadGrid && this.vertRoadGrid[r] && this.vertRoadGrid[r][c]) || (this.vertRoadByCol && this.vertRoadByCol[c]) || null;
+    },
+
+    getHorizRoadAt(c, r) {
+        return (this.horizRoadGrid && this.horizRoadGrid[r] && this.horizRoadGrid[r][c]) || (this.horizRoadByRow && this.horizRoadByRow[r]) || null;
+    },
+
+    generateStreetParking() {
+        this.parkedCars = [];
+        this.openParkingSpots = [];
+        this.parkedGrid = Array(MAP_H).fill(0).map(() => Array(MAP_W).fill(0).map(() => []));
+
+        const palette = [
+            '#4299e1', '#64748b', '#475569', '#38a169', '#e2e8f0',
+            '#d69e2e', '#9b2c2c', '#2b6cb0', '#319795', '#718096'
+        ];
+        const styles = ['SUBARU', 'VOLVO', 'PRIUS', null, null, null];
+
+        for (let r = 1; r < MAP_H - 1; r++) {
+            for (let c = 1; c < MAP_W - 1; c++) {
+                const tile = this.map[r][c];
+                if (tile !== 1 && tile !== 2 && tile !== 6 && tile !== 7) continue;
+                const vRoad = (tile === 1 || tile === 6) ? this.getVertRoadAt(c, r) : null;
+                const hRoad = (tile === 2 || tile === 7) ? this.getHorizRoadAt(c, r) : null;
+                const activeRoad = vRoad || hRoad;
+                if (tile === 1 && vRoad?.isBoulevard && vRoad?.parkingMarking !== 'T_STALLS') continue;
+                if ((tile === 6 || tile === 7) && (!activeRoad || activeRoad.parkingMarking === 'NONE' || activeRoad.hasBusLane || (activeRoad.lanes || 4) >= 4)) continue;
+
+                const tileCx = c * TILE_SIZE + TILE_SIZE / 2;
+                const tileCy = r * TILE_SIZE + TILE_SIZE / 2;
+
+                // Keep 88px clear of any intersection so corners, hydrants, and crosswalks are never blocked
+                const nearInters = this.getNearbyIntersections(tileCx, tileCy);
+                let tooCloseToInter = false;
+                for (let i = 0; i < nearInters.length; i++) {
+                    if (Utils.dist(tileCx, tileCy, nearInters[i].worldX, nearInters[i].worldY) < 88) {
+                        tooCloseToInter = true;
+                        break;
+                    }
+                }
+                if (tooCloseToInter) continue;
+
+                const roadLanes = activeRoad?.lanes || ((tile === 6 || tile === 7) ? 4 : 2);
+                const isCollector = Boolean(
+                    activeRoad?.isCollector || activeRoad?.isBoulevard || tile === 6 || tile === 7
+                );
+                const isOlympic = Boolean(activeRoad?.isOlympicManor);
+                // 3-lane arterials (24th Ave NW, 8th Ave NW) park cars in outer bays at ±65px (outside the ±28px travel lane & ±48px bike lane);
+                // 2-lane collectors & minor arterials (112-120px wide) park cars at ±46.5px;
+                // Smaller Local Residential Streets (92px wide) park cars at ±36.5px.
+                const parkOffset = (roadLanes === 3) ? 65 : (isCollector ? 46.5 : 36.5);
+                // In Olympic Manor (where every MCM ranch house has a wide 2-car driveway), fewer cars park on the street (~36%)
+                // compared to dense Ballard / Commercial blocks (~58-68%)!
+                const occRate = (activeRoad?.parkingMarking === 'T_STALLS')
+                    ? 0.66
+                    : (isOlympic ? 0.36 : 0.56);
+
+                // Two parallel curbside parking bays per 120px block tile
+                for (const side of [-1, 1]) {
+                    for (const slotAlong of [-25, 25]) {
+                        const seed = Math.abs(Math.sin((r * 131 + c * 73 + side * 19 + slotAlong) * 12.9898) * 43758.5453) % 1;
+                        let px, py, pDrawAngle, driveAngle;
+                        if (tile === 1 || tile === 6) {
+                            // Vertical street: side = +1 is East curb (Northbound -PI/2), side = -1 is West curb (Southbound +PI/2)
+                            px = tileCx + side * parkOffset;
+                            py = tileCy + slotAlong;
+                            driveAngle = side > 0 ? -Math.PI / 2 : Math.PI / 2;
+                            pDrawAngle = driveAngle + Math.PI / 2;
+                        } else {
+                            // Horizontal street: side = +1 is South curb (Eastbound 0), side = -1 is North curb (Westbound PI)
+                            px = tileCx + slotAlong;
+                            py = tileCy + side * parkOffset;
+                            driveAngle = side > 0 ? 0 : Math.PI;
+                            pDrawAngle = driveAngle + Math.PI / 2;
+                        }
+
+                        if (seed < occRate) {
+                            const col = palette[Math.floor((seed * 100) % palette.length)];
+                            const vStyle = styles[Math.floor((seed * 37) % styles.length)];
+                            this.addParkedCar(px, py, pDrawAngle, col, vStyle);
+                        } else {
+                            this.openParkingSpots.push({
+                                x: px,
+                                y: py,
+                                angle: driveAngle,
+                                tx: c,
+                                ty: r,
+                                tileType: tile
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        // Also populate curbside parking stalls along diagonal commercial/collector streets with parkingMarking === 'T_STALLS' (e.g. Ballard Ave NW!)
+        if (typeof MapData !== 'undefined' && MapData.roads) {
+            for (const rd of MapData.roads) {
+                if (rd.x1 === rd.x2 || rd.y1 === rd.y2 || rd.parkingMarking !== 'T_STALLS') continue;
+                const x1_w = rd.x1 * TILE_SIZE + TILE_SIZE / 2;
+                const y1_w = rd.y1 * TILE_SIZE + TILE_SIZE / 2;
+                const x2_w = rd.x2 * TILE_SIZE + TILE_SIZE / 2;
+                const y2_w = rd.y2 * TILE_SIZE + TILE_SIZE / 2;
+                const dx = x2_w - x1_w, dy = y2_w - y1_w;
+                const len = Math.hypot(dx, dy) || 1;
+                const ux = dx / len, uy = dy / len;
+                const nx = -uy, ny = ux;
+                const roadAngle = Math.atan2(dy, dx);
+                const parkOff = 47;
+
+                for (let d = 96; d < len - 96; d += 54) {
+                    const cx = x1_w + ux * d;
+                    const cy = y1_w + uy * d;
+                    const nearInters = this.getNearbyIntersections(cx, cy);
+                    if (nearInters.some(it => Utils.dist(cx, cy, it.worldX, it.worldY) < 86)) continue;
+
+                    for (const side of [-1, 1]) {
+                        const seed = Math.abs(Math.sin((d * 37 + side * 23 + rd.x1 * 17) * 12.9898) * 43758.5453) % 1;
+                        if (seed < 0.64) {
+                            const px = cx + nx * (side * parkOff);
+                            const py = cy + ny * (side * parkOff);
+                            const driveAng = side > 0 ? roadAngle : (roadAngle + Math.PI);
+                            const col = palette[Math.floor((seed * 100) % palette.length)];
+                            const vStyle = styles[Math.floor((seed * 37) % styles.length)];
+                            this.addParkedCar(px, py, driveAng + Math.PI / 2, col, vStyle);
+                        }
+                    }
+                }
+            }
         }
     },
 
@@ -454,7 +732,7 @@ const Game = {
         this.map[dest.y][dest.x] = 4;
         this.currentDestName = dest.name;
         this.currentDestDesc = dest.desc || "";
-        this._lastGpsKey = null;
+        this._lastGPSKey = null;
         this.computeGPSRoute();
 
         const tNameEl = document.getElementById('target-name-display');
@@ -462,6 +740,31 @@ const Game = {
         const tDescEl = document.getElementById('target-desc-display');
         if (tDescEl) tDescEl.innerText = this.currentDestDesc;
         this.showNotification(`📍 NEW TARGET: ${this.currentDestName}`, '#48bb78');
+    },
+
+    // Cached per-tile flags: bit 1 = tile center inside an intersection box for lane markings (76px arterial / 52px local),
+    // bit 2 = inside for curbside parking markings (76px / 58px). Avoids thousands of getNearbyIntersections() calls per frame.
+    _getTileInterFlags(c, r) {
+        if (!this._tileInterFlags) {
+            const flags = new Uint8Array(MAP_W * MAP_H);
+            for (let ty = 0; ty < MAP_H; ty++) {
+                for (let tx = 0; tx < MAP_W; tx++) {
+                    const wx = tx * TILE_SIZE + TILE_SIZE / 2;
+                    const wy = ty * TILE_SIZE + TILE_SIZE / 2;
+                    const near = this.getNearbyIntersections(wx, wy);
+                    let f = 0;
+                    for (let i = 0; i < near.length; i++) {
+                        const inter = near[i];
+                        const d = Math.hypot(inter.worldX - wx, inter.worldY - wy);
+                        if (d < (inter.hasArterial ? 76 : 52)) f |= 1;
+                        if (d < (inter.hasArterial ? 76 : 58)) f |= 2;
+                    }
+                    flags[ty * MAP_W + tx] = f;
+                }
+            }
+            this._tileInterFlags = flags;
+        }
+        return this._tileInterFlags[r * MAP_W + c];
     },
 
     getNearbyIntersections(x, y) {
@@ -498,7 +801,10 @@ const Game = {
     },
 
     getApproachSignalState(inter, approach) {
-        return approach.dominantAxis === 'NS' ? inter.stateNS : inter.stateEW;
+        if (approach.signalGroup === 'DIAG' && inter.hasDiagPhase) {
+            return inter.stateDIAG || 'RED';
+        }
+        return (approach.signalGroup || approach.dominantAxis) === 'NS' ? inter.stateNS : inter.stateEW;
     },
 
     getNearestDiagonalRoad(x, y) {
@@ -581,6 +887,56 @@ const Game = {
         this.resize();
         window.addEventListener('resize', () => this.resize());
         this.setupInputs();
+
+        // Initialize Golden-Hour Ballard neighborhood backdrop for the splash screen
+        this.timeOfDay = 2; // Warm Golden-Hour Sunset
+        this.isRainy = false;
+        this.generateMap();
+        this.seagulls = [];
+        for (let i = 0; i < 24; i++) {
+            this.seagulls.push({
+                x: Math.random() * MAP_W * TILE_SIZE,
+                y: Math.random() * MAP_H * TILE_SIZE,
+                z: 44 + Math.random() * 24,
+                angle: Math.random() * Math.PI * 2,
+                speed: 0.75 + Math.random() * 0.55,
+                turnRate: (Math.random() - 0.5) * 0.012,
+                wingPhase: Math.random() * Math.PI * 2
+            });
+        }
+        // Center splash camera over Historic Ballard Ave & NW Market St
+        const SX = (typeof MAP_SCALE_X !== 'undefined') ? MAP_SCALE_X : 3;
+        const SY = (typeof MAP_SCALE_Y !== 'undefined') ? MAP_SCALE_Y : 1.5;
+        const OX = (typeof BASE_OFFSET_X !== 'undefined') ? BASE_OFFSET_X : 6;
+        const OY = (typeof BASE_OFFSET_Y !== 'undefined') ? BASE_OFFSET_Y : 16;
+        this.cam.x = (36 + OX) * SX * TILE_SIZE - this.canvas.width / 2;
+        this.cam.y = (35 + OY) * SY * TILE_SIZE - this.canvas.height / 2;
+        if (this.validSpawnTiles && this.validSpawnTiles.length > 0) {
+            for (let i = 0; i < 65; i++) {
+                const t = this.validSpawnTiles[Math.floor(Math.random() * this.validSpawnTiles.length)];
+                this._spawnCarAtTile(t);
+            }
+        }
+
+        // Start Seattle FM Radio immediately on splash screen & unlock WebAudio on first user gesture
+        this.toggleRadio(this.radioStation || 'KEXP');
+        const unlockAudio = () => {
+            if (typeof AudioSys !== 'undefined') {
+                AudioSys.init();
+                if (this.radioStation !== 'OFF' && !AudioSys.radioInterval && !AudioSys.audioElement) {
+                    AudioSys.startRadio();
+                }
+                if (AudioSys.ctx && AudioSys.ctx.state === 'running') {
+                    window.removeEventListener('pointerdown', unlockAudio);
+                    window.removeEventListener('keydown', unlockAudio);
+                    window.removeEventListener('touchstart', unlockAudio);
+                }
+            }
+        };
+        window.addEventListener('pointerdown', unlockAudio);
+        window.addEventListener('keydown', unlockAudio);
+        window.addEventListener('touchstart', unlockAudio);
+
         this.loop();
     },
 
@@ -615,6 +971,8 @@ const Game = {
                 this.adjustCameraTilt(6);
             } else if (e.code === 'KeyF' && this.state === 'PLAYING') {
                 this.toggleFreeCam();
+            } else if ((e.code === 'KeyC' || e.code === 'ShiftLeft' || e.code === 'ShiftRight') && this.state === 'PLAYING' && !e.repeat) {
+                this.toggleCruiseControl();
             }
         });
         window.addEventListener('keyup', e => {
@@ -785,11 +1143,14 @@ const Game = {
     },
 
     generateMap() {
+        this._minimapBase = null; // invalidate cached static minimap layer
+        this._tileInterFlags = null; // invalidate cached per-tile intersection proximity flags
         this.map = Array(MAP_H).fill(0).map(() => Array(MAP_W).fill(0));
         this.buildingGrid = Array(MAP_H).fill(0).map(() => Array(MAP_W).fill(null));
         this.intersectionGrid = Array(MAP_H).fill(0).map(() => Array(MAP_W).fill(0).map(() => []));
         this.parkGrid = Array(MAP_H).fill(0).map(() => Array(MAP_W).fill(null));
         this.waterGrid = Array(MAP_H).fill(0).map(() => Array(MAP_W).fill(false));
+        this.beachGrid = Array(MAP_H).fill(0).map(() => Array(MAP_W).fill(false));
 
         this.validSpawnTiles = [];
         this.edgeSpawnTiles = [];
@@ -802,6 +1163,8 @@ const Game = {
         this.puddles = [];
         this.vertRoadByCol = {};
         this.horizRoadByRow = {};
+        this.vertRoadGrid = Array(MAP_H).fill(0).map(() => Array(MAP_W).fill(null));
+        this.horizRoadGrid = Array(MAP_H).fill(0).map(() => Array(MAP_W).fill(null));
 
         const S = (typeof MAP_SCALE !== 'undefined') ? MAP_SCALE : 3;
 
@@ -809,6 +1172,7 @@ const Game = {
             if (x1 === x2) { // Vertical
                 if (roadObj) this.vertRoadByCol[x1] = roadObj;
                 for (let y = Math.min(y1, y2); y <= Math.max(y1, y2); y++) {
+                    if (roadObj && y >= 0 && y < MAP_H && x1 >= 0 && x1 < MAP_W) this.vertRoadGrid[y][x1] = roadObj;
                     if (this.map[y][x1] === 0) this.map[y][x1] = type;
                     else if (this.map[y][x1] !== type) this.map[y][x1] = 3;
                 }
@@ -825,6 +1189,7 @@ const Game = {
             } else if (y1 === y2) { // Horizontal
                 if (roadObj) this.horizRoadByRow[y1] = roadObj;
                 for (let x = Math.min(x1, x2); x <= Math.max(x1, x2); x++) {
+                    if (roadObj && y1 >= 0 && y1 < MAP_H && x >= 0 && x < MAP_W) this.horizRoadGrid[y1][x] = roadObj;
                     if (this.map[y1][x] === 0) this.map[y1][x] = type;
                     else if (this.map[y1][x] !== type) this.map[y1][x] = 3;
                 }
@@ -848,7 +1213,7 @@ const Game = {
                 const maxX = Math.min(MAP_W - 1, Math.max(x1, x2) + 2);
                 const minY = Math.max(0, Math.min(y1, y2) - 2);
                 const maxY = Math.min(MAP_H - 1, Math.max(y1, y2) + 2);
-                const halfBand = (type === 9) ? (TILE_SIZE * 0.72) : (TILE_SIZE * 0.55);
+                const halfBand = (type === 9) ? (TILE_SIZE * 0.75) : (TILE_SIZE * 0.65);
 
                 for (let y = minY; y <= maxY; y++) {
                     for (let x = minX; x <= maxX; x++) {
@@ -902,30 +1267,81 @@ const Game = {
 
         const SX = (typeof MAP_SCALE_X !== 'undefined') ? MAP_SCALE_X : 3;
         const SY = (typeof MAP_SCALE_Y !== 'undefined') ? MAP_SCALE_Y : 1.5;
+        const OX = (typeof BASE_OFFSET_X !== 'undefined') ? BASE_OFFSET_X : 6;
+        const OY = (typeof BASE_OFFSET_Y !== 'undefined') ? BASE_OFFSET_Y : 16;
 
-        // Salmon Bay / Lake Washington Ship Canal water in SW Ballard
+        // Puget Sound, Shilshole Bay Marina, Golden Gardens Sandy Beach & Salmon Bay / Ship Canal Water
         this.boats = [];
         const boatColors = ['#f8fafc', '#cbd5e1', '#93c5fd', '#fca5a5', '#fde047'];
-        for (let y = Math.floor(42 * SY); y < MAP_H; y++) {
-            for (let x = 0; x < Math.floor(38 * SX); x++) {
+        for (let y = 0; y < MAP_H; y++) {
+            for (let x = 0; x < MAP_W; x++) {
                 if (this.map[y][x] !== 0) continue;
-                if (this.parkGrid[y][x]) continue;
-                const ox = x / SX;
-                const oy = y / SY;
-                const shilsholeY = ox < 22 ? 42.5 : (42 + (ox - 22) * (12 / 16));
-                if (oy > shilsholeY + 0.6) {
+                const ox = x / SX - OX;
+                const oy = y / SY - OY;
+
+                // 1. Puget Sound & Shilshole Bay along the western Golden Gardens / North Beach shoreline
+                const westCoastX = (oy < -8) ? (-4.2 + (-8 - oy) * 1.85) : -4.35;
+                if (ox < westCoastX) {
                     this.waterGrid[y][x] = true;
-                    // Spawn moored Salmon Bay fishing trawlers, tugboats & sailboats
+                    this.parkGrid[y][x] = null;
                     const bHash = Math.abs(Math.sin(x * 19.3 + y * 47.1) * 43758.5) % 1;
-                    if (oy > shilsholeY + 1.5 && bHash < 0.085) {
+                    // Spawn moored sailboats & yachts in Shilshole Bay Marina & offshore Golden Gardens
+                    if (ox < westCoastX - 0.5 && bHash < 0.095) {
                         this.boats.push({
                             x: x * TILE_SIZE + TILE_SIZE / 2,
                             y: y * TILE_SIZE + TILE_SIZE / 2,
-                            angle: (bHash * 10 % 1) < 0.5 ? 0.15 : Math.PI - 0.15,
-                            type: bHash < 0.025 ? 'TUG' : 'TRAWLER',
+                            angle: (bHash * 10 % 1) < 0.5 ? -Math.PI * 0.48 : Math.PI * 0.48,
+                            type: bHash < 0.02 ? 'TUG' : 'TRAWLER',
+                            seed: Math.floor(bHash * 1000),
                             color: boatColors[Math.floor((bHash * 100) % boatColors.length)]
                         });
                     }
+                    continue;
+                }
+
+                // 2. Golden Gardens Sandy Beach & Meadow Shoreline (between Puget Sound and Seaview Pl NW)
+                if (oy >= -7 && oy <= 8 && ox >= westCoastX && ox < -3.0) {
+                    this.beachGrid[y][x] = true;
+                    this.parkGrid[y][x] = null;
+                    continue;
+                }
+
+                // 3. Salmon Bay / Lake Washington Ship Canal water in SW Ballard
+                if (oy >= 42 && ox < 38) {
+                    if (this.parkGrid[y][x]) continue;
+                    const shilsholeY = ox < 22 ? 42.5 : (42 + (ox - 22) * (12 / 16));
+                    if (oy > shilsholeY + 0.6) {
+                        this.waterGrid[y][x] = true;
+                        const bHash = Math.abs(Math.sin(x * 19.3 + y * 47.1) * 43758.5) % 1;
+                        if (oy > shilsholeY + 1.5 && bHash < 0.085) {
+                            this.boats.push({
+                                x: x * TILE_SIZE + TILE_SIZE / 2,
+                                y: y * TILE_SIZE + TILE_SIZE / 2,
+                                angle: (bHash * 10 % 1) < 0.5 ? 0.15 : Math.PI - 0.15,
+                                type: bHash < 0.025 ? 'TUG' : 'TRAWLER',
+                                seed: Math.floor(bHash * 1000),
+                                color: boatColors[Math.floor((bHash * 100) % boatColors.length)]
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        // Precompute 2.5D Ballard Topographic Elevation & Terrain Slope Grids
+        this.elevationGrid = Array(MAP_H).fill(0).map(() => Array(MAP_W).fill(0));
+        this.slopeGrid = Array(MAP_H).fill(0).map(() => Array(MAP_W).fill(null));
+        for (let y = 0; y < MAP_H; y++) {
+            for (let x = 0; x < MAP_W; x++) {
+                const wx = x * TILE_SIZE + TILE_SIZE / 2;
+                const wy = y * TILE_SIZE + TILE_SIZE / 2;
+                if (this.waterGrid[y] && this.waterGrid[y][x]) {
+                    this.elevationGrid[y][x] = 0;
+                    this.slopeGrid[y][x] = { gx: 0, gy: 0, slope: 0, elev: 0 };
+                } else if (typeof MapData !== 'undefined' && MapData.getSlopeAt) {
+                    const sv = MapData.getSlopeAt(wx, wy);
+                    this.elevationGrid[y][x] = sv.elev;
+                    this.slopeGrid[y][x] = sv;
                 }
             }
         }
@@ -943,6 +1359,10 @@ const Game = {
 
             for (let j = i + 1; j < roads.length; j++) {
                 const r2 = roads[j];
+                // Skip collinear segments of the same road meeting end-to-end
+                if (r1.name && r1.name === r2.name && ((r1.x1 === r1.x2 && r2.x1 === r2.x2 && r1.x1 === r2.x1) || (r1.y1 === r1.y2 && r2.y1 === r2.y2 && r1.y1 === r2.y1))) {
+                    continue;
+                }
                 const bx1 = r2.x1 * TILE_SIZE + TILE_SIZE / 2;
                 const by1 = r2.y1 * TILE_SIZE + TILE_SIZE / 2;
                 const bx2 = r2.x2 * TILE_SIZE + TILE_SIZE / 2;
@@ -987,84 +1407,136 @@ const Game = {
             );
 
             const hasArterial = node.connectedRoads.some(r => r.type === 6 || r.type === 7 || r.type === 9);
-            const hasCollector = node.connectedRoads.some(r => r.isCollector);
+            const hasCollector = node.connectedRoads.some(r => r.isCollector || r.isBoulevard);
             const hasDiagonal = node.connectedRoads.some(r => r.x1 !== r.x2 && r.y1 !== r.y2);
 
             // Deterministic hash per intersection so stop signs & traffic circles are consistent
             const iHash = Math.abs(Math.sin(node.x * 12.9898 + node.y * 78.233) * 43758.5453) % 1;
 
-            const approaches = [];
-            const stopDist = hasArterial ? 78 : ((node.connectedRoads.length > 2 || hasDiagonal) ? 58 : 50);
-            const crossDist = stopDist + 18;
+            // Road hierarchy rank helper for right-of-way at unsignalized & diagonal intersections
+            const getRoadRank = (r) => {
+                if (r.type === 6 || r.type === 7 || r.type === 9) return 4 + ((r.lanes || 4) >= 4 ? 0.5 : 0);
+                if (r.isCollector || r.isBoulevard) return 3;
+                if (r.x1 !== r.x2 && r.y1 !== r.y2) return 2; // Diagonal through-street has priority over local grid stems
+                return 1;
+            };
+            const maxRoadRank = Math.max(...node.connectedRoads.map(getRoadRank));
 
-            const addApproach = (ang, road) => {
-                if (approaches.some(a => Math.abs(Utils.angleDiff(a.angle, ang)) < 0.22)) {
-                    return;
+            // First pass: collect raw approach angles & roads
+            const rawApproaches = [];
+            for (let r of node.connectedRoads) {
+                const A = { x: r.x1 * TILE_SIZE + TILE_SIZE / 2, y: r.y1 * TILE_SIZE + TILE_SIZE / 2 };
+                const B = { x: r.x2 * TILE_SIZE + TILE_SIZE / 2, y: r.y2 * TILE_SIZE + TILE_SIZE / 2 };
+                const roadAngle = Math.atan2(B.y - A.y, B.x - A.x);
+                if (Math.hypot(cx - A.x, cy - A.y) > 55) {
+                    if (!rawApproaches.some(a => Math.abs(Utils.angleDiff(a.ang, roadAngle)) < 0.22)) {
+                        rawApproaches.push({ ang: roadAngle, road: r });
+                    }
                 }
+                if (Math.hypot(cx - B.x, cy - B.y) > 55) {
+                    const revAng = Utils.normalizeAngle(roadAngle + Math.PI);
+                    if (!rawApproaches.some(a => Math.abs(Utils.angleDiff(a.ang, revAng)) < 0.22)) {
+                        rawApproaches.push({ ang: revAng, road: r });
+                    }
+                }
+            }
+
+            const approaches = [];
+            const baseStopDist = hasArterial ? 78 : ((node.connectedRoads.length > 2 || hasDiagonal) ? 62 : 52);
+
+            for (const { ang, road } of rawApproaches) {
                 const dx = Math.cos(ang);
                 const dy = Math.sin(ang);
                 const nx = -dy;
                 const ny = dx;
 
                 const isRoadArt = (road.type === 6 || road.type === 7 || road.type === 9);
-                const isRoadCollector = Boolean(road.isCollector);
+                const isRoadDiag = (road.x1 !== road.x2 && road.y1 !== road.y2) || (Math.abs(dx) >= 0.34 && Math.abs(dy) >= 0.34);
                 const dominantAxis = Math.abs(dx) > Math.abs(dy) ? 'EW' : 'NS';
+                const signalGroup = isRoadDiag ? 'DIAG' : dominantAxis;
+                const roadRank = getRoadRank(road);
+                const roadLanes = road.lanes || (isRoadArt ? 4 : 2);
 
-                // Authentic Seattle intersection control:
-                // - Signals at major arterial intersections
-                // - All-way stops ONLY at the 12 designated Ballard collector junctions
-                // - 2-way stops where minor streets enter an arterial (or selected collectors)
-                // - Local residential intersections: 85% uncontrolled ('NONE'), 15% 2-way stop on minor axis!
+                // Compute acute crossing angle against non-collinear approaches at this intersection
+                // so oblique/diagonal approaches set their stop line further back outside the diagonal swept path!
+                let minSin = 1.0;
+                for (const other of rawApproaches) {
+                    if (other.road === road) continue;
+                    const diff = Math.abs(Utils.angleDiff(ang, other.ang));
+                    const acute = Math.min(diff, Math.abs(Math.PI - diff));
+                    if (acute > 0.24) {
+                        minSin = Math.min(minSin, Math.sin(acute));
+                    }
+                }
+                const angleSkew = hasDiagonal ? Math.min(1.36, 1.0 / Math.max(0.66, minSin)) : 1.0;
+                const appStopDist = Math.round(baseStopDist * angleSkew);
+                const appCrossDist = Math.max(36, appStopDist - 14);
+
                 let controlType = 'NONE';
                 if (hasSignal) {
                     controlType = 'SIGNAL';
                 } else if (isAllWayStop) {
                     controlType = 'STOP';
-                } else if (hasArterial) {
-                    controlType = isRoadArt ? 'NONE' : 'STOP';
-                } else if (hasCollector) {
-                    if (isRoadCollector) {
-                        controlType = 'NONE';
-                    } else {
-                        controlType = (iHash < 0.15) ? 'STOP' : 'NONE';
-                    }
+                } else if (roadRank < maxRoadRank) {
+                    // Any lower-hierarchy street crossing an arterial, collector, boulevard, or diagonal road ALWAYS gets a STOP sign!
+                    controlType = 'STOP';
+                } else if (hasDiagonal) {
+                    // Equal-rank diagonal crossing: orthogonal local street stops for the diagonal street
+                    controlType = isRoadDiag ? 'NONE' : 'STOP';
+                } else if (hasCollector && !isRoadArt) {
+                    controlType = dominantAxis === 'NS' ? 'STOP' : 'NONE';
                 } else {
-                    // Pure local residential intersection: 96% uncontrolled Seattle streets (or traffic circle)!
-                    if (iHash < 0.04 && dominantAxis === 'NS') {
+                    if (iHash < 0.08 && dominantAxis === 'NS') {
                         controlType = 'STOP';
                     } else {
                         controlType = 'NONE';
                     }
                 }
 
-                const stopLineCenter = { x: cx - dx * stopDist, y: cy - dy * stopDist };
-                const crosswalkCenter = { x: cx - dx * crossDist, y: cy - dy * crossDist };
-                const cornerOffset = isRoadArt ? 74 : 44;
-                const cornerPos = { x: cx - dx * stopDist + nx * cornerOffset, y: cy - dy * stopDist + ny * cornerOffset };
+                const stopLineCenter = { x: cx - dx * appStopDist, y: cy - dy * appStopDist };
+                const crosswalkCenter = { x: cx - dx * appCrossDist, y: cy - dy * appCrossDist };
+                const cornerOffset = isRoadArt ? (roadLanes >= 4 ? 72 : 56) : 44;
+                const poleDist = (controlType === 'SIGNAL') ? (appStopDist - 5) : appStopDist;
+                const cornerPos = { x: cx - dx * poleDist + nx * cornerOffset, y: cy - dy * poleDist + ny * cornerOffset };
+                const signalHeadCount = (controlType === 'SIGNAL') ? (roadLanes >= 4 ? 2 : 1) : 0;
+                const mastArmLen = isRoadArt ? (roadLanes >= 4 ? 48 : 32) : 24;
 
                 approaches.push({
                     angle: ang,
                     road,
                     isRoadArt,
+                    isRoadDiag,
+                    roadLanes,
                     controlType,
+                    stopDist: appStopDist,
                     stopLineCenter,
                     crosswalkCenter,
                     lightPos: controlType === 'SIGNAL' ? cornerPos : null,
                     signPos: controlType === 'STOP' ? cornerPos : null,
-                    dominantAxis
+                    signalHeadCount,
+                    mastArmLen,
+                    dominantAxis,
+                    signalGroup
                 });
-            };
+            }
 
-            for (let r of node.connectedRoads) {
-                const A = { x: r.x1 * TILE_SIZE + TILE_SIZE / 2, y: r.y1 * TILE_SIZE + TILE_SIZE / 2 };
-                const B = { x: r.x2 * TILE_SIZE + TILE_SIZE / 2, y: r.y2 * TILE_SIZE + TILE_SIZE / 2 };
-                const roadAngle = Math.atan2(B.y - A.y, B.x - A.x);
-
-                if (Math.hypot(cx - A.x, cy - A.y) > 55) {
-                    addApproach(roadAngle, r);
+            // Continuous curve elbow (2 road segments meeting end-to-end with no cross-street): never put a stop sign in a curve!
+            if (!hasSignal && !isAllWayStop && approaches.length <= 2) {
+                for (const a of approaches) {
+                    a.controlType = 'NONE';
+                    a.signPos = null;
+                    a.lightPos = null;
                 }
-                if (Math.hypot(cx - B.x, cy - B.y) > 55) {
-                    addApproach(Utils.normalizeAngle(roadAngle + Math.PI), r);
+            } else if (!hasSignal && !isAllWayStop && approaches.length === 3 && approaches.every(a => a.controlType === 'NONE')) {
+                // Uncontrolled 3-way T-intersection: the terminating stem approach (the one without an opposing 180° approach) gets a STOP sign!
+                for (const a of approaches) {
+                    const hasOpposite = approaches.some(b => b !== a && Math.abs(Utils.angleDiff(a.angle, b.angle + Math.PI)) < 0.35);
+                    if (!hasOpposite) {
+                        const dx = Math.cos(a.angle), dy = Math.sin(a.angle);
+                        const nx = -dy, ny = dx;
+                        a.controlType = 'STOP';
+                        a.signPos = { x: cx - dx * a.stopDist + nx * 44, y: cy - dy * a.stopDist + ny * 44 };
+                    }
                 }
             }
 
@@ -1072,6 +1544,19 @@ const Game = {
             const isUncontrolled4Way = !hasSignal && !isAllWayStop && !hasArterial && !hasDiagonal &&
                 approaches.length === 4 && approaches.every(a => a.controlType === 'NONE');
             const hasTrafficCircle = isUncontrolled4Way && (iHash > 0.52 && iHash < 0.84);
+
+            // Realistic Traffic Signal Timing & Phase Configuration per Intersection
+            const hasNS = approaches.some(a => a.signalGroup === 'NS');
+            const hasEW = approaches.some(a => a.signalGroup === 'EW');
+            const hasDIAG = approaches.some(a => a.signalGroup === 'DIAG');
+            const hasDiagPhase = Boolean(hasSignal && hasDIAG && (hasNS || hasEW));
+            const maxNSLanes = Math.max(2, ...approaches.filter(a => a.signalGroup === 'NS').map(a => a.roadLanes || 2));
+            const maxEWLanes = Math.max(2, ...approaches.filter(a => a.signalGroup === 'EW').map(a => a.roadLanes || 2));
+            // Give longer green split to the wider arterial corridor (e.g. 5-lane 15th Ave NW vs 2-lane cross street)
+            const nsGreenRatio = (maxNSLanes > maxEWLanes) ? 0.58 : ((maxEWLanes > maxNSLanes) ? 0.42 : 0.50);
+            const cycleLen = hasDiagPhase ? 1080 : ((maxNSLanes >= 4 && maxEWLanes >= 4) ? 920 : 780);
+            // Green-wave progression offset along Ballard corridors
+            const cycleOffset = Math.floor((node.x * 19 + node.y * 23) % cycleLen);
 
             return {
                 x: node.x,
@@ -1084,12 +1569,16 @@ const Game = {
                 hasArterial,
                 hasCollector,
                 hasDiagonal,
+                hasDiagPhase,
                 hasTrafficCircle,
                 isArt: hasSignal,
                 stateNS: 'RED',
                 stateEW: 'RED',
+                stateDIAG: 'RED',
                 timer: 0,
-                cycleOffset: Math.floor(Math.random() * 900),
+                cycleLen,
+                nsGreenRatio,
+                cycleOffset,
                 approaches
             };
         });
@@ -1125,6 +1614,7 @@ const Game = {
         });
 
         this.generateBuildingsAndTrees();
+        this.generateStreetParking();
 
         // Generate potholes on road tiles
         this.potholes = [];
@@ -1158,7 +1648,50 @@ const Game = {
         this.buildings = [];
         const SX = (typeof MAP_SCALE_X !== 'undefined') ? MAP_SCALE_X : 3;
         const SY = (typeof MAP_SCALE_Y !== 'undefined') ? MAP_SCALE_Y : 1.5;
-        const diagRoads = MapData.roads.filter(r => r.x1 !== r.x2 && r.y1 !== r.y2);
+        const OX = (typeof BASE_OFFSET_X !== 'undefined') ? BASE_OFFSET_X : 6;
+        const OY = (typeof BASE_OFFSET_Y !== 'undefined') ? BASE_OFFSET_Y : 16;
+
+        // Reuse cached static neighborhood buildings & trees on restarts/next levels so starting a game is instantaneous!
+        if (this._cachedBuildingGrid && this._cachedBaseTrees) {
+            this.trees = this._cachedBaseTrees.slice();
+            for (let y = 0; y < MAP_H; y++) {
+                const cRow = this._cachedBuildingGrid[y];
+                for (let x = 0; x < MAP_W; x++) {
+                    if (this.map[y][x] === 0 && cRow[x]) {
+                        const bld = cRow[x];
+                        this.buildingGrid[y][x] = bld;
+                        this.buildings.push(bld);
+                    }
+                    const t = this.map[y][x];
+                    if (t === 1 || t === 2 || t === 6 || t === 7 || t === 8 || t === 9) {
+                        this.validSpawnTiles.push({ x, y, type: t });
+                        if (x <= 4 * SX || x >= MAP_W - 3 * SX || y === 0 || y >= MAP_H - Math.ceil(3 * SY)) {
+                            this.edgeSpawnTiles.push({ x, y, type: t });
+                        }
+                        if (Math.random() < 0.014) {
+                            this._spawnPropOnRoadTile(x, y, t);
+                        }
+                    }
+                }
+            }
+            return;
+        }
+
+        this._cachedBuildingGrid = Array(MAP_H).fill(0).map(() => Array(MAP_W).fill(null));
+        const diagSegs = MapData.roads
+            .filter(r => r.x1 !== r.x2 && r.y1 !== r.y2)
+            .map(r => ({
+                road: r,
+                x1_w: r.x1 * TILE_SIZE + TILE_SIZE / 2,
+                y1_w: r.y1 * TILE_SIZE + TILE_SIZE / 2,
+                x2_w: r.x2 * TILE_SIZE + TILE_SIZE / 2,
+                y2_w: r.y2 * TILE_SIZE + TILE_SIZE / 2,
+                clearCornerDist: (r.type === 9) ? 94 : 68,
+                minTx: Math.min(r.x1, r.x2) - 2,
+                maxTx: Math.max(r.x1, r.x2) + 2,
+                minTy: Math.min(r.y1, r.y2) - 2,
+                maxTy: Math.max(r.y1, r.y2) + 2
+            }));
 
         const getEdgeSetback = (nx, ny) => {
             if (nx < 0 || nx >= MAP_W || ny < 0 || ny >= MAP_H) return 12;
@@ -1169,13 +1702,14 @@ const Game = {
                 if (this.vertRoadByCol[nx]?.type === 6 || this.horizRoadByRow[ny]?.type === 7) return 28;
                 return 14;
             }
-            if (t !== 0 || this.parkGrid[ny][nx] || this.waterGrid[ny][nx]) return 12;
+            if ((t !== 0 && t !== 4) || this.parkGrid[ny][nx] || this.waterGrid[ny][nx] || (this.beachGrid && this.beachGrid[ny][nx])) return 12;
             return 0; // Seamless 0px interior block boundary!
         };
 
         for (let y = 0; y < MAP_H; y++) {
             for (let x = 0; x < MAP_W; x++) {
-                if (this.map[y][x] === 0 && !this.parkGrid[y][x] && !this.waterGrid[y][x]) {
+                const cellType = this.map[y][x];
+                if ((cellType === 0 || cellType === 4) && !this.parkGrid[y][x] && !this.waterGrid[y][x] && !(this.beachGrid && this.beachGrid[y][x])) {
                     const padTop    = getEdgeSetback(x, y - 1);
                     const padBottom = getEdgeSetback(x, y + 1);
                     const padLeft   = getEdgeSetback(x - 1, y);
@@ -1194,49 +1728,39 @@ const Game = {
                     if (bw > 20 && bh > 20) {
                         const centerWorldX = bx + bw / 2;
                         const centerWorldY = by + bh / 2;
-                        const parcelPts = [
-                            { x: centerWorldX, y: centerWorldY },
-                            { x: bx, y: by },
-                            { x: bx + bw, y: by },
-                            { x: bx, y: by + bh },
-                            { x: bx + bw, y: by + bh },
-                            { x: centerWorldX, y: by },
-                            { x: centerWorldX, y: by + bh },
-                            { x: bx, y: centerWorldY },
-                            { x: bx + bw, y: centerWorldY }
-                        ];
 
                         let overlapsRoad = false;
-                        for (let r of diagRoads) {
-                            const x1_w = r.x1 * TILE_SIZE + TILE_SIZE / 2;
-                            const y1_w = r.y1 * TILE_SIZE + TILE_SIZE / 2;
-                            const x2_w = r.x2 * TILE_SIZE + TILE_SIZE / 2;
-                            const y2_w = r.y2 * TILE_SIZE + TILE_SIZE / 2;
-                            // Keep the entire parcel & all 4 corners well clear of diagonal road carriageways + sidewalks
-                            const clearCornerDist = (r.type === 9) ? 94 : 68;
-                            for (let k = 0; k < parcelPts.length; k++) {
-                                const pt = parcelPts[k];
-                                if (Utils.distToSegment(pt.x, pt.y, x1_w, y1_w, x2_w, y2_w) < clearCornerDist) {
-                                    overlapsRoad = true;
-                                    break;
-                                }
+                        let nearestDiagSeg = null;
+                        let minDiagDist = Infinity;
+
+                        for (let sIdx = 0; sIdx < diagSegs.length; sIdx++) {
+                            const ds = diagSegs[sIdx];
+                            if (x < ds.minTx || x > ds.maxTx || y < ds.minTy || y > ds.maxTy) continue;
+                            const dCenter = Utils.distToSegment(centerWorldX, centerWorldY, ds.x1_w, ds.y1_w, ds.x2_w, ds.y2_w);
+                            if (dCenter < minDiagDist) {
+                                minDiagDist = dCenter;
+                                nearestDiagSeg = ds;
                             }
-                            if (overlapsRoad) break;
+                            if (dCenter < ds.clearCornerDist) {
+                                overlapsRoad = true;
+                                break;
+                            }
                         }
 
                         if (!overlapsRoad) {
                             let facing = 'DOWN';
                             let isApartment = false;
                             let nearDiag = false;
+                            const ox = x / SX - OX;
+                            const oy = y / SY - OY;
 
-                            const diagResult = this.getNearestDiagonalRoad(centerWorldX, centerWorldY);
-                            if (diagResult.road && diagResult.dist < TILE_SIZE * 1.45) {
+                            if (nearestDiagSeg && minDiagDist < TILE_SIZE * 1.45) {
                                 nearDiag = true;
-                                const x1_w = diagResult.road.x1 * TILE_SIZE + TILE_SIZE / 2;
-                                const y1_w = diagResult.road.y1 * TILE_SIZE + TILE_SIZE / 2;
-                                const x2_w = diagResult.road.x2 * TILE_SIZE + TILE_SIZE / 2;
-                                const y2_w = diagResult.road.y2 * TILE_SIZE + TILE_SIZE / 2;
-                                const closest = Utils.getClosestPointOnSegment(centerWorldX, centerWorldY, x1_w, y1_w, x2_w, y2_w);
+                                const closest = Utils.getClosestPointOnSegment(
+                                    centerWorldX, centerWorldY,
+                                    nearestDiagSeg.x1_w, nearestDiagSeg.y1_w,
+                                    nearestDiagSeg.x2_w, nearestDiagSeg.y2_w
+                                );
 
                                 const vx = closest.x - centerWorldX;
                                 const vy = closest.y - centerWorldY;
@@ -1247,7 +1771,7 @@ const Game = {
                                     facing = vy > 0 ? 'DOWN' : 'UP';
                                 }
 
-                                if (diagResult.road.type === 9 || (y / SY) >= 40) {
+                                if (nearestDiagSeg.road.type === 9 || oy >= 40) {
                                     isApartment = true;
                                 }
                             } else {
@@ -1266,7 +1790,7 @@ const Game = {
                                         if (tileType !== 0 && tileType !== 4 && tileType !== 5) {
                                             facing = n.dir;
                                             if (tileType === 6 || tileType === 7 || tileType === 9 ||
-                                                ((y / SY) >= 38 && (y / SY) <= 42 && (x / SX) >= 14)) {
+                                                (oy >= 38 && oy <= 42 && ox >= 14)) {
                                                 isApartment = true;
                                             }
                                             break;
@@ -1277,8 +1801,62 @@ const Game = {
 
                             const edges = { N: openN, S: openS, W: openW, E: openE, diag: nearDiag };
                             const bld = new Building(bx, by, bw, bh, facing, isApartment, edges);
-                            this.buildings.push(bld);
-                            this.buildingGrid[y][x] = bld;
+
+                            // Ensure any 3D subStructure near a diagonal/curved street sits cleanly behind the curved curb
+                            if (nearDiag && nearestDiagSeg && bld.subStructures && bld.subStructures.length > 0) {
+                                const reqDist = nearestDiagSeg.clearCornerDist;
+                                bld.subStructures = bld.subStructures.filter(sub => {
+                                    const subCx = sub.x + sub.w / 2;
+                                    const subCy = sub.y + sub.h / 2;
+                                    const closest = Utils.getClosestPointOnSegment(
+                                        subCx, subCy,
+                                        nearestDiagSeg.x1_w, nearestDiagSeg.y1_w,
+                                        nearestDiagSeg.x2_w, nearestDiagSeg.y2_w
+                                    );
+                                    const corners = [
+                                        { x: sub.x, y: sub.y },
+                                        { x: sub.x + sub.w, y: sub.y },
+                                        { x: sub.x, y: sub.y + sub.h },
+                                        { x: sub.x + sub.w, y: sub.y + sub.h }
+                                    ];
+                                    let minCornerD = Infinity;
+                                    for (const pt of corners) {
+                                        const d = Utils.distToSegment(pt.x, pt.y, nearestDiagSeg.x1_w, nearestDiagSeg.y1_w, nearestDiagSeg.x2_w, nearestDiagSeg.y2_w);
+                                        if (d < minCornerD) minCornerD = d;
+                                    }
+                                    if (minCornerD < reqDist) {
+                                        const awayX = subCx - closest.x;
+                                        const awayY = subCy - closest.y;
+                                        const awayLen = Math.hypot(awayX, awayY) || 1;
+                                        const push = (reqDist - minCornerD) + 4;
+                                        sub.x = Math.max(bx + 2, Math.min(bx + bw - sub.w - 2, sub.x + (awayX / awayLen) * push));
+                                        sub.y = Math.max(by + 2, Math.min(by + bh - sub.h - 2, sub.y + (awayY / awayLen) * push));
+                                    }
+                                    // Verify all 4 corners after shift clear every diagonal road segment
+                                    const shiftedCorners = [
+                                        { x: sub.x, y: sub.y },
+                                        { x: sub.x + sub.w, y: sub.y },
+                                        { x: sub.x, y: sub.y + sub.h },
+                                        { x: sub.x + sub.w, y: sub.y + sub.h }
+                                    ];
+                                    for (let sIdx = 0; sIdx < diagSegs.length; sIdx++) {
+                                        const ds = diagSegs[sIdx];
+                                        if (x < ds.minTx || x > ds.maxTx || y < ds.minTy || y > ds.maxTy) continue;
+                                        for (const pt of shiftedCorners) {
+                                            if (Utils.distToSegment(pt.x, pt.y, ds.x1_w, ds.y1_w, ds.x2_w, ds.y2_w) < ds.clearCornerDist - 4) {
+                                                return false;
+                                            }
+                                        }
+                                    }
+                                    return true;
+                                });
+                            }
+
+                            this._cachedBuildingGrid[y][x] = bld;
+                            if (cellType === 0) {
+                                this.buildings.push(bld);
+                                this.buildingGrid[y][x] = bld;
+                            }
 
                             // Plant 3D backyard shade trees in residential backyards & interior block greenspace
                             if (!bld.isUrban) {
@@ -1316,44 +1894,49 @@ const Game = {
                         this.edgeSpawnTiles.push({ x, y, type: t });
                     }
                     if (Math.random() < 0.014) {
-                        let propX = x * TILE_SIZE + TILE_SIZE / 2;
-                        let propY = y * TILE_SIZE + TILE_SIZE / 2;
-
-                        if (t === 1 || t === 6) {
-                            propX = x * TILE_SIZE + (Math.random() < 0.5 ? 32 : 88);
-                            propY = y * TILE_SIZE + Utils.rand(24, TILE_SIZE - 24);
-                        } else if (t === 2 || t === 7) {
-                            propX = x * TILE_SIZE + Utils.rand(24, TILE_SIZE - 24);
-                            propY = y * TILE_SIZE + (Math.random() < 0.5 ? 32 : 88);
-                        } else if (t === 8 || t === 9) {
-                            const result = this.getNearestDiagonalRoad(x * TILE_SIZE + TILE_SIZE / 2, y * TILE_SIZE + TILE_SIZE / 2);
-                            const r = result.road;
-                            if (r) {
-                                const x1_w = r.x1 * TILE_SIZE + TILE_SIZE / 2;
-                                const y1_w = r.y1 * TILE_SIZE + TILE_SIZE / 2;
-                                const x2_w = r.x2 * TILE_SIZE + TILE_SIZE / 2;
-                                const y2_w = r.y2 * TILE_SIZE + TILE_SIZE / 2;
-                                const closest = Utils.getClosestPointOnSegment(
-                                    x * TILE_SIZE + TILE_SIZE / 2,
-                                    y * TILE_SIZE + TILE_SIZE / 2,
-                                    x1_w, y1_w, x2_w, y2_w
-                                );
-                                const dx = x2_w - x1_w;
-                                const dy = y2_w - y1_w;
-                                const len = Math.hypot(dx, dy) || 1;
-                                const nx = -dy / len;
-                                const ny = dx / len;
-                                const laneOffset = Math.random() < 0.5 ? 24 : -24;
-                                propX = closest.x + nx * laneOffset;
-                                propY = closest.y + ny * laneOffset;
-                            }
-                        }
-                        const propType = Math.random() < 0.3 ? 'WRENCH' : 'COFFEE';
-                        this.props.push(new Prop(propX, propY, propType));
+                        this._spawnPropOnRoadTile(x, y, t);
                     }
                 }
             }
         }
+        this._cachedBaseTrees = this.trees.slice();
+    },
+
+    _spawnPropOnRoadTile(x, y, t) {
+        let propX = x * TILE_SIZE + TILE_SIZE / 2;
+        let propY = y * TILE_SIZE + TILE_SIZE / 2;
+
+        if (t === 1 || t === 6) {
+            propX = x * TILE_SIZE + (Math.random() < 0.5 ? 32 : 88);
+            propY = y * TILE_SIZE + Utils.rand(24, TILE_SIZE - 24);
+        } else if (t === 2 || t === 7) {
+            propX = x * TILE_SIZE + Utils.rand(24, TILE_SIZE - 24);
+            propY = y * TILE_SIZE + (Math.random() < 0.5 ? 32 : 88);
+        } else if (t === 8 || t === 9) {
+            const result = this.getNearestDiagonalRoad(x * TILE_SIZE + TILE_SIZE / 2, y * TILE_SIZE + TILE_SIZE / 2);
+            const r = result.road;
+            if (r) {
+                const x1_w = r.x1 * TILE_SIZE + TILE_SIZE / 2;
+                const y1_w = r.y1 * TILE_SIZE + TILE_SIZE / 2;
+                const x2_w = r.x2 * TILE_SIZE + TILE_SIZE / 2;
+                const y2_w = r.y2 * TILE_SIZE + TILE_SIZE / 2;
+                const closest = Utils.getClosestPointOnSegment(
+                    x * TILE_SIZE + TILE_SIZE / 2,
+                    y * TILE_SIZE + TILE_SIZE / 2,
+                    x1_w, y1_w, x2_w, y2_w
+                );
+                const dx = x2_w - x1_w;
+                const dy = y2_w - y1_w;
+                const len = Math.hypot(dx, dy) || 1;
+                const nx = -dy / len;
+                const ny = dx / len;
+                const laneOffset = Math.random() < 0.5 ? 24 : -24;
+                propX = closest.x + nx * laneOffset;
+                propY = closest.y + ny * laneOffset;
+            }
+        }
+        const propType = Math.random() < 0.3 ? 'WRENCH' : 'COFFEE';
+        this.props.push(new Prop(propX, propY, propType));
     },
 
     reset() {
@@ -1407,12 +1990,30 @@ const Game = {
             const el = document.getElementById(id);
             if (el) el.classList.remove('active');
         });
+        if (typeof document !== 'undefined') {
+            document.querySelectorAll('.splash-station-btn').forEach(btn => {
+                if (btn.getAttribute('data-station') === station) {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            });
+        }
         const viz = document.getElementById('radio-visualizer');
+        const splashVu = document.getElementById('splash-vu');
+        const splashDot = document.getElementById('splash-radio-dot');
+        const splashStatus = document.getElementById('splash-radio-status');
+        const splashTicker = document.getElementById('splash-radio-ticker');
+
         if (station === 'OFF') {
             const offBtn = document.getElementById('radio-off');
             if (offBtn) offBtn.classList.add('active');
             const ticker = document.getElementById('radio-ticker');
             if (ticker) ticker.innerText = "RADIO OFF";
+            if (splashTicker) splashTicker.innerText = "RADIO MUTED — SELECT A SEATTLE FM STATION ABOVE";
+            if (splashVu) splashVu.classList.add('muted');
+            if (splashDot) splashDot.classList.add('off');
+            if (splashStatus) splashStatus.innerText = "STEREO MUTED • CLICK ANY STATION TO LISTEN";
             AudioSys.setStation('OFF');
             if (viz) {
                 viz.classList.add('hidden');
@@ -1423,6 +2024,9 @@ const Game = {
                 viz.classList.remove('hidden');
                 viz.classList.add('playing');
             }
+            if (splashVu) splashVu.classList.remove('muted');
+            if (splashDot) splashDot.classList.remove('off');
+            if (splashStatus) splashStatus.innerText = "ON AIR • SEATTLE STEREO FM";
             const btnMap = {
                 LOFI: 'radio-lofi',
                 GRUNGE: 'radio-grunge',
@@ -1564,30 +2168,42 @@ const Game = {
             }
         }, 1200);
 
-        const S = (typeof MAP_SCALE !== 'undefined') ? MAP_SCALE : 3;
+        const SX = (typeof MAP_SCALE_X !== 'undefined') ? MAP_SCALE_X : 3;
+        const SY = (typeof MAP_SCALE_Y !== 'undefined') ? MAP_SCALE_Y : 1.5;
+        const OX = (typeof BASE_OFFSET_X !== 'undefined') ? BASE_OFFSET_X : 6;
+        const OY = (typeof BASE_OFFSET_Y !== 'undefined') ? BASE_OFFSET_Y : 16;
         let startX = 0, startY = 0, startAngle = 0;
         let validStart = false;
         let attempts = 0;
+        const probeCar = new Car(0, 0, true);
 
-        while (!validStart && attempts < 200) {
+        while (!validStart && attempts < 300) {
             attempts++;
             const t = this.validSpawnTiles[Math.floor(Math.random() * this.validSpawnTiles.length)];
             const dist = Math.hypot(t.x - this.destTile.x, t.y - this.destTile.y);
+            const maxAllowedDist = attempts < 180 ? 85 : 140;
 
-            if (dist >= 18 && dist <= 75) {
+            if (dist >= 16 && dist <= maxAllowedDist) {
                 const pos = this._computeRoadSpawnPos(t, false);
-                if (pos) {
-                    startX = pos.x;
-                    startY = pos.y;
-                    startAngle = pos.angle;
-                    validStart = true;
+                if (pos && Number.isFinite(pos.x) && Number.isFinite(pos.y)) {
+                    const pTx = Math.floor(pos.x / TILE_SIZE);
+                    const pTy = Math.floor(pos.y / TILE_SIZE);
+                    const inBounds = (pTx >= 1 && pTx < MAP_W - 1 && pTy >= 1 && pTy < MAP_H - 1);
+                    const onWater = Boolean(this.waterGrid && this.waterGrid[pTy] && this.waterGrid[pTy][pTx]);
+                    if (inBounds && !onWater && !probeCar.checkBuildingCollision(pos.x, pos.y, pos.angle)) {
+                        startX = pos.x;
+                        startY = pos.y;
+                        startAngle = pos.angle;
+                        validStart = true;
+                    }
                 }
             }
         }
 
         if (!validStart) {
-            startX = 22 * S * TILE_SIZE + 90;
-            startY = 20 * S * TILE_SIZE + 60;
+            // Safe arterial spawn on 24th Ave NW & NW 65th St
+            startX = Math.round((22 + OX) * SX) * TILE_SIZE + TILE_SIZE / 2 + 30;
+            startY = Math.round((20 + OY) * SY) * TILE_SIZE + TILE_SIZE / 2;
             startAngle = -Math.PI / 2;
         }
 
@@ -1599,11 +2215,26 @@ const Game = {
         this.player.angle = startAngle;
         this.entities.push(this.player);
 
+        // Clear any curbside parked car within 52px of the player's starting spot so frame 1 is always clear
+        if (this.parkedCars && this.parkedGrid) {
+            this.parkedCars = this.parkedCars.filter(pk => {
+                if (Utils.dist(pk.x, pk.y, this.player.x, this.player.y) < 52) {
+                    const cell = this.parkedGrid[pk.ty] && this.parkedGrid[pk.ty][pk.tx];
+                    if (cell) {
+                        const idx = cell.indexOf(pk);
+                        if (idx >= 0) cell.splice(idx, 1);
+                    }
+                    return false;
+                }
+                return true;
+            });
+        }
+
         this.cam.x = this.player.x - this.canvas.width / 2;
         this.cam.y = this.player.y - this.canvas.height / 2;
 
         // Compute GPS route immediately so traffic is balanced along the player's corridor & surrounding neighborhood
-        this._lastGpsKey = null;
+        this._lastGPSKey = null;
         this.computeGPSRoute();
         const routeTileSet = new Set();
         if (this.gpsPath) {
@@ -1618,8 +2249,8 @@ const Game = {
             }
         }
 
-        const priorityTiles = [];
-        const restTiles = [];
+        const arterialTiles = [];
+        const localTiles = [];
         for (const t of this.validSpawnTiles) {
             const worldX = t.x * TILE_SIZE + TILE_SIZE / 2;
             const worldY = t.y * TILE_SIZE + TILE_SIZE / 2;
@@ -1627,33 +2258,33 @@ const Game = {
             if (dPlayer < 280) continue; // Keep 280px around player clear at start
 
             const isArt = (t.type === 6 || t.type === 7 || t.type === 9);
-            const onRoute = routeTileSet.has(`${t.x},${t.y}`);
-            if (dPlayer < 3000 || onRoute || isArt) {
-                priorityTiles.push(t);
+            if (isArt) {
+                arterialTiles.push(t);
             } else {
-                restTiles.push(t);
+                localTiles.push(t);
             }
         }
 
-        priorityTiles.sort(() => Math.random() - 0.5);
-        restTiles.sort(() => Math.random() - 0.5);
+        arterialTiles.sort(() => Math.random() - 0.5);
+        localTiles.sort(() => Math.random() - 0.5);
 
+        // Load-balance initial traffic so ~68% starts on Ballard's arterials and ~32% starts from residential houses
         let spawned = 0;
-        const nearCap = Math.floor(this.maxCars * 0.45);
-        for (const t of priorityTiles) {
-            if (spawned >= nearCap) break;
+        const artTarget = Math.floor(this.maxCars * 0.68);
+        for (const t of arterialTiles) {
+            if (spawned >= artTarget) break;
             if (this._spawnCarAtTile(t)) {
                 spawned++;
             }
         }
 
-        for (const t of restTiles) {
+        for (const t of localTiles) {
             if (spawned >= this.maxCars) break;
             if (this._spawnCarAtTile(t)) {
                 spawned++;
             }
         }
-        for (const t of priorityTiles) {
+        for (const t of arterialTiles) {
             if (spawned >= this.maxCars) break;
             if (this._spawnCarAtTile(t)) {
                 spawned++;
@@ -1662,6 +2293,10 @@ const Game = {
 
         this.rebuildEntityGrid();
         this.updateHUD();
+        this.updateCruiseUI();
+        // Warm up per-map render caches during level load (instead of hitching on the first rendered frame)
+        if (this.map && this.map.length) this._getTileInterFlags(0, 0);
+        if (this.minimapCtx && this.minimapCanvas) this.drawMinimap(); // builds the cached static minimap layer
     },
 
     _computeRoadSpawnPos(t, isBiker = false, preferredDir = null) {
@@ -1669,12 +2304,12 @@ const Game = {
         const cx = tx * TILE_SIZE + TILE_SIZE / 2;
         const cy = ty * TILE_SIZE + TILE_SIZE / 2;
 
-        // Find matching road in MapData.roads
+        // Find matching road segment at (tx, ty) in MapData.roads
         let road = null;
         if (tile === 1 || tile === 6) {
-            road = this.vertRoadByCol[tx] || MapData.roads.find(r => r.x1 === r.x2 && r.x1 === tx && ty >= Math.min(r.y1, r.y2) && ty <= Math.max(r.y1, r.y2));
+            road = this.getVertRoadAt(tx, ty) || MapData.roads.find(r => r.x1 === r.x2 && r.x1 === tx && ty >= Math.min(r.y1, r.y2) && ty <= Math.max(r.y1, r.y2));
         } else if (tile === 2 || tile === 7) {
-            road = this.horizRoadByRow[ty] || MapData.roads.find(r => r.y1 === r.y2 && r.y1 === ty && tx >= Math.min(r.x1, r.x2) && tx <= Math.max(r.x1, r.x2));
+            road = this.getHorizRoadAt(tx, ty) || MapData.roads.find(r => r.y1 === r.y2 && r.y1 === ty && tx >= Math.min(r.x1, r.x2) && tx <= Math.max(r.x1, r.x2));
         } else if (tile === 8 || tile === 9) {
             road = this.getNearestDiagonalRoad(cx, cy).road;
         }
@@ -1698,13 +2333,23 @@ const Game = {
         const ny_r = ux_t;
 
         const isArt = (road.type === 6 || road.type === 7 || road.type === 9);
+        const roadLanes = road.lanes || (isArt ? 4 : 2);
         const laneChoice = Math.random() < 0.5 ? 0 : 1;
-        let offset = 22;
-        if (isArt) {
+        let offset = isBiker ? 14 : 0; // Narrow residential street: drive in the center of the road (curbside parked cars sit at ±36.5px)
+        if (roadLanes >= 4) {
+            // 4/5-lane principal arterial (15th Ave NW, NW Market St, Holman Rd, Leary): 2 travel lanes per direction!
             if (isBiker) offset = 68;
             else offset = laneChoice === 0 ? 30 : 54;
+        } else if (roadLanes === 3 || road.hasMiddleLane) {
+            // 3-lane arterial (24th Ave NW, 8th Ave NW, NW 100th St): 1 travel lane per direction + center turn lane + bike lane!
+            if (isBiker) offset = 48;
+            else offset = 28;
         } else if (road.isBoulevard) {
             offset = 30;
+        } else if (road.isCollector || isArt) {
+            // 2-lane collector / minor arterial (NW 85th, NW 80th, NW 65th, 32nd Ave, 28th Ave, 20th Ave, Loyal Way): 1 travel lane per direction!
+            if (isBiker) offset = 36;
+            else offset = 20;
         }
 
         // Slight longitudinal jitter along the 120px tile so multi-pass spawns don't stack on identical coordinates
@@ -1722,7 +2367,7 @@ const Game = {
 
     _spawnCarAtTile(t, preferredDir = null) {
         const isArt = (t.type === 6 || t.type === 7 || t.type === 9);
-        const spawnBiker = isArt && Math.random() < 0.16;
+        const spawnBiker = isArt && (typeof Biker !== 'undefined') && Math.random() < 0.16;
         const pos = this._computeRoadSpawnPos(t, spawnBiker, preferredDir);
         if (!pos) return false;
 
@@ -1745,6 +2390,29 @@ const Game = {
         entity.currentRoad = pos.road;
         entity.travelDir = pos.travelDir;
         entity.laneOffset = pos.laneOffset;
+        if (!spawnBiker) {
+            entity.originType = isArt ? 'ARTERIAL' : 'HOUSE';
+            if (!isArt && !pos.road.isBoulevard) {
+                // Start near the house curb ONLY if that spot is completely clear of curbside parked cars and buildings!
+                const nx_r = -Math.sin(pos.angle);
+                const ny_r = Math.cos(pos.angle);
+                const curbX = entity.x + nx_r * 14;
+                const curbY = entity.y + ny_r * 14;
+                if (!entity.checkBuildingCollision(curbX, curbY, entity.angle) &&
+                    !entity.checkParkedCarCollision(curbX, curbY, entity.angle)) {
+                    entity.x = curbX;
+                    entity.y = curbY;
+                    entity.pullingOutTimer = 42;
+                    entity.speed = 0.25;
+                }
+            }
+            if (entity.checkBuildingCollision(entity.x, entity.y, entity.angle) ||
+                entity.checkParkedCarCollision(entity.x, entity.y, entity.angle)) {
+                return false;
+            }
+            this.assignCarTrip(entity);
+        }
+        entity.poly = Utils.getRectCorners(entity.x, entity.y, entity.w, entity.h, entity.angle + Math.PI / 2);
         this.entities.push(entity);
         return true;
     },
@@ -1755,9 +2423,13 @@ const Game = {
 
         const focusX = this.player ? this.player.x : (this.cam.x + this.canvas.width / 2);
         const focusY = this.player ? this.player.y : (this.cam.y + this.canvas.height / 2);
+        const wantArterial = Math.random() < 0.68;
 
-        for (let attempts = 0; attempts < 35; attempts++) {
+        for (let attempts = 0; attempts < 42; attempts++) {
             const t = pool[Math.floor(Math.random() * pool.length)];
+            const isArt = (t.type === 6 || t.type === 7 || t.type === 9);
+            if (attempts < 28 && wantArterial && !isArt) continue;
+
             const wx = t.x * TILE_SIZE + TILE_SIZE / 2;
             const wy = t.y * TILE_SIZE + TILE_SIZE / 2;
             const dFocus = Utils.dist(wx, wy, focusX, focusY);
@@ -1926,6 +2598,7 @@ const Game = {
             }
             const cx = curr % MAP_W;
             const cy = (curr / MAP_W) | 0;
+            const ct = this.map[cy][cx];
 
             for (let d = 0; d < 8; d++) {
                 const nx = cx + dirs[d][0];
@@ -1934,8 +2607,8 @@ const Game = {
                 const nIdx = ny * MAP_W + nx;
                 if (visited[nIdx]) continue;
                 const nt = this.map[ny][nx];
-                // Allow diagonal step only on diagonal road tiles (8, 9) or into goal
-                if (d >= 4 && nt !== 8 && nt !== 9 && nIdx !== goalIdx) continue;
+                // Allow diagonal step when either current or next tile is a curved/diagonal road (8, 9) or into goal
+                if (d >= 4 && ct !== 8 && ct !== 9 && nt !== 8 && nt !== 9 && nIdx !== goalIdx) continue;
                 if (nt === 1 || nt === 2 || nt === 3 || (nt >= 6 && nt <= 9) || nIdx === goalIdx) {
                     visited[nIdx] = 1;
                     parent[nIdx] = curr;
@@ -1950,9 +2623,27 @@ const Game = {
             while (cur !== -1) {
                 const px = cur % MAP_W;
                 const py = (cur / MAP_W) | 0;
+                let wx = px * TILE_SIZE + TILE_SIZE / 2;
+                let wy = py * TILE_SIZE + TILE_SIZE / 2;
+                const pt = this.map[py][px];
+                if ((pt === 8 || pt === 9) && this.getNearestDiagonalRoad) {
+                    const nearDiag = this.getNearestDiagonalRoad(wx, wy);
+                    if (nearDiag && nearDiag.road && nearDiag.dist < TILE_SIZE * 1.1) {
+                        const r = nearDiag.road;
+                        const closest = Utils.getClosestPointOnSegment(
+                            wx, wy,
+                            r.x1 * TILE_SIZE + TILE_SIZE / 2,
+                            r.y1 * TILE_SIZE + TILE_SIZE / 2,
+                            r.x2 * TILE_SIZE + TILE_SIZE / 2,
+                            r.y2 * TILE_SIZE + TILE_SIZE / 2
+                        );
+                        wx = closest.x;
+                        wy = closest.y;
+                    }
+                }
                 path.push({
-                    x: px * TILE_SIZE + TILE_SIZE / 2,
-                    y: py * TILE_SIZE + TILE_SIZE / 2,
+                    x: wx,
+                    y: wy,
                     tx: px,
                     ty: py
                 });
@@ -1995,25 +2686,58 @@ const Game = {
         ctx.fillText(Math.floor(dist / 24) + "m", cx, cy + 24);
     },
 
-    drawMinimap() {
-        if (!this.minimapCtx || !this.minimapCanvas) return;
-        const SX = (typeof MAP_SCALE_X !== 'undefined') ? MAP_SCALE_X : 3;
-        const SY = (typeof MAP_SCALE_Y !== 'undefined') ? MAP_SCALE_Y : 1.5;
-        const mctx = this.minimapCtx;
-        const mw = this.minimapCanvas.width;
-        const mh = this.minimapCanvas.height;
+    // Pre-render the static minimap layers (water, beach, elevation contours, parks, roads, landmarks) ONCE into an
+    // offscreen canvas. Previously these ~15,000 fillRect calls were re-issued every single frame (~12 ms/frame!).
+    _buildMinimapBase(mw, mh) {
+        let base = null;
+        try {
+            base = document.createElement('canvas');
+        } catch (e) {
+            base = null;
+        }
+        if (!base || typeof base.getContext !== 'function') return null;
+        base.width = mw;
+        base.height = mh;
+        const bctx = base.getContext('2d');
+        if (!bctx) return null;
+        this._drawMinimapStaticLayers(bctx, mw, mh);
+        return base;
+    },
+
+    _drawMinimapStaticLayers(mctx, mw, mh) {
         const sx = mw / MAP_W;
         const sy = mh / MAP_H;
 
         mctx.fillStyle = '#0f172a';
         mctx.fillRect(0, 0, mw, mh);
 
-        // 1. Water (Salmon Bay)
-        mctx.fillStyle = '#1e3a5f';
-        for (let y = Math.floor(42 * SY); y < MAP_H; y++) {
-            for (let x = 0; x < Math.floor(38 * SX); x++) {
+        // 1. Water (Puget Sound, Shilshole Bay & Salmon Bay), Golden Gardens Beach & 2.5D Topographic Elevation Contours
+        for (let y = 0; y < MAP_H; y++) {
+            for (let x = 0; x < MAP_W; x++) {
                 if (this.waterGrid[y] && this.waterGrid[y][x]) {
+                    mctx.fillStyle = '#1e3a5f';
                     mctx.fillRect(x * sx, y * sy, sx + 0.6, sy + 0.6);
+                } else if (this.beachGrid && this.beachGrid[y] && this.beachGrid[y][x]) {
+                    mctx.fillStyle = '#d6bc8b';
+                    mctx.fillRect(x * sx, y * sy, sx + 0.6, sy + 0.6);
+                } else if (this.elevationGrid && this.elevationGrid[y]) {
+                    const el = this.elevationGrid[y][x] || 0;
+                    if (el >= 75) {
+                        mctx.fillStyle = 'rgba(148, 163, 184, 0.14)';
+                        mctx.fillRect(x * sx, y * sy, sx + 0.4, sy + 0.4);
+                    } else if (el >= 45) {
+                        mctx.fillStyle = 'rgba(148, 163, 184, 0.07)';
+                        mctx.fillRect(x * sx, y * sy, sx + 0.4, sy + 0.4);
+                    }
+                    // Cartographic contour lines every 25m on minimap
+                    if (x > 0 && y > 0) {
+                        const elL = this.elevationGrid[y][x - 1] || 0;
+                        const elU = this.elevationGrid[y - 1][x] || 0;
+                        if (Math.floor(el / 25) !== Math.floor(elL / 25) || Math.floor(el / 25) !== Math.floor(elU / 25)) {
+                            mctx.fillStyle = 'rgba(203, 213, 225, 0.28)';
+                            mctx.fillRect(x * sx, y * sy, 1.1, 1.1);
+                        }
+                    }
                 }
             }
         }
@@ -2026,15 +2750,45 @@ const Game = {
             }
         }
 
-        // 3. Roads
-        for (let r of MapData.roads) {
-            const isArt = (r.type === 6 || r.type === 7 || r.type === 9);
-            mctx.strokeStyle = isArt ? '#ecc94b' : '#64748b';
-            mctx.lineWidth = isArt ? 1.8 : 0.8;
+        // 3. Roads (batched into 2 strokes instead of one stroke per road)
+        for (const isArtPass of [false, true]) {
+            mctx.strokeStyle = isArtPass ? '#ecc94b' : '#64748b';
+            mctx.lineWidth = isArtPass ? 1.8 : 0.8;
             mctx.beginPath();
-            mctx.moveTo((r.x1 + 0.5) * sx, (r.y1 + 0.5) * sy);
-            mctx.lineTo((r.x2 + 0.5) * sx, (r.y2 + 0.5) * sy);
+            for (let r of MapData.roads) {
+                const isArt = (r.type === 6 || r.type === 7 || r.type === 9);
+                if (isArt !== isArtPass) continue;
+                mctx.moveTo((r.x1 + 0.5) * sx, (r.y1 + 0.5) * sy);
+                mctx.lineTo((r.x2 + 0.5) * sx, (r.y2 + 0.5) * sy);
+            }
             mctx.stroke();
+        }
+
+        // 4. Gas stations / landmarks
+        mctx.fillStyle = '#f6ad55';
+        for (let l of MapData.landmarks) {
+            mctx.fillRect(l.x * sx - 1.5, l.y * sy - 1.5, 3, 3);
+        }
+    },
+
+    drawMinimap() {
+        if (!this.minimapCtx || !this.minimapCanvas) return;
+        const mctx = this.minimapCtx;
+        const mw = this.minimapCanvas.width;
+        const mh = this.minimapCanvas.height;
+        const sx = mw / MAP_W;
+        const sy = mh / MAP_H;
+
+        // Static base layer: built once per map (rebuilt only if the minimap size or map/weather key changes)
+        const baseKey = `${mw}x${mh}:${this.map ? this.map.length : 0}:${MapData.roads ? MapData.roads.length : 0}`;
+        if (!this._minimapBase || this._minimapBaseKey !== baseKey) {
+            this._minimapBase = this._buildMinimapBase(mw, mh);
+            this._minimapBaseKey = baseKey;
+        }
+        if (this._minimapBase) {
+            mctx.drawImage(this._minimapBase, 0, 0);
+        } else {
+            this._drawMinimapStaticLayers(mctx, mw, mh);
         }
 
         // 3B. Highlighted Turn-by-Turn GPS Route on Minimap!
@@ -2050,12 +2804,6 @@ const Game = {
                 else mctx.lineTo(mx, my);
             }
             mctx.stroke();
-        }
-
-        // 4. Gas stations
-        mctx.fillStyle = '#f6ad55';
-        for (let l of MapData.landmarks) {
-            mctx.fillRect(l.x * sx - 1.5, l.y * sy - 1.5, 3, 3);
         }
 
         // 5. Destination Beacon
@@ -2089,6 +2837,53 @@ const Game = {
             mctx.closePath();
             mctx.fill();
             mctx.stroke();
+            mctx.restore();
+        }
+
+        // 7. Camera Viewport Rectangle (shows exact portion of the map currently visible on screen, accounting for zoom & tilt!)
+        if (this.canvas) {
+            const centerX = this.canvas.width / 2;
+            const centerY = this.canvas.height / 2;
+            const effScaleX = this.zoom || 1.0;
+            const effScaleY = (this.zoom || 1.0) * (this.camPitch || 1.0);
+            const vMinX = centerX - centerX / effScaleX;
+            const vMaxX = centerX + centerX / effScaleX;
+            const vMinY = centerY - centerY / effScaleY;
+            const vMaxY = centerY + centerY / effScaleY;
+
+            const worldLeft = this.cam.x + vMinX;
+            const worldTop = this.cam.y + vMinY;
+            const worldW = vMaxX - vMinX;
+            const worldH = vMaxY - vMinY;
+
+            const rx = (worldLeft / TILE_SIZE) * sx;
+            const ry = (worldTop / TILE_SIZE) * sy;
+            const rw = (worldW / TILE_SIZE) * sx;
+            const rh = (worldH / TILE_SIZE) * sy;
+
+            mctx.save();
+            mctx.fillStyle = 'rgba(255, 255, 255, 0.09)';
+            mctx.fillRect(rx, ry, rw, rh);
+            mctx.strokeStyle = 'rgba(248, 250, 252, 0.9)';
+            mctx.lineWidth = 1.25;
+            mctx.strokeRect(rx, ry, rw, rh);
+            mctx.restore();
+        }
+
+        // 8. Live 2.5D Elevation & Road Grade Readout on GPS Minimap
+        if (this.player && typeof MapData !== 'undefined' && MapData.getSlopeAt) {
+            const sv = MapData.getSlopeAt(this.player.x, this.player.y);
+            const elevFt = Math.round((sv.elev || 0) * 3.28084);
+            const gradePct = ((Math.cos(this.player.angle) * sv.gx + Math.sin(this.player.angle) * sv.gy) * 65);
+            const gradeStr = (gradePct >= 0 ? '+' : '') + gradePct.toFixed(1) + '%';
+            mctx.save();
+            mctx.fillStyle = 'rgba(15, 23, 42, 0.78)';
+            mctx.fillRect(4, mh - 16, mw - 8, 13);
+            mctx.fillStyle = '#e2e8f0';
+            mctx.font = 'bold 8px "Inter", sans-serif';
+            mctx.textAlign = 'center';
+            mctx.textBaseline = 'middle';
+            mctx.fillText(`⛰️ ${elevFt} FT (${Math.round(sv.elev)}m) • ${gradeStr} GRADE`, mw / 2, mh - 9.5);
             mctx.restore();
         }
     },
@@ -2140,11 +2935,10 @@ const Game = {
 
             if (!this.godMode && remaining <= 0) {
                 this.loseLife("OUT OF TIME!");
-                if (this.state !== 'PLAYING') return;
             }
 
             // Gas Logic
-            if (!this.godMode && this.player && Math.abs(this.player.speed) > 0) {
+            if (this.state === 'PLAYING' && !this.godMode && this.player && Math.abs(this.player.speed) > 0) {
                 let drain = (0.02 + (Math.abs(this.player.speed) * 0.008)) * 0.11 * (this.player.fuelMult || 1.0);
                 drain *= (1 + (this.level - 1) * 0.05);
 
@@ -2157,11 +2951,10 @@ const Game = {
                 if (this.gas <= 0) {
                     this.gas = 0;
                     this.loseLife("OUT OF GAS!");
-                    if (this.state !== 'PLAYING') return;
                 }
             }
 
-            if (this.player) {
+            if (this.state === 'PLAYING' && this.player) {
                 const destX = this.destTile.x * TILE_SIZE;
                 const destY = this.destTile.y * TILE_SIZE;
                 // Allow pulling into or right up to the curb of the destination lot (including from wide arterials)
@@ -2169,12 +2962,19 @@ const Game = {
                     this.player.y > destY - 36 && this.player.y < destY + TILE_SIZE + 36) {
                     if (Math.abs(this.player.speed) < 2.2) {
                         this.win();
-                        return;
                     }
                 }
 
                 const pTx = Math.floor(this.player.x / TILE_SIZE);
                 const pTy = Math.floor(this.player.y / TILE_SIZE);
+                if (this.state === 'PLAYING' && !this.godMode && this.waterGrid && this.waterGrid[pTy] && this.waterGrid[pTy][pTx]) {
+                    this.player.speed = 0;
+                    this.player.vx = 0;
+                    this.player.vy = 0;
+                    this.lives = 0;
+                    this.updateHUD();
+                    this.gameOver("DROVE INTO THE WATER!");
+                }
                 if (this.map[pTy] && this.map[pTy][pTx] === 5) {
                     if (this.gas < 100) {
                         this.gas += 0.4;
@@ -2197,34 +2997,71 @@ const Game = {
 
                 this.updateHUD();
             }
-        } else {
+        } else if (!this.map || this.map.length === 0) {
             return;
         }
 
-        // Update Traffic Signals & Stop-Sign Turn-Taking Queues
+        // Update Traffic Signals (2-Phase & 3-Phase Diagonal Protected Cycles) & Stop-Sign Turn-Taking Queues
         this.intersections.forEach(inter => {
             if (inter.turnCooldown > 0) inter.turnCooldown--;
             if (inter.stopQueue && inter.stopQueue.length > 0) {
                 inter.stopQueue = inter.stopQueue.filter(v =>
                     v && !v.markedForDeletion && v.passedStopInter !== inter &&
-                    Utils.dist(v.x, v.y, inter.worldX, inter.worldY) < 110
+                    Utils.dist(v.x, v.y, inter.worldX, inter.worldY) < 125
                 );
             }
             if (inter.hasSignal) {
                 inter.timer++;
-                let t = (inter.timer + inter.cycleOffset) % 900;
-                if (t < 320) {
-                    inter.stateNS = 'GREEN'; inter.stateEW = 'RED';
-                } else if (t < 410) {
-                    inter.stateNS = 'YELLOW'; inter.stateEW = 'RED';
-                } else if (t < 450) {
-                    inter.stateNS = 'RED'; inter.stateEW = 'RED';
-                } else if (t < 770) {
-                    inter.stateNS = 'RED'; inter.stateEW = 'GREEN';
-                } else if (t < 860) {
-                    inter.stateNS = 'RED'; inter.stateEW = 'YELLOW';
+                const cycleLen = inter.cycleLen || 900;
+                const t = (inter.timer + inter.cycleOffset) % cycleLen;
+
+                if (inter.hasDiagPhase) {
+                    // 3-Phase Signal Cycle (NS -> EW -> DIAG) with 40-tick All-Red Clearance Intervals
+                    // so diagonal roads (Leary Ave NW, Holman Rd NW, Golden Gardens Dr) never conflict with NS/EW traffic!
+                    const p1Green = 260, p1Yellow = 330, p1AllRed = 370;
+                    const p2Green = 620, p2Yellow = 690, p2AllRed = 730;
+                    const p3Green = 970, p3Yellow = 1040;
+                    if (t < p1Green) {
+                        inter.stateNS = 'GREEN'; inter.stateEW = 'RED'; inter.stateDIAG = 'RED';
+                    } else if (t < p1Yellow) {
+                        inter.stateNS = 'YELLOW'; inter.stateEW = 'RED'; inter.stateDIAG = 'RED';
+                    } else if (t < p1AllRed) {
+                        inter.stateNS = 'RED'; inter.stateEW = 'RED'; inter.stateDIAG = 'RED';
+                    } else if (t < p2Green) {
+                        inter.stateNS = 'RED'; inter.stateEW = 'GREEN'; inter.stateDIAG = 'RED';
+                    } else if (t < p2Yellow) {
+                        inter.stateNS = 'RED'; inter.stateEW = 'YELLOW'; inter.stateDIAG = 'RED';
+                    } else if (t < p2AllRed) {
+                        inter.stateNS = 'RED'; inter.stateEW = 'RED'; inter.stateDIAG = 'RED';
+                    } else if (t < p3Green) {
+                        inter.stateNS = 'RED'; inter.stateEW = 'RED'; inter.stateDIAG = 'GREEN';
+                    } else if (t < p3Yellow) {
+                        inter.stateNS = 'RED'; inter.stateEW = 'RED'; inter.stateDIAG = 'YELLOW';
+                    } else {
+                        inter.stateNS = 'RED'; inter.stateEW = 'RED'; inter.stateDIAG = 'RED';
+                    }
                 } else {
-                    inter.stateNS = 'RED'; inter.stateEW = 'RED';
+                    // 2-Phase Signal Cycle with Road-Hierarchy Green Split (nsGreenRatio) & All-Red Clearance
+                    const nsRatio = inter.nsGreenRatio || 0.50;
+                    const halfNS = Math.round(cycleLen * nsRatio);
+                    const nsGreenEnd = halfNS - 115;
+                    const nsYellowEnd = halfNS - 40;
+                    const ewGreenEnd = cycleLen - 115;
+                    const ewYellowEnd = cycleLen - 40;
+                    inter.stateDIAG = 'RED';
+                    if (t < nsGreenEnd) {
+                        inter.stateNS = 'GREEN'; inter.stateEW = 'RED';
+                    } else if (t < nsYellowEnd) {
+                        inter.stateNS = 'YELLOW'; inter.stateEW = 'RED';
+                    } else if (t < halfNS) {
+                        inter.stateNS = 'RED'; inter.stateEW = 'RED';
+                    } else if (t < ewGreenEnd) {
+                        inter.stateNS = 'RED'; inter.stateEW = 'GREEN';
+                    } else if (t < ewYellowEnd) {
+                        inter.stateNS = 'RED'; inter.stateEW = 'YELLOW';
+                    } else {
+                        inter.stateNS = 'RED'; inter.stateEW = 'RED';
+                    }
                 }
             }
         });
@@ -2251,8 +3088,35 @@ const Game = {
         // Rebuild spatial hash grid for fast AI lookahead & collision checks
         this.rebuildEntityGrid();
 
-        // Entity Updates
-        this.entities.forEach(e => e.update(this.map, this.entities, this.lights, this.stopSigns));
+        // Entity Updates (with distance-based Level-Of-Detail for AI traffic far outside the camera view:
+        // far-away cars run their full AI + collision update every other frame and simply coast along their
+        // heading on the in-between frame. Nearby/on-screen cars and the player always update every frame.)
+        this._lodFrame = ((this._lodFrame || 0) + 1) & 0xffff;
+        const lodFocusX = this.player ? this.player.x : (this.cam.x + this.canvas.width / 2);
+        const lodFocusY = this.player ? this.player.y : (this.cam.y + this.canvas.height / 2);
+        const lodFarDist = Math.max(this.canvas.width, this.canvas.height) / Math.max(0.35, this.zoom || 1) + 700;
+        const lodFarDistSq = lodFarDist * lodFarDist;
+        for (let i = 0; i < this.entities.length; i++) {
+            const e = this.entities[i];
+            if (!e.isPlayer && this.aiLOD !== false) {
+                const ddx = e.x - lodFocusX;
+                const ddy = e.y - lodFocusY;
+                if (ddx * ddx + ddy * ddy > lodFarDistSq) {
+                    if (e._lodPhase === undefined) e._lodPhase = i & 1;
+                    if (((this._lodFrame + e._lodPhase) & 1) === 1) {
+                        // Coast frame: advance strictly along the current heading (no sideways motion)
+                        const spd = e.speed || 0;
+                        if (spd !== 0 && Number.isFinite(e.angle)) {
+                            e.x += Math.cos(e.angle) * spd;
+                            e.y += Math.sin(e.angle) * spd;
+                            e.poly = Utils.getRectCorners(e.x, e.y, e.w, e.h, e.angle + Math.PI / 2);
+                        }
+                        continue;
+                    }
+                }
+            }
+            e.update(this.map, this.entities, this.lights, this.stopSigns);
+        }
         this.entities = this.entities.filter(e => !e.markedForDeletion);
         this.rebuildEntityGrid();
 
@@ -2323,77 +3187,141 @@ const Game = {
         }
 
         // Prop Collection
-        this.props.forEach(p => {
-            if (!p.markedForDeletion && Utils.dist(this.player.x, this.player.y, p.x, p.y) < 36) {
-                if (p.type === 'COFFEE') {
-                    p.markedForDeletion = true;
-                    AudioSys.collect();
-                    this.modChill(15);
-                    this.spawnText(p.x, p.y, "+15 CHILL", "#48bb78");
+        if (this.player) {
+            this.props.forEach(p => {
+                if (!p.markedForDeletion && Utils.dist(this.player.x, this.player.y, p.x, p.y) < 36) {
+                    if (p.type === 'COFFEE') {
+                        p.markedForDeletion = true;
+                        AudioSys.collect();
+                        this.modChill(15);
+                        this.spawnText(p.x, p.y, "+15 CHILL", "#48bb78");
 
-                    this.player.coffeeBoostTimer = 180;
-                    this.player.targetSpeed = this.player.maxSpeed * 1.5;
-                    this.triggerScreenShake(5);
-                    this.showNotification("☕ COFFEE RUSH! SPEED BOOST!", "#ecc94b");
+                        this.player.coffeeBoostTimer = 180;
+                        this.player.targetSpeed = this.player.maxSpeed * 1.5;
+                        this.triggerScreenShake(5);
+                        this.showNotification("☕ COFFEE RUSH! SPEED BOOST!", "#ecc94b");
 
-                    for (let i = 0; i < 15; i++) {
-                        const angle = this.player.angle + Math.PI + Utils.rand(-0.5, 0.5);
-                        const spd = Utils.rand(2, 5);
-                        this.particles.push(new SparkParticle(
-                            this.player.x,
-                            this.player.y,
-                            Math.cos(angle) * spd,
-                            Math.sin(angle) * spd
-                        ));
+                        for (let i = 0; i < 15; i++) {
+                            const angle = this.player.angle + Math.PI + Utils.rand(-0.5, 0.5);
+                            const spd = Utils.rand(2, 5);
+                            this.particles.push(new SparkParticle(
+                                this.player.x,
+                                this.player.y,
+                                Math.cos(angle) * spd,
+                                Math.sin(angle) * spd
+                            ));
+                        }
+                    } else if (p.type === 'WRENCH') {
+                        p.markedForDeletion = true;
+                        AudioSys.collect();
+                        this.modChill(25);
+                        this.spawnText(p.x, p.y, "+25 REPAIRED", "#63b3ed");
                     }
-                } else if (p.type === 'WRENCH') {
-                    p.markedForDeletion = true;
-                    AudioSys.collect();
-                    this.modChill(25);
-                    this.spawnText(p.x, p.y, "+25 REPAIRED", "#63b3ed");
                 }
-            }
-        });
-        this.props = this.props.filter(p => !p.markedForDeletion);
+            });
+            this.props = this.props.filter(p => !p.markedForDeletion);
+        }
 
-        // Vehicle-to-Vehicle Collisions with Fast AABB Pre-Filter & Mass-Aware Separation
+        // Vehicle-to-Vehicle Collisions with Exact SAT MTV Separation & Building/Parked-Car Safety
+        // Broad phase uses the 240px spatial hash grid (was an O(N^2) all-pairs loop: ~109,000 pair checks per frame)
+        for (let i = 0; i < this.entities.length; i++) this.entities[i]._collIdx = i;
         for (let i = 0; i < this.entities.length; i++) {
             const a = this.entities[i];
-            for (let j = i + 1; j < this.entities.length; j++) {
-                const b = this.entities[j];
-                if (Math.abs(a.x - b.x) > 56 || Math.abs(a.y - b.y) > 56) continue;
+            if (a.markedForDeletion) continue;
+            const nearbyV = this.getNearbyEntities(a.x, a.y);
+            for (let jn = 0; jn < nearbyV.length; jn++) {
+                const b = nearbyV[jn];
+                if (!b || b._collIdx === undefined || b._collIdx <= i) continue;
+                if (b.markedForDeletion) continue;
+                if (Math.abs(a.x - b.x) > 68 || Math.abs(a.y - b.y) > 68) continue;
                 const dist = Utils.dist(a.x, a.y, b.x, b.y);
-                if (dist < 56) {
-                    if (Utils.polysIntersect(a.poly, b.poly)) {
+                if (dist < 68) {
+                    const mtv = Utils.getPolyMTV ? Utils.getPolyMTV(a.poly, b.poly) : (Utils.polysIntersect(a.poly, b.poly) ? { nx: (b.x - a.x) / (dist || 1), ny: (b.y - a.y) / (dist || 1), overlap: 10 } : null);
+                    if (mtv) {
                         if (a.isPlayer || b.isPlayer) {
                             const pCar = a.isPlayer ? a : b;
                             const aiCar = a.isPlayer ? b : a;
-                            const nx = (aiCar.x - pCar.x) / (dist || 1);
-                            const ny = (aiCar.y - pCar.y) / (dist || 1);
+                            // Unit MTV normal pointing from pCar toward aiCar
+                            const nx = a.isPlayer ? mtv.nx : -mtv.nx;
+                            const ny = a.isPlayer ? mtv.ny : -mtv.ny;
+                            const totalSep = mtv.overlap + 5;
 
-                            // Push the AI car far out of the player's path so it never grinds or double-hits!
-                            aiCar.x += nx * 22;
-                            aiCar.y += ny * 22;
+                            // 1. Push AI car away from player ONLY into a spot verified free of buildings, parked cars, and other vehicles
+                            let aiMoved = false;
+                            const aiBaseAngle = Math.atan2(ny, nx);
+                            const aiPushDists = [totalSep + 8, totalSep + 3, totalSep, totalSep * 0.6, totalSep * 0.3];
+                            const aiAngOffsets = [0, 0.35, -0.35, 0.72, -0.72];
+                            for (let dIdx = 0; dIdx < aiPushDists.length && !aiMoved; dIdx++) {
+                                const dPush = aiPushDists[dIdx];
+                                for (let aIdx = 0; aIdx < aiAngOffsets.length; aIdx++) {
+                                    const ang = aiBaseAngle + aiAngOffsets[aIdx];
+                                    const tryAX = aiCar.x + Math.cos(ang) * dPush;
+                                    const tryAY = aiCar.y + Math.sin(ang) * dPush;
+                                    if (aiCar.isSpotFree(tryAX, tryAY, aiCar.angle, pCar)) {
+                                        aiCar.x = tryAX;
+                                        aiCar.y = tryAY;
+                                        aiMoved = true;
+                                        break;
+                                    }
+                                }
+                            }
                             aiCar.speed = 0;
+                            aiCar.vx = 0;
+                            aiCar.vy = 0;
                             aiCar.isBraking = true;
                             aiCar.postCrashTimer = 150; // Stay stopped for 2.5s (and until player drives >85px away)
                             aiCar.poly = Utils.getRectCorners(aiCar.x, aiCar.y, aiCar.w, aiCar.h, aiCar.angle + Math.PI / 2);
 
-                            // Separate player cleanly away from collision point ONLY if the destination spot is building-free
+                            // 2. Separate player cleanly away from any remaining overlap (or recoil), verified building & parked-car free
                             const massRatio = Math.min(1.6, Math.max(0.5, (aiCar.mass || 1.0) / (pCar.mass || 1.0)));
-                            for (const pushDist of [12, 8, 4]) {
-                                const tryPX = pCar.x - nx * pushDist;
-                                const tryPY = pCar.y - ny * pushDist;
-                                if (!pCar.checkBuildingCollision(tryPX, tryPY)) {
-                                    pCar.x = tryPX;
-                                    pCar.y = tryPY;
+                            const remMtv = Utils.getPolyMTV ? Utils.getPolyMTV(pCar.poly, aiCar.poly) : null;
+                            const pBasePush = remMtv ? (remMtv.overlap + 4) : 6;
+                            const pPushX = remMtv ? -remMtv.nx : -nx;
+                            const pPushY = remMtv ? -remMtv.ny : -ny;
+                            const pBaseAngle = Math.atan2(pPushY, pPushX);
+
+                            let pMoved = false;
+                            for (const pushDist of [pBasePush, pBasePush + 5, pBasePush + 11, 4]) {
+                                for (const angOff of [0, 0.35, -0.35, 0.75, -0.75]) {
+                                    const tryPX = pCar.x + Math.cos(pBaseAngle + angOff) * pushDist;
+                                    const tryPY = pCar.y + Math.sin(pBaseAngle + angOff) * pushDist;
+                                    if (pCar.isSpotFree(tryPX, tryPY, pCar.angle)) {
+                                        pCar.x = tryPX;
+                                        pCar.y = tryPY;
+                                        pCar.poly = Utils.getRectCorners(pCar.x, pCar.y, pCar.w, pCar.h, pCar.angle + Math.PI / 2);
+                                        pMoved = true;
+                                        break;
+                                    }
+                                }
+                                if (pMoved) break;
+                            }
+
+                            // 3. Final fallback if still overlapping in a tight spot
+                            if (Utils.polysIntersect(pCar.poly, aiCar.poly)) {
+                                const safeP = pCar.findNearestSafeSpot(pPushX, pPushY);
+                                if (safeP) {
+                                    pCar.x = safeP.x;
+                                    pCar.y = safeP.y;
                                     pCar.poly = Utils.getRectCorners(pCar.x, pCar.y, pCar.w, pCar.h, pCar.angle + Math.PI / 2);
-                                    break;
+                                }
+                                if (Utils.polysIntersect(pCar.poly, aiCar.poly)) {
+                                    const safeAI = aiCar.findNearestSafeSpot(nx, ny, pCar);
+                                    if (safeAI) {
+                                        aiCar.x = safeAI.x;
+                                        aiCar.y = safeAI.y;
+                                        aiCar.poly = Utils.getRectCorners(aiCar.x, aiCar.y, aiCar.w, aiCar.h, aiCar.angle + Math.PI / 2);
+                                    }
                                 }
                             }
+
+                            pCar.speed = 0;
                             pCar.vx = 0;
                             pCar.vy = 0;
                             pCar.lateralSlip = 0;
+                            if (pCar.cruiseControl) {
+                                pCar.cruiseControl = false;
+                                this.updateCruiseUI();
+                            }
 
                             const isBikerHit = (aiCar.type === 'BIKER');
                             if (pCar.crashCooldown <= 0 && (aiCar.crashGraceTimer || 0) <= 0) {
@@ -2401,8 +3329,6 @@ const Game = {
                                 const penalty = Math.round(basePenalty * (pCar.chillShield || 1.0));
                                 const label = isBikerHit ? "OUCH! BIKER!" : "BUMP!";
 
-                                // Smooth speed reduction without ever reversing into negative speed + suspension jolt & camera shake
-                                pCar.speed *= 0.35;
                                 pCar.suspVel = 3.2 * massRatio;
                                 this.triggerScreenShake(7 * massRatio);
                                 aiCar.crashGraceTimer = 210;
@@ -2417,23 +3343,133 @@ const Game = {
                                 aiCar.markedForDeletion = true;
                             }
                         } else {
+                            // AI-to-AI exact MTV separation (never pushes an AI car into a building or parked car!)
+                            const sep = mtv.overlap + 2.5;
+                            const halfSep = sep * 0.55;
+                            const tryAX = a.x - mtv.nx * halfSep;
+                            const tryAY = a.y - mtv.ny * halfSep;
+                            const tryBX = b.x + mtv.nx * halfSep;
+                            const tryBY = b.y + mtv.ny * halfSep;
+
+                            const aClear = !a.checkBuildingCollision(tryAX, tryAY, a.angle) && !a.checkParkedCarCollision(tryAX, tryAY, a.angle);
+                            const bClear = !b.checkBuildingCollision(tryBX, tryBY, b.angle) && !b.checkParkedCarCollision(tryBX, tryBY, b.angle);
+
+                            if (aClear && bClear) {
+                                a.x = tryAX; a.y = tryAY;
+                                b.x = tryBX; b.y = tryBY;
+                            } else if (aClear && !bClear) {
+                                const fullAX = a.x - mtv.nx * sep;
+                                const fullAY = a.y - mtv.ny * sep;
+                                if (!a.checkBuildingCollision(fullAX, fullAY, a.angle) && !a.checkParkedCarCollision(fullAX, fullAY, a.angle)) {
+                                    a.x = fullAX; a.y = fullAY;
+                                } else {
+                                    a.x = tryAX; a.y = tryAY;
+                                }
+                            } else if (!aClear && bClear) {
+                                const fullBX = b.x + mtv.nx * sep;
+                                const fullBY = b.y + mtv.ny * sep;
+                                if (!b.checkBuildingCollision(fullBX, fullBY, b.angle) && !b.checkParkedCarCollision(fullBX, fullBY, b.angle)) {
+                                    b.x = fullBX; b.y = fullBY;
+                                } else {
+                                    b.x = tryBX; b.y = tryBY;
+                                }
+                            }
+
+                            a.poly = Utils.getRectCorners(a.x, a.y, a.w, a.h, a.angle + Math.PI / 2);
+                            b.poly = Utils.getRectCorners(b.x, b.y, b.w, b.h, b.angle + Math.PI / 2);
+
+                            // Let the car that is further ahead along its path pull away while the trailing car yields
                             const dx = (b.x - a.x) / (dist || 1);
                             const dy = (b.y - a.y) / (dist || 1);
-                            const push = 3.5;
-                            a.x -= dx * push;
-                            a.y -= dy * push;
-                            b.x += dx * push;
-                            b.y += dy * push;
-
-                            // Non-locking AI-to-AI separation: let the car that is further ahead along its path pull away cleanly
-                            if (a.unstuckTimer > 0 || b.unstuckTimer > 0) continue;
-                            const aAhead = (dx * Math.cos(a.angle) + dy * Math.sin(a.angle)) < 0;
-                            if (aAhead) {
-                                a.speed = Math.max(a.speed, 1.25);
-                                b.speed *= 0.45;
+                            const headingAlign = Math.cos(a.angle) * Math.cos(b.angle) + Math.sin(a.angle) * Math.sin(b.angle);
+                            if (headingAlign < -0.5) {
+                                // Head-on contact: never accelerate forward into each other!
+                                if (a.narrowYieldState === 'YIELD_BACKUP') {
+                                    a.speed = -1.35;
+                                    b.speed = 0;
+                                } else if (b.narrowYieldState === 'YIELD_BACKUP') {
+                                    b.speed = -1.35;
+                                    a.speed = 0;
+                                } else {
+                                    a.speed = -1.1;
+                                    b.speed = 0;
+                                }
                             } else {
-                                b.speed = Math.max(b.speed, 1.25);
-                                a.speed *= 0.45;
+                                const aAhead = (dx * Math.cos(a.angle) + dy * Math.sin(a.angle)) < 0;
+                                if (aAhead) {
+                                    a.speed = Math.max(a.speed, 1.25);
+                                    b.speed = 0;
+                                } else {
+                                    b.speed = Math.max(b.speed, 1.25);
+                                    a.speed = 0;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Player vs. Curbside Parked Car Oriented Polygon MTV Check (never allows clipping into parked cars or buildings!)
+        if (this.player && this.parkedGrid && this.parkedGrid.length > 0) {
+            const pCar = this.player;
+            const ptx = Math.floor(pCar.x / TILE_SIZE);
+            const pty = Math.floor(pCar.y / TILE_SIZE);
+            for (let py = Math.max(0, pty - 1); py <= Math.min(MAP_H - 1, pty + 1); py++) {
+                const row = this.parkedGrid[py];
+                if (!row) continue;
+                for (let px = Math.max(0, ptx - 1); px <= Math.min(MAP_W - 1, ptx + 1); px++) {
+                    const cell = row[px];
+                    if (!cell) continue;
+                    for (let k = 0; k < cell.length; k++) {
+                        const pk = cell[k];
+                        if (pk.alarmTimer > 0) pk.alarmTimer--;
+                        if (Math.abs(pCar.x - pk.x) > 48 || Math.abs(pCar.y - pk.y) > 48) continue;
+                        const pkPoly = Utils.getRectCorners(pk.x, pk.y, 22, 40, pk.angle);
+                        const mtv = Utils.getPolyMTV ? Utils.getPolyMTV(pCar.poly, pkPoly) : null;
+                        if (mtv) {
+                            // mtv points from pCar to pk; push pCar along (-mtv.nx, -mtv.ny)
+                            const pushBase = mtv.overlap + 4;
+                            const escAngle = Math.atan2(-mtv.ny, -mtv.nx);
+                            let movedOut = false;
+                            for (const extra of [0, 4, 9, 15]) {
+                                for (const angOff of [0, 0.35, -0.35, 0.75, -0.75]) {
+                                    const safeX = pCar.x + Math.cos(escAngle + angOff) * (pushBase + extra);
+                                    const safeY = pCar.y + Math.sin(escAngle + angOff) * (pushBase + extra);
+                                    if (pCar.isSpotFree(safeX, safeY, pCar.angle)) {
+                                        pCar.x = safeX;
+                                        pCar.y = safeY;
+                                        pCar.poly = Utils.getRectCorners(pCar.x, pCar.y, pCar.w, pCar.h, pCar.angle + Math.PI / 2);
+                                        movedOut = true;
+                                        break;
+                                    }
+                                }
+                                if (movedOut) break;
+                            }
+                            if (!movedOut) {
+                                const safePt = pCar.findNearestSafeSpot(-mtv.nx, -mtv.ny);
+                                if (safePt) {
+                                    pCar.x = safePt.x;
+                                    pCar.y = safePt.y;
+                                    pCar.poly = Utils.getRectCorners(pCar.x, pCar.y, pCar.w, pCar.h, pCar.angle + Math.PI / 2);
+                                }
+                            }
+                            pCar.speed = 0;
+                            pCar.vx = 0;
+                            pCar.vy = 0;
+                            pCar.lateralSlip = 0;
+                            if (pCar.cruiseControl) {
+                                pCar.cruiseControl = false;
+                                this.updateCruiseUI();
+                            }
+                            pk.alarmTimer = 180;
+                            if (pCar.crashCooldown <= 0) {
+                                pCar.suspVel = 2.8;
+                                this.triggerScreenShake(5);
+                                pCar.crashCooldown = 55;
+                                AudioSys.crash();
+                                this.modChill(-6 * (pCar.chillShield || 1.0));
+                                this.spawnText(pk.x, pk.y, "PARKED CAR!", "#ed8936");
                             }
                         }
                     }
@@ -2447,13 +3483,24 @@ const Game = {
         const effScaleX = this.zoom || 1.0;
         const effScaleY = (this.zoom || 1.0) * (this.camPitch || 1.0);
 
-        if (this.freeCam) {
+        if (this.state === 'MENU') {
+            // Gentle Golden-Hour aerial glide across Historic Ballard Ave, Market St & Bergen Place
+            const SX = (typeof MAP_SCALE_X !== 'undefined') ? MAP_SCALE_X : 3;
+            const SY = (typeof MAP_SCALE_Y !== 'undefined') ? MAP_SCALE_Y : 1.5;
+            const OX = (typeof BASE_OFFSET_X !== 'undefined') ? BASE_OFFSET_X : 6;
+            const OY = (typeof BASE_OFFSET_Y !== 'undefined') ? BASE_OFFSET_Y : 16;
+            const tMenu = Date.now() / 9000;
+            const targetMenuX = (34 + Math.sin(tMenu) * 8 + OX) * SX * TILE_SIZE - centerX;
+            const targetMenuY = (35 + Math.cos(tMenu * 0.8) * 6 + OY) * SY * TILE_SIZE - centerY;
+            this.cam.x = Utils.lerp(this.cam.x, targetMenuX, 0.03);
+            this.cam.y = Utils.lerp(this.cam.y, targetMenuY, 0.03);
+        } else if (this.freeCam) {
             const panSpeed = 22 / effScaleX;
             if (this.keys['ArrowUp'] || this.keys['KeyW']) this.cam.y -= panSpeed;
             if (this.keys['ArrowDown'] || this.keys['KeyS']) this.cam.y += panSpeed;
             if (this.keys['ArrowLeft'] || this.keys['KeyA']) this.cam.x -= panSpeed;
             if (this.keys['ArrowRight'] || this.keys['KeyD']) this.cam.x += panSpeed;
-        } else {
+        } else if (this.player) {
             const targetCamX = this.player.x - centerX;
             const targetCamY = this.player.y - centerY;
             this.cam.x = Utils.lerp(this.cam.x, targetCamX, 0.12);
@@ -2468,6 +3515,17 @@ const Game = {
         } else {
             this.screenShake = 0;
         }
+
+        if (!Number.isFinite(this.cam.x) || !Number.isFinite(this.cam.y)) {
+            const SX = (typeof MAP_SCALE_X !== 'undefined') ? MAP_SCALE_X : 3;
+            const SY = (typeof MAP_SCALE_Y !== 'undefined') ? MAP_SCALE_Y : 1.5;
+            const OX = (typeof BASE_OFFSET_X !== 'undefined') ? BASE_OFFSET_X : 6;
+            const OY = (typeof BASE_OFFSET_Y !== 'undefined') ? BASE_OFFSET_Y : 16;
+            this.cam.x = (34 + OX) * SX * TILE_SIZE - centerX;
+            this.cam.y = (35 + OY) * SY * TILE_SIZE - centerY;
+        }
+        this.cam.x = Math.max(-centerX, Math.min(MAP_W * TILE_SIZE - centerX, this.cam.x));
+        this.cam.y = Math.max(-centerY, Math.min(MAP_H * TILE_SIZE - centerY, this.cam.y));
 
         const cx = this.cam.x + shakeX;
         const cy = this.cam.y + shakeY;
@@ -2484,6 +3542,7 @@ const Game = {
 
         // Apply Camera Zoom & Vertical Pitch Transform around viewport center
         this.ctx.save();
+        try {
         if (effScaleX !== 1 || effScaleY !== 1) {
             this.ctx.translate(centerX, centerY);
             this.ctx.scale(effScaleX, effScaleY);
@@ -2505,7 +3564,7 @@ const Game = {
                 const y = r * TILE_SIZE - cy;
 
                 if (this.waterGrid[r] && this.waterGrid[r][c]) {
-                    // Salmon Bay / Ship Canal Water
+                    // Puget Sound, Shilshole Bay & Salmon Bay Water
                     this.ctx.fillStyle = this.isRainy ? '#1a365d' : '#2b6cb0';
                     this.ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
                     const waveOffset = Math.sin(Date.now() / 600 + c * 0.7 + r * 0.5) * 6;
@@ -2517,6 +3576,77 @@ const Game = {
                     this.ctx.moveTo(x + 55 - waveOffset, y + 85);
                     this.ctx.lineTo(x + 95 - waveOffset, y + 85);
                     this.ctx.stroke();
+
+                    // Shilshole Bay Marina Floating Wooden Docks & Finger Piers (along Seaview Ave NW)
+                    if (c === 4 && r >= 40 && r <= 76 && r % 2 === 0) {
+                        this.ctx.fillStyle = '#8b6f4e';
+                        this.ctx.fillRect(x + 8, y + 52, TILE_SIZE - 8, 12);
+                        this.ctx.fillStyle = '#a0825e';
+                        this.ctx.fillRect(x + 10, y + 54, TILE_SIZE - 10, 8);
+                        // Finger slips extending from the main marina pier
+                        for (let s = 22; s < TILE_SIZE - 16; s += 34) {
+                            this.ctx.fillStyle = '#8b6f4e';
+                            this.ctx.fillRect(x + s, y + 24, 6, 28);
+                            this.ctx.fillRect(x + s, y + 64, 6, 28);
+                        }
+                    } else if (c === 1 && r >= 38 && r <= 78) {
+                        // Shilshole Bay Marina Rock Breakwater Wall
+                        this.ctx.fillStyle = '#64748b';
+                        this.ctx.fillRect(x + 44, y, 22, TILE_SIZE);
+                        this.ctx.fillStyle = '#94a3b8';
+                        this.ctx.fillRect(x + 48, y + 4, 14, TILE_SIZE - 8);
+                    }
+                } else if (this.beachGrid && this.beachGrid[r] && this.beachGrid[r][c]) {
+                    // Golden Gardens Sandy Beach, Puget Sound Surf Foam, Volleyball Courts, Driftwood & Fire Pits!
+                    this.ctx.fillStyle = this.isRainy ? '#b8a074' : '#e6ca96';
+                    this.ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+                    // Gentle Puget Sound surf foam along water edge
+                    if (c > 0 && this.waterGrid[r] && this.waterGrid[r][c - 1]) {
+                        const surfShift = Math.sin(Date.now() / 480 + r * 0.8) * 4;
+                        this.ctx.fillStyle = 'rgba(255, 255, 255, 0.52)';
+                        this.ctx.fillRect(x, y, 10 + surfShift, TILE_SIZE);
+                    }
+                    // Golden Gardens Beach Sand Volleyball Court & Historic Brick Bathhouse Pavilion
+                    if (c === 5 && r === 22) {
+                        // Historic Golden Gardens Brick Bathhouse Pavilion
+                        this.ctx.fillStyle = '#9b2c2c';
+                        this.ctx.fillRect(x + 18, y + 22, 84, 48);
+                        this.ctx.strokeStyle = '#e2e8f0';
+                        this.ctx.lineWidth = 2;
+                        this.ctx.strokeRect(x + 18, y + 22, 84, 48);
+                    } else if (c === 5 && (r === 24 || r === 26)) {
+                        // Beach Volleyball Court boundary lines & center net
+                        this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.75)';
+                        this.ctx.lineWidth = 1.8;
+                        this.ctx.strokeRect(x + 22, y + 18, 76, 84);
+                        this.ctx.strokeStyle = '#1e293b';
+                        this.ctx.lineWidth = 2.5;
+                        this.ctx.beginPath();
+                        this.ctx.moveTo(x + 20, y + 60);
+                        this.ctx.lineTo(x + 98, y + 60);
+                        this.ctx.stroke();
+                    } else {
+                        // Bleached Puget Sound driftwood logs & glowing Golden Gardens beach fire rings
+                        if ((r + c) % 2 === 0) {
+                            this.ctx.strokeStyle = '#8c7355';
+                            this.ctx.lineWidth = 5;
+                            this.ctx.lineCap = 'round';
+                            this.ctx.beginPath();
+                            this.ctx.moveTo(x + 30, y + 25);
+                            this.ctx.lineTo(x + 68, y + 48);
+                            this.ctx.stroke();
+                        }
+                        if ((r * 3 + c) % 5 === 0) {
+                            this.ctx.fillStyle = '#4a5568';
+                            this.ctx.beginPath();
+                            this.ctx.arc(x + 64, y + 78, 8, 0, Math.PI * 2);
+                            this.ctx.fill();
+                            this.ctx.fillStyle = (Math.floor(Date.now() / 160 + r) % 2 === 0) ? '#f6ad55' : '#ed8936';
+                            this.ctx.beginPath();
+                            this.ctx.arc(x + 64, y + 78, 4.5, 0, Math.PI * 2);
+                            this.ctx.fill();
+                        }
+                    }
                 } else if (this.parkGrid[r] && this.parkGrid[r][c]) {
                     // Ballard Park Block
                     this.ctx.fillStyle = this.isRainy ? '#a0aec0' : '#cbd5e0';
@@ -2532,14 +3662,63 @@ const Game = {
                 } else {
                     const t = this.map[r][c];
                     const hasBld = this.buildingGrid[r] && this.buildingGrid[r][c];
-                    if (t === 8 || t === 9 || (t === 0 && !hasBld)) {
-                        // Lush neighborhood turf under diagonal road corridors so no gray stair-step squares appear
+                    const vRoad = this.getVertRoadAt(c, r);
+                    const hRoad = this.getHorizRoadAt(c, r);
+                    const noSidewalkRoad =
+                        (t === 1 && vRoad && vRoad.hasSidewalk === false) ||
+                        (t === 2 && hRoad && hRoad.hasSidewalk === false) ||
+                        (t === 3 && ((vRoad && vRoad.hasSidewalk === false) || (hRoad && hRoad.hasSidewalk === false)));
+                    if (t === 8 || t === 9 || (t === 0 && !hasBld) || noSidewalkRoad) {
+                        // Lush neighborhood turf under diagonal road corridors and Olympic Manor / Blue Ridge open-lawn streets (OSM sidewalk=no)
                         this.ctx.fillStyle = this.isRainy ? '#224d38' : '#348052';
                         this.ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
                     } else {
                         // Concrete sidewalk & curb base around street-fronting parcels and orthogonal roads
                         this.ctx.fillStyle = this.isRainy ? '#a0aec0' : '#cbd5e0';
                         this.ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+                    }
+                }
+
+                // 2.5D Terrain Hillshading & Topographic Contour Lines (every 20m: 20m, 40m, 60m, 80m, 100m)
+                if (!(this.waterGrid[r] && this.waterGrid[r][c]) && this.elevationGrid && this.elevationGrid[r]) {
+                    const el = this.elevationGrid[r][c] || 0;
+                    const sv = (this.slopeGrid && this.slopeGrid[r] && this.slopeGrid[r][c]) || null;
+                    if (sv && sv.slope > 0.03) {
+                        const sunDot = sv.gx * 0.72 + sv.gy * 0.68;
+                        if (sunDot < -0.02) {
+                            this.ctx.fillStyle = `rgba(15, 23, 42, ${Math.min(0.18, Math.abs(sunDot) * 1.1).toFixed(3)})`;
+                            this.ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+                        } else if (sunDot > 0.02) {
+                            this.ctx.fillStyle = `rgba(255, 255, 255, ${Math.min(0.11, sunDot * 0.85).toFixed(3)})`;
+                            this.ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+                        }
+                    }
+                    if (r > 0 && c > 0) {
+                        const band = Math.floor(el / 20);
+                        const bandL = Math.floor((this.elevationGrid[r][c - 1] || 0) / 20);
+                        const bandU = Math.floor((this.elevationGrid[r - 1][c] || 0) / 20);
+                        if (band > 0 && (band !== bandL || band !== bandU)) {
+                            this.ctx.save();
+                            this.ctx.strokeStyle = 'rgba(226, 232, 240, 0.22)';
+                            this.ctx.lineWidth = 1.2;
+                            this.ctx.setLineDash([6, 4]);
+                            this.ctx.beginPath();
+                            if (band !== bandL) {
+                                this.ctx.moveTo(x + 2, y);
+                                this.ctx.lineTo(x + 2, y + TILE_SIZE);
+                            }
+                            if (band !== bandU) {
+                                this.ctx.moveTo(x, y + 2);
+                                this.ctx.lineTo(x + TILE_SIZE, y + 2);
+                            }
+                            this.ctx.stroke();
+                            if ((r + c) % 7 === 0) {
+                                this.ctx.fillStyle = 'rgba(226, 232, 240, 0.38)';
+                                this.ctx.font = 'bold 7px "Inter", sans-serif';
+                                this.ctx.fillText(`${Math.round(band * 20 * 3.28084 / 10) * 10} FT`, x + 18, y + 12);
+                            }
+                            this.ctx.restore();
+                        }
                     }
                 }
             }
@@ -2552,7 +3731,7 @@ const Game = {
                 const bx = bt.x - cx;
                 const by = bt.y - cy;
                 if (bx > vMinX - 100 && bx < vMaxX + 100 && by > vMinY - 100 && by < vMaxY + 100) {
-                    Draw.boat(this.ctx, bx, by, bt.angle, bt.type, bt.seed);
+                    Draw.boat(this.ctx, bx, by, bt.angle, bt.type, bt.color);
                 }
             }
         }
@@ -2572,39 +3751,94 @@ const Game = {
         // =====================================================================
         const diagRoads = MapData.roads.filter(r => r.x1 !== r.x2 && r.y1 !== r.y2);
 
-        // Pass 2A: Diagonal Road Sidewalk, Curb & Asphalt (156px wide for type 9 arterials!)
-        diagRoads.forEach(r => {
-            const x1_w = r.x1 * TILE_SIZE + TILE_SIZE / 2 - cx;
-            const y1_w = r.y1 * TILE_SIZE + TILE_SIZE / 2 - cy;
-            const x2_w = r.x2 * TILE_SIZE + TILE_SIZE / 2 - cx;
-            const y2_w = r.y2 * TILE_SIZE + TILE_SIZE / 2 - cy;
-            const isArtDiag = (r.type === 9);
-            const roadW = isArtDiag ? 156 : 104;
-
+        // Pass 2A: Multi-Pass Curved & Diagonal Road Sidewalk, Rolled Curb, Burke-Gilman Trail & Asphalt/Concrete
+        this.ctx.lineCap = 'round';
+        for (let i = 0; i < diagRoads.length; i++) {
+            const r = diagRoads[i];
+            if (r.hasSidewalk === false) continue; // Olympic Manor / Blue Ridge curvilinear streets have no sidewalks
+            const roadW = (r.type === 9) ? 156 : (r.isCollector ? 122 : 96);
             this.ctx.strokeStyle = this.isRainy ? '#a0aec0' : '#cbd5e0';
             this.ctx.lineWidth = roadW + 20;
-            this.ctx.lineCap = 'round';
             this.ctx.beginPath();
-            this.ctx.moveTo(x1_w, y1_w);
-            this.ctx.lineTo(x2_w, y2_w);
+            this.ctx.moveTo(r.x1 * TILE_SIZE + TILE_SIZE / 2 - cx, r.y1 * TILE_SIZE + TILE_SIZE / 2 - cy);
+            this.ctx.lineTo(r.x2 * TILE_SIZE + TILE_SIZE / 2 - cx, r.y2 * TILE_SIZE + TILE_SIZE / 2 - cy);
             this.ctx.stroke();
-
-            this.ctx.strokeStyle = this.isRainy ? '#4a5568' : '#718096';
-            this.ctx.lineWidth = roadW + 4;
+        }
+        for (let i = 0; i < diagRoads.length; i++) {
+            const r = diagRoads[i];
+            const roadW = (r.type === 9) ? 156 : (r.isCollector ? 122 : 96);
+            // Olympic Manor & Blue Ridge streets have a bright rolled concrete Mountable Curb (OSM sidewalk=no)
+            this.ctx.strokeStyle = (r.hasSidewalk === false)
+                ? (this.isRainy ? '#94a3b8' : '#cbd5e1')
+                : (this.isRainy ? '#4a5568' : '#718096');
+            this.ctx.lineWidth = (r.hasSidewalk === false) ? (roadW + 5) : (roadW + 4);
             this.ctx.beginPath();
-            this.ctx.moveTo(x1_w, y1_w);
-            this.ctx.lineTo(x2_w, y2_w);
+            this.ctx.moveTo(r.x1 * TILE_SIZE + TILE_SIZE / 2 - cx, r.y1 * TILE_SIZE + TILE_SIZE / 2 - cy);
+            this.ctx.lineTo(r.x2 * TILE_SIZE + TILE_SIZE / 2 - cx, r.y2 * TILE_SIZE + TILE_SIZE / 2 - cy);
             this.ctx.stroke();
-
-            this.ctx.strokeStyle = this.isRainy ? '#2d3748' : '#4a5568';
+        }
+        for (let i = 0; i < diagRoads.length; i++) {
+            const r = diagRoads[i];
+            const isArtDiag = (r.type === 9);
+            const roadW = isArtDiag ? 156 : (r.isCollector ? 122 : 96);
+            if (r.surface === 'concrete') {
+                // OSM surface=concrete (Shilshole Ave NW, Loyal Way NW, NW Leary Way)
+                this.ctx.strokeStyle = this.isRainy ? '#354152' : '#525e70';
+            } else {
+                this.ctx.strokeStyle = isArtDiag
+                    ? (this.isRainy ? '#283140' : '#434e61')
+                    : (this.isRainy ? '#2d3748' : '#4a5568');
+            }
             this.ctx.lineWidth = roadW;
             this.ctx.beginPath();
-            this.ctx.moveTo(x1_w, y1_w);
-            this.ctx.lineTo(x2_w, y2_w);
+            this.ctx.moveTo(r.x1 * TILE_SIZE + TILE_SIZE / 2 - cx, r.y1 * TILE_SIZE + TILE_SIZE / 2 - cy);
+            this.ctx.lineTo(r.x2 * TILE_SIZE + TILE_SIZE / 2 - cx, r.y2 * TILE_SIZE + TILE_SIZE / 2 - cy);
             this.ctx.stroke();
-        });
 
-        // Pass 2B: Local Residential Streets (tiles 1 & 2) with green Seattle planting strips
+            // Iconic Burke-Gilman Multi-Use Bike Trail & Ballard Terminal Railroad along Shilshole Ave NW!
+            if (r.hasBurkeGilman) {
+                const x1_w = r.x1 * TILE_SIZE + TILE_SIZE / 2 - cx;
+                const y1_w = r.y1 * TILE_SIZE + TILE_SIZE / 2 - cy;
+                const x2_w = r.x2 * TILE_SIZE + TILE_SIZE / 2 - cx;
+                const y2_w = r.y2 * TILE_SIZE + TILE_SIZE / 2 - cy;
+                const dx = x2_w - x1_w, dy = y2_w - y1_w;
+                const len = Math.hypot(dx, dy) || 1;
+                const ux = dx / len, uy = dy / len;
+                const nx = -uy, ny = ux;
+
+                // Paved dark-asphalt Burke-Gilman Trail parallel to Shilshole Ave NW (+76px offset)
+                this.ctx.strokeStyle = this.isRainy ? '#1e293b' : '#334155';
+                this.ctx.lineWidth = 14;
+                this.ctx.beginPath();
+                this.ctx.moveTo(x1_w + nx * 76, y1_w + ny * 76);
+                this.ctx.lineTo(x2_w + nx * 76, y2_w + ny * 76);
+                this.ctx.stroke();
+
+                // Dashed yellow Burke-Gilman Trail centerline
+                this.ctx.save();
+                this.ctx.strokeStyle = '#eab308';
+                this.ctx.lineWidth = 1.2;
+                this.ctx.setLineDash([8, 8]);
+                this.ctx.beginPath();
+                this.ctx.moveTo(x1_w + nx * 76, y1_w + ny * 76);
+                this.ctx.lineTo(x2_w + nx * 76, y2_w + ny * 76);
+                this.ctx.stroke();
+                this.ctx.restore();
+
+                // Ballard Terminal Railroad wooden ties & steel rails embedded along the industrial edge (+54px offset)
+                this.ctx.strokeStyle = '#475569';
+                this.ctx.lineWidth = 1.4;
+                for (const rOff of [51, 57]) {
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(x1_w + nx * rOff, y1_w + ny * rOff);
+                    this.ctx.lineTo(x2_w + nx * rOff, y2_w + ny * rOff);
+                    this.ctx.stroke();
+                }
+            }
+        }
+
+        // Pass 2B: Major Collector Streets (112px wide) & Local Residential Streets (92px wide)
+        // Includes OSM surface=concrete vs surface=asphalt and Olympic Manor sidewalk=no rolled curbs
         for (let r = startR; r <= endR; r++) {
             for (let c = startC; c <= endC; c++) {
                 const tile = this.map[r][c];
@@ -2612,60 +3846,141 @@ const Game = {
                 const y = r * TILE_SIZE - cy;
 
                 if (tile === 1) {
-                    const vRoad = this.vertRoadByCol[c];
-                    const isBlvd = vRoad && vRoad.isBoulevard;
-                    const curbInset = isBlvd ? 4 : 13;
-                    // Green Seattle tree-lined planting strips between sidewalk and curb
-                    this.ctx.fillStyle = this.isRainy ? '#22543d' : '#2f855a';
-                    this.ctx.fillRect(x + 2, y, curbInset - 3, TILE_SIZE);
-                    this.ctx.fillRect(x + TILE_SIZE - curbInset + 1, y, curbInset - 3, TILE_SIZE);
-                    // Local street asphalt
-                    this.ctx.fillStyle = this.isRainy ? '#2d3748' : '#4a5568';
+                    const vRoad = this.getVertRoadAt(c, r);
+                    const isWide = Boolean(vRoad && (vRoad.isBoulevard || vRoad.isCollector));
+                    const noSidewalk = Boolean(vRoad && vRoad.hasSidewalk === false);
+                    const isConcrete = Boolean(vRoad && vRoad.surface === 'concrete');
+                    const curbInset = isWide ? 4 : 14;
+                    if (noSidewalk) {
+                        // Olympic Manor / Blue Ridge rolled concrete curb directly bordering open lawn turf (OSM sidewalk=no)
+                        this.ctx.fillStyle = this.isRainy ? '#94a3b8' : '#cbd5e1';
+                        this.ctx.fillRect(x + curbInset - 2.5, y, 2.5, TILE_SIZE);
+                        this.ctx.fillRect(x + TILE_SIZE - curbInset, y, 2.5, TILE_SIZE);
+                    } else if (!isWide) {
+                        // Green Seattle tree-lined planting strips between sidewalk and curb on residential streets
+                        this.ctx.fillStyle = this.isRainy ? '#22543d' : '#2f855a';
+                        this.ctx.fillRect(x + 2, y, curbInset - 3, TILE_SIZE);
+                        this.ctx.fillRect(x + TILE_SIZE - curbInset + 1, y, curbInset - 3, TILE_SIZE);
+                    }
+                    // Roadway surface (OSM jointed concrete vs dark asphalt)
+                    this.ctx.fillStyle = isConcrete
+                        ? (this.isRainy ? '#354152' : '#525e70')
+                        : (this.isRainy ? '#2d3748' : '#4a5568');
                     this.ctx.fillRect(x + curbInset, y, TILE_SIZE - curbInset * 2, TILE_SIZE);
                 } else if (tile === 2) {
-                    const curbInset = 13;
-                    this.ctx.fillStyle = this.isRainy ? '#22543d' : '#2f855a';
-                    this.ctx.fillRect(x, y + 2, TILE_SIZE, curbInset - 3);
-                    this.ctx.fillRect(x, y + TILE_SIZE - curbInset + 1, TILE_SIZE, curbInset - 3);
-                    this.ctx.fillStyle = this.isRainy ? '#2d3748' : '#4a5568';
+                    const hRoad = this.getHorizRoadAt(c, r);
+                    const isWide = Boolean(hRoad && hRoad.isCollector);
+                    const noSidewalk = Boolean(hRoad && hRoad.hasSidewalk === false);
+                    const isConcrete = Boolean(hRoad && hRoad.surface === 'concrete');
+                    const curbInset = isWide ? 4 : 14;
+                    if (noSidewalk) {
+                        // Olympic Manor / Blue Ridge rolled concrete curb directly bordering open lawn turf (OSM sidewalk=no)
+                        this.ctx.fillStyle = this.isRainy ? '#94a3b8' : '#cbd5e1';
+                        this.ctx.fillRect(x, y + curbInset - 2.5, TILE_SIZE, 2.5);
+                        this.ctx.fillRect(x, y + TILE_SIZE - curbInset, TILE_SIZE, 2.5);
+                    } else if (!isWide) {
+                        this.ctx.fillStyle = this.isRainy ? '#22543d' : '#2f855a';
+                        this.ctx.fillRect(x, y + 2, TILE_SIZE, curbInset - 3);
+                        this.ctx.fillRect(x, y + TILE_SIZE - curbInset + 1, TILE_SIZE, curbInset - 3);
+                    }
+                    this.ctx.fillStyle = isConcrete
+                        ? (this.isRainy ? '#354152' : '#525e70')
+                        : (this.isRainy ? '#2d3748' : '#4a5568');
                     this.ctx.fillRect(x, y + curbInset, TILE_SIZE, TILE_SIZE - curbInset * 2);
                 } else if (tile === 3) {
-                    // Local intersection box
-                    this.ctx.fillStyle = this.isRainy ? '#2d3748' : '#4a5568';
-                    this.ctx.fillRect(x + 12, y + 12, TILE_SIZE - 24, TILE_SIZE - 24);
+                    // Local / collector intersection box
+                    const vRoad = this.getVertRoadAt(c, r);
+                    const hRoad = this.getHorizRoadAt(c, r);
+                    const vWide = Boolean(vRoad && (vRoad.isBoulevard || vRoad.isCollector));
+                    const hWide = Boolean(hRoad && hRoad.isCollector);
+                    const isConcrete = Boolean((vRoad && vRoad.surface === 'concrete') || (hRoad && hRoad.surface === 'concrete'));
+                    const pad = (vWide || hWide) ? 4 : 13;
+                    this.ctx.fillStyle = isConcrete
+                        ? (this.isRainy ? '#354152' : '#525e70')
+                        : (this.isRainy ? '#2d3748' : '#4a5568');
+                    this.ctx.fillRect(x + pad, y + pad, TILE_SIZE - pad * 2, TILE_SIZE - pad * 2);
                 }
             }
         }
 
-        // Pass 2C: Wide Major Arterials (tiles 6 & 7: 156px wide asphalt carriageway!)
+        // Pass 2C: Wide Major Arterials (tiles 6 & 7: 156px wide carriageway + RapidRide Red Bus Lanes + Protected Bike Lanes)
         for (let r = startR; r <= endR; r++) {
             for (let c = startC; c <= endC; c++) {
                 const tile = this.map[r][c];
                 const x = c * TILE_SIZE - cx;
                 const y = r * TILE_SIZE - cy;
-                const isVertArt = (tile === 6) || (tile === 3 && this.vertRoadByCol[c]?.type === 6);
-                const isHorizArt = (tile === 7) || (tile === 3 && this.horizRoadByRow[r]?.type === 7);
+                const vRoad = this.getVertRoadAt(c, r);
+                const hRoad = this.getHorizRoadAt(c, r);
+                const isVertArt = (tile === 6) || (tile === 3 && vRoad?.type === 6);
+                const isHorizArt = (tile === 7) || (tile === 3 && hRoad?.type === 7);
 
                 if (isVertArt) {
-                    // Sidewalk & curb border outside the 156px arterial
+                    const vLanes = (vRoad && vRoad.lanes) || 4;
+                    const noSidewalk = Boolean(vRoad && vRoad.hasSidewalk === false);
+                    // Sidewalk & curb border outside the arterial
                     this.ctx.fillStyle = this.isRainy ? '#a0aec0' : '#cbd5e0';
                     this.ctx.fillRect(x - 26, y, TILE_SIZE + 52, TILE_SIZE);
-                    // 156px-wide arterial asphalt (extends 18px on each side of the 120px tile)
-                    this.ctx.fillStyle = this.isRainy ? '#283140' : '#434e61';
-                    this.ctx.fillRect(x - 18, y, TILE_SIZE + 36, TILE_SIZE);
-                    // Outer green bike lanes
-                    this.ctx.fillStyle = 'rgba(72, 187, 120, 0.35)';
-                    this.ctx.fillRect(x - 16, y, 11, TILE_SIZE);
-                    this.ctx.fillRect(x + TILE_SIZE + 5, y, 11, TILE_SIZE);
+                    if (vLanes <= 2 && !noSidewalk) {
+                        // Landscaped tree-belt planting strip on 2-lane minor arterials (32nd Ave NW, 8th Ave N of 80th, 15th Ave N of 90th)
+                        this.ctx.fillStyle = this.isRainy ? '#22543d' : '#2f855a';
+                        this.ctx.fillRect(x - 16, y, 16, TILE_SIZE);
+                        this.ctx.fillRect(x + TILE_SIZE, y, 16, TILE_SIZE);
+                    }
+                    // Arterial carriageway (156px on 4/5-lane arterials, 148px on 3-lane arterials, 116px on 2-lane minor arterials)
+                    const isConc = Boolean(vRoad && vRoad.surface === 'concrete');
+                    this.ctx.fillStyle = isConc
+                        ? (this.isRainy ? '#333f52' : '#4e5b6e')
+                        : (this.isRainy ? '#283140' : '#434e61');
+                    const roadPad = vLanes >= 4 ? -18 : (vLanes === 3 ? -14 : 2);
+                    this.ctx.fillRect(x + roadPad, y, TILE_SIZE - roadPad * 2, TILE_SIZE);
+                    // King County Metro RapidRide D-Line Terra-Cotta Red "BUS ONLY" Outer Transit Lanes (15th Ave NW)
+                    if (vRoad && vRoad.hasBusLane) {
+                        this.ctx.fillStyle = 'rgba(185, 28, 28, 0.34)';
+                        this.ctx.fillRect(x - 4, y, 20, TILE_SIZE);
+                        this.ctx.fillRect(x + TILE_SIZE - 16, y, 20, TILE_SIZE);
+                    }
+                    // Green bike lanes (at ±68px on 4/5-lane arterials, or ±48px between travel lane & parking bay on 3-lane arterials like 24th Ave NW & 8th Ave NW!)
+                    if (vLanes >= 4) {
+                        this.ctx.fillStyle = 'rgba(72, 187, 120, 0.35)';
+                        this.ctx.fillRect(x - 16, y, 11, TILE_SIZE);
+                        this.ctx.fillRect(x + TILE_SIZE + 5, y, 11, TILE_SIZE);
+                    } else if (vLanes === 3) {
+                        this.ctx.fillStyle = 'rgba(72, 187, 120, 0.35)';
+                        this.ctx.fillRect(x + 7, y, 10, TILE_SIZE);
+                        this.ctx.fillRect(x + TILE_SIZE - 17, y, 10, TILE_SIZE);
+                    }
                 }
                 if (isHorizArt) {
+                    const hLanes = (hRoad && hRoad.lanes) || 4;
                     this.ctx.fillStyle = this.isRainy ? '#a0aec0' : '#cbd5e0';
                     this.ctx.fillRect(x, y - 26, TILE_SIZE, TILE_SIZE + 52);
-                    this.ctx.fillStyle = this.isRainy ? '#283140' : '#434e61';
-                    this.ctx.fillRect(x, y - 18, TILE_SIZE, TILE_SIZE + 36);
-                    this.ctx.fillStyle = 'rgba(72, 187, 120, 0.35)';
-                    this.ctx.fillRect(x, y - 16, TILE_SIZE, 11);
-                    this.ctx.fillRect(x, y + TILE_SIZE + 5, TILE_SIZE, 11);
+                    if (hLanes <= 2) {
+                        // Landscaped tree-belt planting strip on 2-lane minor arterials (NW 85th, NW 80th, NW 65th, NW Market W of 28th)
+                        this.ctx.fillStyle = this.isRainy ? '#22543d' : '#2f855a';
+                        this.ctx.fillRect(x, y - 16, TILE_SIZE, 16);
+                        this.ctx.fillRect(x, y + TILE_SIZE, TILE_SIZE, 16);
+                    }
+                    const isConc = Boolean(hRoad && hRoad.surface === 'concrete');
+                    this.ctx.fillStyle = isConc
+                        ? (this.isRainy ? '#333f52' : '#4e5b6e')
+                        : (this.isRainy ? '#283140' : '#434e61');
+                    const roadPad = hLanes >= 4 ? -18 : (hLanes === 3 ? -14 : 2);
+                    this.ctx.fillRect(x, y + roadPad, TILE_SIZE, TILE_SIZE - roadPad * 2);
+                    // King County Metro RapidRide D-Line / Route 40 Red "BUS ONLY" Outer Lanes (NW Market St)
+                    if (hRoad && hRoad.hasBusLane) {
+                        this.ctx.fillStyle = 'rgba(185, 28, 28, 0.34)';
+                        this.ctx.fillRect(x, y - 4, TILE_SIZE, 20);
+                        this.ctx.fillRect(x, y + TILE_SIZE - 16, TILE_SIZE, 20);
+                    }
+                    if (hLanes >= 4) {
+                        this.ctx.fillStyle = 'rgba(72, 187, 120, 0.35)';
+                        this.ctx.fillRect(x, y - 16, TILE_SIZE, 11);
+                        this.ctx.fillRect(x, y + TILE_SIZE + 5, TILE_SIZE, 11);
+                    } else if (hLanes === 3) {
+                        this.ctx.fillStyle = 'rgba(72, 187, 120, 0.35)';
+                        this.ctx.fillRect(x, y + 7, TILE_SIZE, 10);
+                        this.ctx.fillRect(x, y + TILE_SIZE - 17, TILE_SIZE, 10);
+                    }
                 }
             }
         }
@@ -2707,27 +4022,22 @@ const Game = {
         });
 
         // =====================================================================
-        // LAYER 3: ROAD CENTERLINES, MULTI-LANE DIVIDERS & MIDDLE TURN LANES (TWLTL)
+        // LAYER 3: ROAD CENTERLINES, MULTI-LANE DIVIDERS, BUS LANES & GREENWAYS
         // =====================================================================
         for (let r = startR; r <= endR; r++) {
             for (let c = startC; c <= endC; c++) {
                 const tile = this.map[r][c];
+                if (tile !== 1 && tile !== 2 && tile !== 6 && tile !== 7) continue;
                 const x = c * TILE_SIZE - cx;
                 const y = r * TILE_SIZE - cy;
-                const worldTileX = c * TILE_SIZE + TILE_SIZE / 2;
-                const worldTileY = r * TILE_SIZE + TILE_SIZE / 2;
 
-                const nearbyInters = this.getNearbyIntersections(worldTileX, worldTileY);
-                const inIntersection = nearbyInters.some(inter =>
-                    Math.hypot(inter.worldX - worldTileX, inter.worldY - worldTileY) < (inter.hasArterial ? 76 : 52)
-                );
-                if (inIntersection) continue;
+                if (this._getTileInterFlags(c, r) & 1) continue;
 
                 const midX = x + TILE_SIZE / 2;
                 const midY = y + TILE_SIZE / 2;
 
                 if (tile === 1) {
-                    const vRoad = this.vertRoadByCol[c];
+                    const vRoad = this.getVertRoadAt(c, r);
                     if (vRoad && vRoad.isBoulevard) {
                         // 14th Ave NW Landscaped Park/Gravel Boulevard Median!
                         this.ctx.fillStyle = this.isRainy ? '#94a3b8' : '#cbd5e0';
@@ -2735,33 +4045,51 @@ const Game = {
                         this.ctx.fillStyle = this.isRainy ? '#22543d' : '#2f855a';
                         this.ctx.fillRect(midX - 8, y + 6, 16, TILE_SIZE - 12);
                     } else if (vRoad && vRoad.isCollector) {
-                        // Collector double yellow line
+                        // Major Collector double yellow centerline (non-collector residential streets have no yellow line!)
                         this.ctx.fillStyle = '#d69e2e';
                         this.ctx.fillRect(midX - 2, y, 1.8, TILE_SIZE);
                         this.ctx.fillRect(midX + 1.5, y, 1.8, TILE_SIZE);
-                    } else {
-                        // Quiet residential dashed yellow centerline
-                        this.ctx.fillStyle = 'rgba(214, 158, 46, 0.65)';
-                        for (let k = 10; k < TILE_SIZE; k += 28) {
-                            this.ctx.fillRect(midX - 1, y + k, 2, 12);
+                    }
+                    // Seattle Neighborhood Greenway (17th Ave NW, 26th Ave NW): White Sharrows & Asphalt Speed Cushions
+                    if (vRoad && vRoad.isGreenway) {
+                        if (r % 2 === 0) {
+                            // Mid-block Seattle Asphalt Speed Hump / Cushion with white chevron triangles
+                            this.ctx.fillStyle = 'rgba(15, 23, 42, 0.35)';
+                            this.ctx.fillRect(x + 22, midY - 8, TILE_SIZE - 44, 16);
+                            this.ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
+                            this.ctx.font = 'bold 8px sans-serif';
+                            this.ctx.textAlign = 'center';
+                            this.ctx.fillText('▲', midX - 16, midY + 3);
+                            this.ctx.fillText('▼', midX + 16, midY + 3);
+                        } else {
+                            // White Neighborhood Greenway Sharrow (double chevron + bike symbol)
+                            this.ctx.fillStyle = 'rgba(255, 255, 255, 0.52)';
+                            this.ctx.font = 'bold 10px sans-serif';
+                            this.ctx.textAlign = 'center';
+                            this.ctx.fillText('⌃', midX - 14, midY - 12);
+                            this.ctx.fillText('⌃', midX - 14, midY - 7);
+                            this.ctx.fillText('∨', midX + 14, midY + 14);
+                            this.ctx.fillText('∨', midX + 14, midY + 9);
                         }
                     }
                 } else if (tile === 6) {
-                    const vRoad = this.vertRoadByCol[c];
-                    const hasMiddle = !vRoad || vRoad.hasMiddleLane !== false;
+                    const vRoad = this.getVertRoadAt(c, r);
+                    const vLanes = (vRoad && vRoad.lanes) || 4;
+                    const hasMiddle = Boolean(vRoad ? vRoad.hasMiddleLane : true);
 
                     if (hasMiddle) {
-                        // 30px-Wide Center Two-Way Left-Turn Lane (TWLTL / Middle Lane)!
+                        // Center Two-Way Left-Turn Lane (TWLTL / Middle Lane: 26px on 3-lane arterials like 24th/8th Ave, 30px on 5-lane 15th Ave)!
+                        const halfMid = (vLanes === 3) ? 13 : 15;
                         this.ctx.fillStyle = 'rgba(15, 23, 42, 0.16)';
-                        this.ctx.fillRect(midX - 15, y, 30, TILE_SIZE);
+                        this.ctx.fillRect(midX - halfMid, y, halfMid * 2, TILE_SIZE);
 
                         // Outer solid yellow lines + inner dashed yellow lines bounding the middle lane
                         this.ctx.fillStyle = '#ecc94b';
-                        this.ctx.fillRect(midX - 15, y, 2, TILE_SIZE);
-                        this.ctx.fillRect(midX + 13, y, 2, TILE_SIZE);
+                        this.ctx.fillRect(midX - halfMid, y, 2, TILE_SIZE);
+                        this.ctx.fillRect(midX + halfMid - 2, y, 2, TILE_SIZE);
                         for (let k = 6; k < TILE_SIZE; k += 24) {
-                            this.ctx.fillRect(midX - 11.5, y + k, 1.8, 12);
-                            this.ctx.fillRect(midX + 9.7, y + k, 1.8, 12);
+                            this.ctx.fillRect(midX - halfMid + 3.5, y + k, 1.8, 12);
+                            this.ctx.fillRect(midX + halfMid - 5.3, y + k, 1.8, 12);
                         }
 
                         // Bidirectional white turn arrows painted inside the middle lane
@@ -2773,49 +4101,85 @@ const Game = {
                             this.ctx.fillText('↱', midX + 2, y + 84);
                         }
                     } else {
-                        // Double yellow median line
+                        // Double yellow median line (2-lane arterials: 32nd Ave NW, 24th Ave N of 85th, 15th Ave N of 90th, 8th Ave N of 80th)
                         this.ctx.fillStyle = '#ecc94b';
                         this.ctx.fillRect(midX - 3, y, 2, TILE_SIZE);
                         this.ctx.fillRect(midX + 1, y, 2, TILE_SIZE);
                     }
 
-                    // Dashed white lane dividers between inner and outer travel lanes
-                    this.ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
-                    for (let k = 8; k < TILE_SIZE; k += 24) {
-                        this.ctx.fillRect(midX - 44, y + k, 1.8, 12);
-                        this.ctx.fillRect(midX + 42.2, y + k, 1.8, 12);
+                    // Dashed white lane dividers between inner and outer travel lanes ONLY on 4/5-lane arterials (2 lanes per direction)!
+                    // (On 3-lane 24th Ave NW & 8th Ave NW, and 2-lane 32nd Ave NW, there is 1 travel lane per direction!)
+                    if (vLanes >= 4) {
+                        this.ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+                        for (let k = 8; k < TILE_SIZE; k += 24) {
+                            this.ctx.fillRect(midX - 44, y + k, 1.8, 12);
+                            this.ctx.fillRect(midX + 42.2, y + k, 1.8, 12);
+                        }
+                        // Solid white bike lane buffer lines at ±65px
+                        this.ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+                        this.ctx.fillRect(x - 5, y, 1.2, TILE_SIZE);
+                        this.ctx.fillRect(x + TILE_SIZE + 3.8, y, 1.2, TILE_SIZE);
+                    } else if (vLanes === 3) {
+                        // Solid white bike lane buffer lines on 3-lane arterials (24th Ave NW, 8th Ave NW) separating travel lane, bike lane & parking bay
+                        this.ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+                        this.ctx.fillRect(x + 17, y, 1.2, TILE_SIZE);
+                        this.ctx.fillRect(x + TILE_SIZE - 18.2, y, 1.2, TILE_SIZE);
                     }
-                    // Solid white bike lane buffer lines
-                    this.ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
-                    this.ctx.fillRect(x - 5, y, 1.2, TILE_SIZE);
-                    this.ctx.fillRect(x + TILE_SIZE + 3.8, y, 1.2, TILE_SIZE);
+                    // RapidRide D-Line "BUS ONLY" white pavement stencils in outer red transit lanes
+                    if (vRoad && vRoad.hasBusLane && r % 2 === 1) {
+                        this.ctx.save();
+                        this.ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
+                        this.ctx.font = 'bold 6.5px sans-serif';
+                        this.ctx.textAlign = 'center';
+                        this.ctx.fillText('BUS', x + 6, y + 48);
+                        this.ctx.fillText('ONLY', x + 6, y + 57);
+                        this.ctx.fillText('BUS', x + TILE_SIZE - 6, y + 68);
+                        this.ctx.fillText('ONLY', x + TILE_SIZE - 6, y + 77);
+                        this.ctx.restore();
+                    }
                 } else if (tile === 2) {
-                    const hRoad = this.horizRoadByRow[r];
+                    const hRoad = this.getHorizRoadAt(c, r);
                     if (hRoad && hRoad.isCollector) {
+                        // Major Collector double yellow centerline (non-collector residential streets have no yellow line!)
                         this.ctx.fillStyle = '#d69e2e';
                         this.ctx.fillRect(x, midY - 2, TILE_SIZE, 1.8);
                         this.ctx.fillRect(x, midY + 1.5, TILE_SIZE, 1.8);
-                    } else {
-                        this.ctx.fillStyle = 'rgba(214, 158, 46, 0.65)';
-                        for (let k = 10; k < TILE_SIZE; k += 28) {
-                            this.ctx.fillRect(x + k, midY - 1, 12, 2);
+                    }
+                    // Seattle Neighborhood Greenway (NW 58th, NW 83rd, NW 90th, NW 92nd): Sharrows & Speed Cushions
+                    if (hRoad && hRoad.isGreenway) {
+                        if (c % 2 === 0) {
+                            this.ctx.fillStyle = 'rgba(15, 23, 42, 0.35)';
+                            this.ctx.fillRect(midX - 8, y + 22, 16, TILE_SIZE - 44);
+                            this.ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
+                            this.ctx.font = 'bold 8px sans-serif';
+                            this.ctx.textAlign = 'center';
+                            this.ctx.fillText('◀', midX, midY - 13);
+                            this.ctx.fillText('▶', midX, midY + 18);
+                        } else {
+                            this.ctx.fillStyle = 'rgba(255, 255, 255, 0.52)';
+                            this.ctx.font = 'bold 10px sans-serif';
+                            this.ctx.textAlign = 'center';
+                            this.ctx.fillText('«', midX - 10, midY - 12);
+                            this.ctx.fillText('»', midX + 10, midY + 16);
                         }
                     }
                 } else if (tile === 7) {
-                    const hRoad = this.horizRoadByRow[r];
-                    const hasMiddle = !hRoad || hRoad.hasMiddleLane !== false;
+                    const hRoad = this.getHorizRoadAt(c, r);
+                    const hLanes = (hRoad && hRoad.lanes) || 4;
+                    const hasMiddle = Boolean(hRoad ? hRoad.hasMiddleLane : true);
 
                     if (hasMiddle) {
-                        // 30px-Wide Center Two-Way Left-Turn Lane (TWLTL / Middle Lane)!
+                        // Center Two-Way Left-Turn Lane (TWLTL / Middle Lane)!
+                        const halfMid = (hLanes === 3) ? 13 : 15;
                         this.ctx.fillStyle = 'rgba(15, 23, 42, 0.16)';
-                        this.ctx.fillRect(x, midY - 15, TILE_SIZE, 30);
+                        this.ctx.fillRect(x, midY - halfMid, TILE_SIZE, halfMid * 2);
 
                         this.ctx.fillStyle = '#ecc94b';
-                        this.ctx.fillRect(x, midY - 15, TILE_SIZE, 2);
-                        this.ctx.fillRect(x, midY + 13, TILE_SIZE, 2);
+                        this.ctx.fillRect(x, midY - halfMid, TILE_SIZE, 2);
+                        this.ctx.fillRect(x, midY + halfMid - 2, TILE_SIZE, 2);
                         for (let k = 6; k < TILE_SIZE; k += 24) {
-                            this.ctx.fillRect(x + k, midY - 11.5, 12, 1.8);
-                            this.ctx.fillRect(x + k, midY + 9.7, 12, 1.8);
+                            this.ctx.fillRect(x + k, midY - halfMid + 3.5, 12, 1.8);
+                            this.ctx.fillRect(x + k, midY + halfMid - 5.3, 12, 1.8);
                         }
 
                         if (c % 2 === 0) {
@@ -2826,26 +4190,42 @@ const Game = {
                             this.ctx.fillText('↷', x + 84, midY + 5);
                         }
                     } else {
+                        // Double yellow median line (2-lane arterials: NW 85th St, NW 80th St, NW 65th St, NW Market St W of 28th)
                         this.ctx.fillStyle = '#ecc94b';
                         this.ctx.fillRect(x, midY - 3, TILE_SIZE, 2);
                         this.ctx.fillRect(x, midY + 1, TILE_SIZE, 2);
                     }
 
-                    // Dashed white lane dividers between inner and outer travel lanes
-                    this.ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
-                    for (let k = 8; k < TILE_SIZE; k += 24) {
-                        this.ctx.fillRect(x + k, midY - 44, 12, 1.8);
-                        this.ctx.fillRect(x + k, midY + 42.2, 12, 1.8);
+                    // Dashed white lane dividers between inner and outer travel lanes ONLY on 4/5-lane arterials (NW Market St E of 28th)!
+                    if (hLanes >= 4) {
+                        this.ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+                        for (let k = 8; k < TILE_SIZE; k += 24) {
+                            this.ctx.fillRect(x + k, midY - 44, 12, 1.8);
+                            this.ctx.fillRect(x + k, midY + 42.2, 12, 1.8);
+                        }
+                        this.ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+                        this.ctx.fillRect(x, y - 5, TILE_SIZE, 1.2);
+                        this.ctx.fillRect(x, y + TILE_SIZE + 3.8, TILE_SIZE, 1.2);
+                    } else if (hLanes === 3) {
+                        this.ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+                        this.ctx.fillRect(x, y + 17, TILE_SIZE, 1.2);
+                        this.ctx.fillRect(x, y + TILE_SIZE - 18.2, TILE_SIZE, 1.2);
                     }
-                    // Solid white bike lane buffer lines
-                    this.ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
-                    this.ctx.fillRect(x, y - 5, TILE_SIZE, 1.2);
-                    this.ctx.fillRect(x, y + TILE_SIZE + 3.8, TILE_SIZE, 1.2);
+                    // RapidRide "BUS ONLY" white pavement stencils in outer red transit lanes (NW Market St)
+                    if (hRoad && hRoad.hasBusLane && c % 2 === 1) {
+                        this.ctx.save();
+                        this.ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
+                        this.ctx.font = 'bold 6.5px sans-serif';
+                        this.ctx.textAlign = 'center';
+                        this.ctx.fillText('BUS ONLY', x + 60, y + 8);
+                        this.ctx.fillText('BUS ONLY', x + 60, y + TILE_SIZE - 4);
+                        this.ctx.restore();
+                    }
                 }
             }
         }
 
-        // Diagonal Road Markings (including Middle Turn Lanes on Leary Ave NW & NW Leary Way!)
+        // Diagonal Road Markings (including Middle Turn Lanes on Leary, Bus Lanes on Holman, & T-Stalls on Ballard Ave!)
         diagRoads.forEach(r => {
             const x1_w = r.x1 * TILE_SIZE + TILE_SIZE / 2;
             const y1_w = r.y1 * TILE_SIZE + TILE_SIZE / 2;
@@ -2861,6 +4241,18 @@ const Game = {
             const ny = ux;
 
             if (r.type === 9) {
+                // Holman Rd NW RapidRide D-Line red bus lanes
+                if (r.hasBusLane) {
+                    this.ctx.strokeStyle = 'rgba(185, 28, 28, 0.34)';
+                    this.ctx.lineWidth = 16;
+                    this.ctx.lineCap = 'butt';
+                    for (const bSide of [-56, 56]) {
+                        this.ctx.beginPath();
+                        this.ctx.moveTo(x1_w - cx + nx * bSide, y1_w - cy + ny * bSide);
+                        this.ctx.lineTo(x2_w - cx + nx * bSide, y2_w - cy + ny * bSide);
+                        this.ctx.stroke();
+                    }
+                }
                 this.ctx.strokeStyle = 'rgba(72, 187, 120, 0.35)';
                 this.ctx.lineWidth = 11;
                 this.ctx.lineCap = 'butt';
@@ -2882,6 +4274,11 @@ const Game = {
                 const midX = x1_w + ux * ((d + dNext) / 2);
                 const midY = y1_w + uy * ((d + dNext) / 2);
 
+                // Viewport culling: skip dash segments far off-screen before any intersection lookups
+                const midSX = midX - cx;
+                const midSY = midY - cy;
+                if (midSX < vMinX - 90 || midSX > vMaxX + 90 || midSY < vMinY - 90 || midSY > vMaxY + 90) continue;
+
                 const nearbyDiagInters = this.getNearbyIntersections(midX, midY);
                 const nearInter = nearbyDiagInters.some(inter =>
                     Math.hypot(inter.worldX - midX, inter.worldY - midY) < (inter.hasArterial ? 78 : 56)
@@ -2894,7 +4291,7 @@ const Game = {
                 const sy2 = y1_w + uy * dNext - cy;
 
                 if (r.type === 9 && r.hasMiddleLane) {
-                    // Middle Turn Lane (TWLTL) along diagonal arterials (Leary Ave / Leary Way)
+                    // Middle Turn Lane (TWLTL) along diagonal arterials (Leary Ave / Leary Way / Holman Rd)
                     this.ctx.strokeStyle = '#ecc94b';
                     this.ctx.lineWidth = 2;
                     for (const side of [-14, 14]) {
@@ -2914,7 +4311,7 @@ const Game = {
                             this.ctx.stroke();
                         }
                     }
-                } else {
+                } else if (r.type === 9 || r.isCollector) {
                     this.ctx.strokeStyle = r.type === 9 ? '#ecc94b' : '#d69e2e';
                     this.ctx.lineWidth = 2;
                     this.ctx.beginPath();
@@ -2927,13 +4324,32 @@ const Game = {
                     this.ctx.lineTo(sx2 - nx * 2, sy2 - ny * 2);
                     this.ctx.stroke();
                 }
+
+                // Diagonal Commercial Metered Parking Lines & White T-Stalls (Ballard Ave NW & Seaview Ave NW!)
+                if (r.parkingMarking === 'T_STALLS' || r.parkingMarking === 'WHITE_LINE') {
+                    const pLineOffset = 29;
+                    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.48)';
+                    this.ctx.lineWidth = 1.4;
+                    for (const side of [-1, 1]) {
+                        this.ctx.beginPath();
+                        this.ctx.moveTo(sx1 + nx * side * pLineOffset, sy1 + ny * side * pLineOffset);
+                        this.ctx.lineTo(sx2 + nx * side * pLineOffset, sy2 + ny * side * pLineOffset);
+                        this.ctx.stroke();
+                        if (r.parkingMarking === 'T_STALLS' && Math.floor(d / stepLen) % 2 === 0) {
+                            this.ctx.beginPath();
+                            this.ctx.moveTo(sx1 + nx * side * pLineOffset, sy1 + ny * side * pLineOffset);
+                            this.ctx.lineTo(sx1 + nx * side * (pLineOffset + 9), sy1 + ny * side * (pLineOffset + 9));
+                            this.ctx.stroke();
+                        }
+                    }
+                }
             }
         });
 
         // =====================================================================
         // LAYER 3B: TURN-BY-TURN ON-ROAD GLOWING GPS ROUTE RIBBON
         // =====================================================================
-        if (this.gpsPath && this.gpsPath.length > 1) {
+        if (this.player && this.gpsPath && this.gpsPath.length > 1) {
             this.ctx.save();
             this.ctx.lineCap = 'round';
             this.ctx.lineJoin = 'round';
@@ -3045,7 +4461,7 @@ const Game = {
             }
         });
 
-        // Road Surface Micro-Details: Manhole Covers (with Steam Wisps), Storm Drains, Tar-Seal Cracks & Bike Stencils
+        // Road Surface Micro-Details: OSM Concrete Expansion Joints, Manhole Covers, Storm Drains, Tar-Seal Cracks & Bike Stencils
         for (let r = startR; r <= endR; r++) {
             for (let c = startC; c <= endC; c++) {
                 const tile = this.map[r][c];
@@ -3053,9 +4469,41 @@ const Game = {
                 const x = c * TILE_SIZE - cx;
                 const y = r * TILE_SIZE - cy;
                 const hSeed = (r * 31 + c * 17) % 100;
+                const vRoad = this.getVertRoadAt(c, r);
+                const hRoad = this.getHorizRoadAt(c, r);
+                const isConcreteRoad =
+                    ((tile === 1 || tile === 6) && vRoad?.surface === 'concrete') ||
+                    ((tile === 2 || tile === 7) && hRoad?.surface === 'concrete');
 
-                // Asphalt tar-seal cracks on older road tiles
-                if (hSeed < 38) {
+                if (isConcreteRoad) {
+                    // Authentic Seattle Jointed Concrete Roadway Slabs (OSM surface=concrete: NW 85th, 14th Ave, 8th Ave, NW 83rd, etc.)
+                    this.ctx.strokeStyle = 'rgba(15, 23, 42, 0.28)';
+                    this.ctx.lineWidth = 1.0;
+                    this.ctx.beginPath();
+                    if (tile === 1 || tile === 6) {
+                        const inset = (tile === 6) ? -16 : (vRoad?.isCollector || vRoad?.isBoulevard ? 5 : 15);
+                        for (let jy = 30; jy < TILE_SIZE; jy += 30) {
+                            this.ctx.moveTo(x + inset, y + jy);
+                            this.ctx.lineTo(x + TILE_SIZE - inset, y + jy);
+                        }
+                        this.ctx.moveTo(x + TILE_SIZE * 0.35, y);
+                        this.ctx.lineTo(x + TILE_SIZE * 0.35, y + TILE_SIZE);
+                        this.ctx.moveTo(x + TILE_SIZE * 0.65, y);
+                        this.ctx.lineTo(x + TILE_SIZE * 0.65, y + TILE_SIZE);
+                    } else {
+                        const inset = (tile === 7) ? -16 : (hRoad?.isCollector ? 5 : 15);
+                        for (let jx = 30; jx < TILE_SIZE; jx += 30) {
+                            this.ctx.moveTo(x + jx, y + inset);
+                            this.ctx.lineTo(x + jx, y + TILE_SIZE - inset);
+                        }
+                        this.ctx.moveTo(x, y + TILE_SIZE * 0.35);
+                        this.ctx.lineTo(x + TILE_SIZE, y + TILE_SIZE * 0.35);
+                        this.ctx.moveTo(x, y + TILE_SIZE * 0.65);
+                        this.ctx.lineTo(x + TILE_SIZE, y + TILE_SIZE * 0.65);
+                    }
+                    this.ctx.stroke();
+                } else if (hSeed < 38) {
+                    // Asphalt tar-seal cracks on older asphalt road tiles
                     this.ctx.strokeStyle = 'rgba(15, 23, 42, 0.42)';
                     this.ctx.lineWidth = 1.1;
                     this.ctx.beginPath();
@@ -3159,7 +4607,7 @@ const Game = {
             this.ctx.restore();
         }
 
-        // Draw Stop Lines and Crosswalks
+        // Draw Stop Lines, "STOP" Legends, Dedicated Turn-Pocket Arrows & Crosswalks (Continental + Historic Old Ballard Brick!)
         this.intersections.forEach(inter => {
             inter.approaches.forEach(a => {
                 if (a.controlType === 'NONE') return;
@@ -3173,9 +4621,23 @@ const Game = {
                 const dy = Math.sin(a.angle);
                 const nx = -dy;
                 const ny = dx;
-                const stopBarLen = a.isRoadArt ? 68 : 40;
+                const stopBarLen = a.isRoadArt ? ((a.roadLanes || 4) >= 4 ? 68 : 48) : 38;
 
                 if (sxc > vMinX - 100 && sxc < vMaxX + 100 && syc > vMinY - 100 && syc < vMaxY + 100) {
+                    // Subtle colored stop-bar illumination for signalized approaches so drivers immediately see which stop bar belongs to which light!
+                    if (a.controlType === 'SIGNAL') {
+                        const sigState = this.getApproachSignalState(inter, a);
+                        this.ctx.strokeStyle = sigState === 'RED'
+                            ? 'rgba(239, 68, 68, 0.48)'
+                            : (sigState === 'YELLOW' ? 'rgba(250, 204, 21, 0.45)' : 'rgba(34, 197, 94, 0.42)');
+                        this.ctx.lineWidth = 8;
+                        this.ctx.lineCap = 'butt';
+                        this.ctx.beginPath();
+                        this.ctx.moveTo(sxc, syc);
+                        this.ctx.lineTo(sxc + nx * stopBarLen, syc + ny * stopBarLen);
+                        this.ctx.stroke();
+                    }
+
                     this.ctx.strokeStyle = '#fff';
                     this.ctx.lineWidth = 4;
                     this.ctx.lineCap = 'butt';
@@ -3184,15 +4646,66 @@ const Game = {
                     this.ctx.lineTo(sxc + nx * stopBarLen, syc + ny * stopBarLen);
                     this.ctx.stroke();
 
-                    this.ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+                    // Pavement Stencils upstream (before) the Stop Bar in the approaching driver's lane: "STOP" legend or Turn-Pocket Arrows!
+                    this.ctx.save();
+                    const stencilX = sxc - dx * 15 + nx * (stopBarLen * 0.48);
+                    const stencilY = syc - dy * 15 + ny * (stopBarLen * 0.48);
+                    this.ctx.translate(stencilX, stencilY);
+                    this.ctx.rotate(a.angle + Math.PI / 2);
+                    this.ctx.fillStyle = 'rgba(255, 255, 255, 0.68)';
+                    this.ctx.textAlign = 'center';
+                    this.ctx.textBaseline = 'middle';
+                    if (a.controlType === 'STOP') {
+                        this.ctx.font = 'bold 8px sans-serif';
+                        this.ctx.fillText('STOP', 0, 0);
+                    } else if (a.controlType === 'SIGNAL' && a.isRoadArt) {
+                        this.ctx.font = 'bold 11px sans-serif';
+                        this.ctx.fillText('↰', -14, 0);
+                        this.ctx.fillText('↑', 8, 0);
+                    }
+                    this.ctx.restore();
+
                     this.ctx.save();
                     this.ctx.translate(cxc, cyc);
                     this.ctx.rotate(a.angle);
                     const numStripes = a.isRoadArt ? 3 : 2;
-                    for (let i = -numStripes; i <= numStripes; i++) {
-                        const stripeY = i * 16;
-                        this.ctx.fillRect(-7, stripeY - 2.5, 14, 5);
+                    const isBrick = Boolean(a.road && a.road.brickCrosswalks);
+
+                    if (isBrick) {
+                        // Historic Old Ballard Red-Brick Herringbone Crosswalk (Ballard Ave NW & NW Market St)
+                        const spanH = (numStripes * 2 + 1) * 16;
+                        this.ctx.fillStyle = 'rgba(255, 255, 255, 0.78)';
+                        this.ctx.fillRect(-8, -spanH * 0.5, 16, spanH);
+                        this.ctx.fillStyle = this.isRainy ? '#742a2a' : '#9b2c2c';
+                        this.ctx.fillRect(-6, -spanH * 0.5 + 1, 12, spanH - 2);
+                        // Subtle herringbone brick mortar lines
+                        this.ctx.strokeStyle = 'rgba(226, 232, 240, 0.25)';
+                        this.ctx.lineWidth = 0.8;
+                        for (let by = -spanH * 0.5 + 4; by < spanH * 0.5 - 4; by += 6) {
+                            this.ctx.beginPath();
+                            this.ctx.moveTo(-5, by);
+                            this.ctx.lineTo(5, by + 2);
+                            this.ctx.stroke();
+                        }
+                    } else {
+                        // High-visibility Seattle Continental Zebra Crosswalk Bars
+                        this.ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+                        for (let i = -numStripes; i <= numStripes; i++) {
+                            const stripeY = i * 16;
+                            this.ctx.fillRect(-7, stripeY - 2.5, 14, 5);
+                        }
                     }
+
+                    // Green Dashed Bike-Lane Conflict Skip-Stripes across arterial intersections
+                    if (a.isRoadArt) {
+                        const bikeDist = (numStripes + 0.45) * 16;
+                        this.ctx.fillStyle = 'rgba(72, 187, 120, 0.55)';
+                        for (let bx = -14; bx <= 10; bx += 8) {
+                            this.ctx.fillRect(bx, -bikeDist - 3, 5, 4);
+                            this.ctx.fillRect(bx, bikeDist - 1, 5, 4);
+                        }
+                    }
+
                     // Yellow ADA Tactile Curb Ramps at both ends of the crosswalk!
                     const curbDist = (numStripes + 0.85) * 16;
                     this.ctx.fillStyle = '#eab308';
@@ -3220,8 +4733,127 @@ const Game = {
             }
         });
 
-        // Street-level Props & 2.5D Vehicles (Pedestrians removed)
+        // Street-level Props, Curbside Parked Cars & 2.5D Active Vehicles
         this.props.forEach(p => p.draw(this.ctx, cx, cy));
+
+        // Draw OpenStreetMap Curbside Parking Markings:
+        //  - 'T_STALLS': Commercial/metered streets -> solid white parking lane line + white T-stall ticks + blue SDOT Pay-to-Park kiosks
+        //  - 'WHITE_LINE': Major residential collectors -> continuous solid white parking edge line (no T-ticks)
+        //  - 'UNMARKED' (local residential streets): Unmarked asphalt curb space (NO white parking lines or ticks!)
+        if (this.parkedGrid && this.parkedGrid.length > 0 && Draw.car) {
+            for (let r = startR; r <= endR; r++) {
+                const pRow = this.parkedGrid[r];
+                if (!pRow) continue;
+                for (let c = startC; c <= endC; c++) {
+                    const tile = this.map[r][c];
+                    const txScreen = c * TILE_SIZE - cx;
+                    const tyScreen = r * TILE_SIZE - cy;
+
+                    if (tile === 1 || tile === 2 || tile === 6 || tile === 7) {
+                        const inInter = (this._getTileInterFlags(c, r) & 2) !== 0;
+                        if (!inInter) {
+                            if (tile === 1 || tile === 6) {
+                                const vRoad = this.getVertRoadAt(c, r);
+                                const vLanes = (vRoad && vRoad.lanes) || (tile === 6 ? 4 : 2);
+                                const pMark = vRoad?.parkingMarking || (vRoad?.isCollector ? 'WHITE_LINE' : 'UNMARKED');
+                                if (!vRoad?.isBoulevard && !vRoad?.hasBusLane && vLanes < 4 && (pMark === 'T_STALLS' || pMark === 'WHITE_LINE')) {
+                                    // On 3-lane arterials (24th Ave NW, 8th Ave NW), parking bay is outside the bike lane at x + 5 & x + 115;
+                                    // On 2-lane collectors & minor arterials, parking bay line is at x + 23 & x + 97.
+                                    const lineInset = (vLanes === 3) ? 5 : 23;
+                                    const leftLineX = txScreen + lineInset;
+                                    const rightLineX = txScreen + TILE_SIZE - lineInset;
+                                    this.ctx.strokeStyle = (pMark === 'T_STALLS')
+                                        ? 'rgba(255, 255, 255, 0.52)'
+                                        : 'rgba(255, 255, 255, 0.38)';
+                                    this.ctx.lineWidth = (pMark === 'T_STALLS') ? 1.5 : 1.2;
+                                    this.ctx.beginPath();
+                                    this.ctx.moveTo(leftLineX, tyScreen);
+                                    this.ctx.lineTo(leftLineX, tyScreen + TILE_SIZE);
+                                    this.ctx.moveTo(rightLineX, tyScreen);
+                                    this.ctx.lineTo(rightLineX, tyScreen + TILE_SIZE);
+                                    if (pMark === 'T_STALLS') {
+                                        // Metered T-Stall cross-ticks every 48px
+                                        for (const tyOff of [14, 60, 106]) {
+                                            this.ctx.moveTo(leftLineX - 8, tyScreen + tyOff);
+                                            this.ctx.lineTo(leftLineX + 2, tyScreen + tyOff);
+                                            this.ctx.moveTo(rightLineX - 2, tyScreen + tyOff);
+                                            this.ctx.lineTo(rightLineX + 8, tyScreen + tyOff);
+                                        }
+                                    }
+                                    this.ctx.stroke();
+
+                                    // Blue SDOT Pay-to-Park Sidewalk Kiosk on metered commercial streets
+                                    if (pMark === 'T_STALLS' && (r + c) % 2 === 0) {
+                                        const kioskX = (vLanes === 3) ? (txScreen - 19) : (txScreen + 1);
+                                        this.ctx.fillStyle = '#1e40af';
+                                        this.ctx.fillRect(kioskX, tyScreen + 56, 3.5, 5);
+                                        this.ctx.fillStyle = '#38bdf8';
+                                        this.ctx.fillRect(kioskX + 0.5, tyScreen + 56.5, 2.5, 2);
+                                    }
+                                }
+                            } else if (tile === 2 || tile === 7) {
+                                const hRoad = this.getHorizRoadAt(c, r);
+                                const hLanes = (hRoad && hRoad.lanes) || (tile === 7 ? 4 : 2);
+                                const pMark = hRoad?.parkingMarking || (hRoad?.isCollector ? 'WHITE_LINE' : 'UNMARKED');
+                                if (!hRoad?.hasBusLane && hLanes < 4 && (pMark === 'T_STALLS' || pMark === 'WHITE_LINE')) {
+                                    const lineInset = (hLanes === 3) ? 5 : 23;
+                                    const topLineY = tyScreen + lineInset;
+                                    const botLineY = tyScreen + TILE_SIZE - lineInset;
+                                    this.ctx.strokeStyle = (pMark === 'T_STALLS')
+                                        ? 'rgba(255, 255, 255, 0.52)'
+                                        : 'rgba(255, 255, 255, 0.38)';
+                                    this.ctx.lineWidth = (pMark === 'T_STALLS') ? 1.5 : 1.2;
+                                    this.ctx.beginPath();
+                                    this.ctx.moveTo(txScreen, topLineY);
+                                    this.ctx.lineTo(txScreen + TILE_SIZE, topLineY);
+                                    this.ctx.moveTo(txScreen, botLineY);
+                                    this.ctx.lineTo(txScreen + TILE_SIZE, botLineY);
+                                    if (pMark === 'T_STALLS') {
+                                        for (const txOff of [14, 60, 106]) {
+                                            this.ctx.moveTo(txScreen + txOff, topLineY - 8);
+                                            this.ctx.lineTo(txScreen + txOff, topLineY + 2);
+                                            this.ctx.moveTo(txScreen + txOff, botLineY - 2);
+                                            this.ctx.lineTo(txScreen + txOff, botLineY + 8);
+                                        }
+                                    }
+                                    this.ctx.stroke();
+
+                                    if (pMark === 'T_STALLS' && (r + c) % 2 === 1) {
+                                        const kioskY = (hLanes === 3) ? (tyScreen - 19) : (tyScreen + 1);
+                                        this.ctx.fillStyle = '#1e40af';
+                                        this.ctx.fillRect(txScreen + 56, kioskY, 5, 3.5);
+                                        this.ctx.fillStyle = '#38bdf8';
+                                        this.ctx.fillRect(txScreen + 56.5, kioskY + 0.5, 2, 2.5);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    const cell = pRow[c];
+                    if (cell && cell.length > 0) {
+                        for (let k = 0; k < cell.length; k++) {
+                            const pk = cell[k];
+                            Draw.car(
+                                this.ctx,
+                                pk.x - cx,
+                                pk.y - cy,
+                                pk.angle,
+                                pk.color,
+                                false,
+                                pk.alarmTimer > 0,
+                                false,
+                                100,
+                                false,
+                                pk.vehicleId,
+                                'NORMAL',
+                                { isParked: true, speed: 0 }
+                            );
+                        }
+                    }
+                }
+            }
+        }
 
         this.entities.sort((a, b) => a.y - b.y);
         this.entities.forEach(e => e.draw(this.ctx, cx, cy));
@@ -3265,6 +4897,68 @@ const Game = {
             }
         }
 
+        // Iconic 3D Holman Road Pedestrian Overpass Bridge (at 13th Ave NW & Holman Rd NW by Dick's Drive-In!)
+        if (typeof Projection3D !== 'undefined') {
+            const SX = (typeof MAP_SCALE_X !== 'undefined') ? MAP_SCALE_X : 3;
+            const SY = (typeof MAP_SCALE_Y !== 'undefined') ? MAP_SCALE_Y : 1.5;
+            const OX = (typeof BASE_OFFSET_X !== 'undefined') ? BASE_OFFSET_X : 6;
+            const OY = (typeof BASE_OFFSET_Y !== 'undefined') ? BASE_OFFSET_Y : 16;
+            const brWorldX = (50.2 + OX) * SX * TILE_SIZE;
+            const brWorldY = (-10.1 + OY) * SY * TILE_SIZE;
+            const bx = brWorldX - cx;
+            const by = brWorldY - cy;
+            if (bx > vMinX - 180 && bx < vMaxX + 180 && by > vMinY - 180 && by < vMaxY + 180) {
+                const p1x = bx - 52, p1y = by - 78;
+                const p2x = bx + 52, p2y = by + 78;
+                const top1 = Projection3D.project(p1x, p1y, 32, centerX, centerY);
+                const top2 = Projection3D.project(p2x, p2y, 32, centerX, centerY);
+                const rail1 = Projection3D.project(p1x, p1y, 38, centerX, centerY);
+                const rail2 = Projection3D.project(p2x, p2y, 38, centerX, centerY);
+
+                // Ground shadow under pedestrian overpass
+                this.ctx.strokeStyle = 'rgba(15, 23, 42, 0.35)';
+                this.ctx.lineWidth = 14;
+                this.ctx.lineCap = 'butt';
+                this.ctx.beginPath();
+                this.ctx.moveTo(p1x + 8, p1y + 10);
+                this.ctx.lineTo(p2x + 8, p2y + 10);
+                this.ctx.stroke();
+
+                // 3D Concrete Support Pier Columns & Spiral Ramp Towers
+                this.ctx.strokeStyle = '#64748b';
+                this.ctx.lineWidth = 8;
+                this.ctx.beginPath();
+                this.ctx.moveTo(p1x, p1y);
+                this.ctx.lineTo(top1.x, top1.y);
+                this.ctx.moveTo(p2x, p2y);
+                this.ctx.lineTo(top2.x, top2.y);
+                this.ctx.stroke();
+
+                // Elevated Concrete Bridge Deck spanning 5-lane Holman Rd NW
+                this.ctx.strokeStyle = '#94a3b8';
+                this.ctx.lineWidth = 14;
+                this.ctx.beginPath();
+                this.ctx.moveTo(top1.x, top1.y);
+                this.ctx.lineTo(top2.x, top2.y);
+                this.ctx.stroke();
+
+                this.ctx.strokeStyle = '#e2e8f0';
+                this.ctx.lineWidth = 10;
+                this.ctx.beginPath();
+                this.ctx.moveTo(top1.x, top1.y);
+                this.ctx.lineTo(top2.x, top2.y);
+                this.ctx.stroke();
+
+                // Protective Steel Mesh Cage & Handrails atop the Overpass
+                this.ctx.strokeStyle = '#38bdf8';
+                this.ctx.lineWidth = 2.2;
+                this.ctx.beginPath();
+                this.ctx.moveTo(rail1.x, rail1.y);
+                this.ctx.lineTo(rail2.x, rail2.y);
+                this.ctx.stroke();
+            }
+        }
+
         // 3D Park & Yard Trees
         this.trees.forEach(t => {
             const tx = t.x - cx; const ty = t.y - cy;
@@ -3272,6 +4966,7 @@ const Game = {
         });
 
         // 3D Seattle Boulevard Street Trees planted in the green residential planting strips
+        // (Skipped in Olympic Manor / Blue Ridge where OSM sidewalk=no preserves open Puget Sound view corridors!)
         if (Draw.streetTree) {
             for (let r = startR; r <= endR; r++) {
                 for (let c = startC; c <= endC; c++) {
@@ -3279,7 +4974,8 @@ const Game = {
                     const x = c * TILE_SIZE - cx;
                     const y = r * TILE_SIZE - cy;
                     if (tile === 1) {
-                        const vRoad = this.vertRoadByCol[c];
+                        const vRoad = this.getVertRoadAt(c, r);
+                        if (vRoad && vRoad.hasSidewalk === false) continue;
                         if (vRoad && vRoad.isBoulevard) {
                             // Iconic 14th Ave NW landscaped median trees
                             Draw.streetTree(this.ctx, x + TILE_SIZE / 2, y + 36, r * 31 + c * 17);
@@ -3290,6 +4986,8 @@ const Game = {
                             Draw.streetTree(this.ctx, x + TILE_SIZE - 7, y + 60, r * 23 + c * 29);
                         }
                     } else if (tile === 2 && (r + c) % 2 === 1) {
+                        const hRoad = this.getHorizRoadAt(c, r);
+                        if (hRoad && hRoad.hasSidewalk === false) continue;
                         Draw.streetTree(this.ctx, x + 60, y + 7, r * 17 + c * 37);
                         Draw.streetTree(this.ctx, x + 60, y + TILE_SIZE - 7, r * 41 + c * 11);
                     }
@@ -3299,9 +4997,9 @@ const Game = {
 
         this.drawNavArrow();
 
-        // Draw 3D Traffic Lights (with Cantilevered Overhead Mast Arms & Wet-Asphalt Reflections), 3D Stop Signs & Corner Streetlamps
+        // Draw 3D Traffic Lights (with Cantilevered Overhead Mast Arms & Wet-Asphalt Reflections), 3D Stop Signs, RapidRide Shelters & Corner Streetlamps
         this.intersections.forEach(inter => {
-            // Corner 3D Ornamental Streetlamp, Fire Hydrant & Blue USPS Mailbox at visible intersections
+            // Corner 3D Ornamental Streetlamp, Fire Hydrant, Blue USPS Mailbox & RapidRide Transit Shelter at visible intersections
             const ix = inter.worldX - cx;
             const iy = inter.worldY - cy;
             if (ix > vMinX - 110 && ix < vMaxX + 110 && iy > vMinY - 110 && iy < vMaxY + 110) {
@@ -3328,6 +5026,22 @@ const Game = {
                 this.ctx.beginPath();
                 this.ctx.arc(hTop.x, hTop.y, 1.8, 0, Math.PI * 2);
                 this.ctx.fill();
+
+                // 3D King County Metro RapidRide D-Line Red & Glass Bus Shelter + Arrival Totem at arterial signal intersections!
+                if (inter.hasArterial && inter.approaches.some(a => a.road && a.road.hasBusLane)) {
+                    const shx = ix - cornerDist - 12;
+                    const shy = iy + cornerDist + 8;
+                    const shTop = (typeof Projection3D !== 'undefined')
+                        ? Projection3D.project(shx, shy, 13, centerX, centerY)
+                        : { x: shx, y: shy - 10 };
+                    this.ctx.fillStyle = 'rgba(15, 23, 42, 0.5)';
+                    this.ctx.fillRect(shx - 8, shy - 4, 16, 8);
+                    this.ctx.fillStyle = '#b91c1c'; // RapidRide crimson canopy roof
+                    this.ctx.fillRect(shTop.x - 9, shTop.y - 5, 18, 10);
+                    this.ctx.strokeStyle = '#fca5a5';
+                    this.ctx.lineWidth = 1;
+                    this.ctx.strokeRect(shTop.x - 9, shTop.y - 5, 18, 10);
+                }
 
                 // Blue USPS Corner Mailbox on SW corner of every other intersection
                 if ((Math.round(inter.worldX + inter.worldY) % 240) < 120) {
@@ -3357,19 +5071,42 @@ const Game = {
                         const state = this.getApproachSignalState(inter, a);
                         let rCol = '#330000', yCol = '#333300', gCol = '#003300';
                         let glow = null;
+                        let activeColor = '#22c55e';
                         let reflRgba = 'rgba(0, 255, 100, 0.14)';
-                        if (state === 'RED') { rCol = '#ff0000'; glow = 'red'; reflRgba = 'rgba(239, 68, 68, 0.16)'; }
-                        else if (state === 'YELLOW') { yCol = '#ffff00'; glow = 'yellow'; reflRgba = 'rgba(250, 204, 21, 0.15)'; }
-                        else if (state === 'GREEN') { gCol = '#00ff00'; glow = 'green'; reflRgba = 'rgba(34, 197, 94, 0.15)'; }
+                        if (state === 'RED') { rCol = '#ff0000'; glow = 'red'; activeColor = '#ef4444'; reflRgba = 'rgba(239, 68, 68, 0.18)'; }
+                        else if (state === 'YELLOW') { yCol = '#ffff00'; glow = 'yellow'; activeColor = '#eab308'; reflRgba = 'rgba(250, 204, 21, 0.17)'; }
+                        else if (state === 'GREEN') { gCol = '#00ff00'; glow = 'green'; activeColor = '#22c55e'; reflRgba = 'rgba(34, 197, 94, 0.17)'; }
 
-                        // Wet-Asphalt Specular Traffic Signal Reflection Shimmer on rainy or night shifts
+                        const dx = Math.cos(a.angle);
+                        const dy = Math.sin(a.angle);
+                        const nx = -dy;
+                        const ny = dx;
+                        const armLen = a.mastArmLen || (a.isRoadArt ? 48 : 24);
+                        // Mast arm extends INWARD (-nx, -ny) from the right-hand curb pole directly over this approach's right-hand travel lanes!
+                        const mastGroundX = lx - nx * armLen;
+                        const mastGroundY = ly - ny * armLen;
+
+                        // Check if the Player is currently approaching this specific signal head so we can highlight it for instant readability
+                        let isPlayersApproach = false;
+                        if (this.player) {
+                            const toStopX = a.stopLineCenter.x - this.player.x;
+                            const toStopY = a.stopLineCenter.y - this.player.y;
+                            const pFwd = toStopX * dx + toStopY * dy;
+                            const pLat = Math.abs(toStopX * nx + toStopY * ny);
+                            const pAlign = Math.cos(this.player.angle) * dx + Math.sin(this.player.angle) * dy;
+                            if (pFwd > -18 && pFwd < 210 && pLat < 82 && pAlign > 0.62) {
+                                isPlayersApproach = true;
+                            }
+                        }
+
+                        // Wet-Asphalt Specular Traffic Signal Reflection Shimmer centered in the approaching travel lane
                         if (this.isRainy || this.timeOfDay === 3) {
-                            const sxc = a.stopLineCenter.x - cx;
-                            const syc = a.stopLineCenter.y - cy;
+                            const sxc = a.stopLineCenter.x - cx + nx * (armLen * 0.65);
+                            const syc = a.stopLineCenter.y - cy + ny * (armLen * 0.65);
                             this.ctx.save();
                             this.ctx.fillStyle = reflRgba;
                             this.ctx.beginPath();
-                            this.ctx.ellipse((lx + sxc) * 0.5, (ly + syc) * 0.5, 18, 10, a.angle, 0, Math.PI * 2);
+                            this.ctx.ellipse(sxc - dx * 12, syc - dy * 12, 20, 11, a.angle, 0, Math.PI * 2);
                             this.ctx.fill();
                             this.ctx.restore();
                         }
@@ -3378,24 +5115,20 @@ const Game = {
                             ? Projection3D.project(lx, ly, 26, centerX, centerY)
                             : { x: lx, y: ly };
 
-                        // 3D Signal Pole from curb base to elevated signal head
+                        // 3D Signal Pole from right-hand curb base to elevated mast-arm joint
                         this.ctx.strokeStyle = '#334155';
-                        this.ctx.lineWidth = 3;
+                        this.ctx.lineWidth = 3.2;
                         this.ctx.beginPath();
                         this.ctx.moveTo(lx, ly);
                         this.ctx.lineTo(topL.x, topL.y);
                         this.ctx.stroke();
 
-                        // 3D Cantilevered Overhead Mast Arm extending over the travel lane
-                        const nx = -Math.sin(a.angle);
-                        const ny = Math.cos(a.angle);
-                        const mastGroundX = lx + nx * (a.isRoadArt ? 38 : 22);
-                        const mastGroundY = ly + ny * (a.isRoadArt ? 38 : 22);
+                        // 3D Cantilevered Overhead Mast Arm extending inward over the approaching travel lanes
                         const mastTip = (typeof Projection3D !== 'undefined')
                             ? Projection3D.project(mastGroundX, mastGroundY, 25, centerX, centerY)
                             : { x: mastGroundX, y: mastGroundY };
-                        this.ctx.strokeStyle = '#475569';
-                        this.ctx.lineWidth = 2.2;
+                        this.ctx.strokeStyle = isPlayersApproach ? '#cbd5e1' : '#475569';
+                        this.ctx.lineWidth = isPlayersApproach ? 2.8 : 2.4;
                         this.ctx.beginPath();
                         this.ctx.moveTo(topL.x, topL.y);
                         this.ctx.lineTo(mastTip.x, mastTip.y);
@@ -3403,29 +5136,61 @@ const Game = {
 
                         this.ctx.fillStyle = '#1e293b';
                         this.ctx.beginPath();
-                        this.ctx.arc(lx, ly, 3.5, 0, Math.PI * 2);
+                        this.ctx.arc(lx, ly, 3.8, 0, Math.PI * 2);
                         this.ctx.fill();
 
-                        this.ctx.save();
-                        this.ctx.translate(mastTip.x, mastTip.y);
-                        this.ctx.rotate(a.angle + Math.PI);
+                        // Position signal heads directly over the center of each approaching travel lane:
+                        // - 4/5-lane arterials: outer lane (+52px) & inner lane (+28px) -> fracs [0.42, 0.92] along inward mast arm
+                        // - 2/3-lane streets: single travel lane (+24..28px) -> frac [0.88] along inward mast arm
+                        const headCount = a.signalHeadCount || ((a.roadLanes || 2) >= 4 ? 2 : 1);
+                        const headFracs = headCount >= 2 ? [0.42, 0.92] : [0.88];
+                        for (let hIdx = 0; hIdx < headFracs.length; hIdx++) {
+                            const frac = headFracs[hIdx];
+                            const hx = topL.x + (mastTip.x - topL.x) * frac;
+                            const hy = topL.y + (mastTip.y - topL.y) * frac;
+                            this.ctx.save();
+                            this.ctx.translate(hx, hy);
+                            // Align signal housing along the approach axis so +Y faces the oncoming driver (-dx, -dy)
+                            this.ctx.rotate(a.angle - Math.PI / 2);
 
-                        this.ctx.fillStyle = '#000';
-                        this.ctx.fillRect(-5, -12, 10, 24);
+                            // Directional light cone projecting toward the approaching driver (+Y) so it's unmistakable which lane this signal faces!
+                            const beamGrad = this.ctx.createLinearGradient(0, 8, 0, isPlayersApproach ? 30 : 22);
+                            beamGrad.addColorStop(0, state === 'RED' ? 'rgba(239, 68, 68, 0.42)' : (state === 'YELLOW' ? 'rgba(250, 204, 21, 0.40)' : 'rgba(34, 197, 94, 0.38)'));
+                            beamGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+                            this.ctx.fillStyle = beamGrad;
+                            this.ctx.beginPath();
+                            this.ctx.moveTo(-4.5, 9.5);
+                            this.ctx.lineTo(-10.5, isPlayersApproach ? 30 : 22);
+                            this.ctx.lineTo(10.5, isPlayersApproach ? 30 : 22);
+                            this.ctx.lineTo(4.5, 9.5);
+                            this.ctx.closePath();
+                            this.ctx.fill();
 
-                        this.ctx.fillStyle = rCol;
-                        if (glow === 'red') { this.ctx.shadowBlur = 6; this.ctx.shadowColor = 'red'; }
-                        this.ctx.beginPath(); this.ctx.arc(0, -6, 2.5, 0, Math.PI * 2); this.ctx.fill(); this.ctx.shadowBlur = 0;
+                            // Black 3-section signal housing with high-visibility Seattle reflective yellow backplate border
+                            this.ctx.fillStyle = '#0f172a';
+                            this.ctx.fillRect(-5.2, -11, 10.4, 21.5);
+                            this.ctx.strokeStyle = isPlayersApproach ? '#fef08a' : '#eab308';
+                            this.ctx.lineWidth = isPlayersApproach ? 1.5 : 0.9;
+                            this.ctx.strokeRect(-5.2, -11, 10.4, 21.5);
 
-                        this.ctx.fillStyle = yCol;
-                        if (glow === 'yellow') { this.ctx.shadowBlur = 6; this.ctx.shadowColor = 'yellow'; }
-                        this.ctx.beginPath(); this.ctx.arc(0, 0, 2.5, 0, Math.PI * 2); this.ctx.fill(); this.ctx.shadowBlur = 0;
+                            // Front directional visor lip & active-color indicator bar on the face toward the approaching driver (y = +10.5)
+                            this.ctx.fillStyle = activeColor;
+                            this.ctx.fillRect(-4.6, 9.2, 9.2, 1.8);
 
-                        this.ctx.fillStyle = gCol;
-                        if (glow === 'green') { this.ctx.shadowBlur = 6; this.ctx.shadowColor = 'green'; }
-                        this.ctx.beginPath(); this.ctx.arc(0, 6, 2.5, 0, Math.PI * 2); this.ctx.fill(); this.ctx.shadowBlur = 0;
+                            this.ctx.fillStyle = rCol;
+                            if (glow === 'red') { this.ctx.shadowBlur = 7; this.ctx.shadowColor = 'red'; }
+                            this.ctx.beginPath(); this.ctx.arc(0, -5.8, 2.4, 0, Math.PI * 2); this.ctx.fill(); this.ctx.shadowBlur = 0;
 
-                        this.ctx.restore();
+                            this.ctx.fillStyle = yCol;
+                            if (glow === 'yellow') { this.ctx.shadowBlur = 7; this.ctx.shadowColor = 'yellow'; }
+                            this.ctx.beginPath(); this.ctx.arc(0, 0, 2.4, 0, Math.PI * 2); this.ctx.fill(); this.ctx.shadowBlur = 0;
+
+                            this.ctx.fillStyle = gCol;
+                            if (glow === 'green') { this.ctx.shadowBlur = 7; this.ctx.shadowColor = 'green'; }
+                            this.ctx.beginPath(); this.ctx.arc(0, 5.8, 2.4, 0, Math.PI * 2); this.ctx.fill(); this.ctx.shadowBlur = 0;
+
+                            this.ctx.restore();
+                        }
                     }
                 } else if (a.controlType === 'STOP' && a.signPos) {
                     const sx = a.signPos.x - cx;
@@ -3543,7 +5308,9 @@ const Game = {
         }
 
         // Restore world camera Zoom & Pitch transform before drawing screen-space overlays
-        this.ctx.restore();
+        } finally {
+            this.ctx.restore();
+        }
 
         // Drifting cloud shadows on sunny days
         if (!this.isRainy && this.timeOfDay !== 3) {
@@ -3572,7 +5339,7 @@ const Game = {
             this.ctx.fillStyle = 'rgba(245, 120, 30, 0.12)';
             this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
         } else if (this.timeOfDay === 3) {
-            this.ctx.fillStyle = 'rgba(15, 23, 42, 0.65)';
+            this.ctx.fillStyle = 'rgba(15, 23, 42, 0.35)';
             this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
         }
 
@@ -3628,14 +5395,16 @@ const Game = {
         }
 
         // Subtle Atmospheric Cinematic Vignette around screen edges
-        const vigGrad = this.ctx.createRadialGradient(
-            centerX, centerY, Math.min(centerX, centerY) * 0.65,
-            centerX, centerY, Math.hypot(centerX, centerY)
-        );
-        vigGrad.addColorStop(0, 'rgba(0, 0, 0, 0)');
-        vigGrad.addColorStop(1, this.timeOfDay === 3 ? 'rgba(2, 6, 23, 0.42)' : 'rgba(15, 23, 42, 0.22)');
-        this.ctx.fillStyle = vigGrad;
-        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        if (centerX > 0 && centerY > 0) {
+            const vigGrad = this.ctx.createRadialGradient(
+                centerX, centerY, Math.min(centerX, centerY) * 0.65,
+                centerX, centerY, Math.hypot(centerX, centerY)
+            );
+            vigGrad.addColorStop(0, 'rgba(0, 0, 0, 0)');
+            vigGrad.addColorStop(1, this.timeOfDay === 3 ? 'rgba(2, 6, 23, 0.26)' : 'rgba(15, 23, 42, 0.18)');
+            this.ctx.fillStyle = vigGrad;
+            this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        }
 
         // Update Ballard GPS Minimap
         this.drawMinimap();
