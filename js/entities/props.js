@@ -197,6 +197,10 @@ class Building {
         const bizTile = (typeof MapData !== 'undefined' && MapData.businessesByTile)
             ? MapData.businessesByTile[`${tx},${ty}`]
             : null;
+        const bizList = (typeof MapData !== 'undefined' && MapData.businessListByTile)
+            ? MapData.businessListByTile[`${tx},${ty}`]
+            : null;
+        this.businessList = (bizList && bizList.length > 0) ? bizList : (bizTile ? [bizTile] : null);
         this.businessInfo = bizTile || null;
         this.buildingName = bizTile ? bizTile.name : null;
         this.businessCategory = bizTile ? (bizTile.category || 'SHOP') : null;
@@ -340,6 +344,140 @@ class Building {
         this.brewTanks = [];
 
         this._buildSubStructures(sRand);
+        this._finalizeBusinessAndDiagonalSubStructures(sRand);
+    }
+
+    _finalizeBusinessAndDiagonalSubStructures(sRand) {
+        const mainSubs = this.subStructures.filter(s => !s.isGarage && !s.isWing);
+
+        // 1. If multiple real-world businesses occupy this commercial block parcel (e.g., 2213 & 2215 NW Market St,
+        //    or 5231 & 5233 Ballard Ave NW), ensure there are enough side-by-side storefront subStructures so every
+        //    business gets its own distinct storefront building and rooftop sign!
+        if (this.businessList && this.businessList.length > 0 && mainSubs.length > 0) {
+            const targetCount = Math.min(3, this.businessList.length);
+            if (mainSubs.length < targetCount) {
+                const template = mainSubs[0];
+                const splitX = Boolean(
+                    (this.edges && this.edges.diag) ||
+                    (this.edges && this.edges.N) ||
+                    (this.edges && this.edges.S) ||
+                    !(this.edges && (this.edges.W || this.edges.E))
+                );
+                const brickPalette = ['#8b2e26', '#9c3d2b', '#7a3328', '#a8643b', '#5c2d24', '#6e473b'];
+                const awningPalette = ['#276749', '#9b2c2c', '#2b6cb0', '#b7791f', '#1a202c'];
+                const rebuilt = [];
+                for (let i = 0; i < targetCount; i++) {
+                    let sx, sy, sw, sh;
+                    if (splitX) {
+                        const slotW = Math.floor(this.w / targetCount);
+                        sw = Math.max(20, slotW - 4);
+                        sx = this.x + i * slotW + 2;
+                        sy = this.y + 6;
+                        sh = Math.max(20, this.h - 12);
+                    } else {
+                        const slotH = Math.floor(this.h / targetCount);
+                        sx = this.x + 6;
+                        sw = Math.max(20, this.w - 12);
+                        sh = Math.max(20, slotH - 4);
+                        sy = this.y + i * slotH + 2;
+                    }
+                    rebuilt.push({
+                        ...template,
+                        x: sx,
+                        y: sy,
+                        w: sw,
+                        h: sh,
+                        zHeight: template.zHeight + (i === 1 ? -4 : (i === 2 ? 3 : 0)),
+                        wallColor: i === 0 ? template.wallColor : brickPalette[Math.floor(sRand(70 + i * 3) * brickPalette.length)],
+                        awningColor: awningPalette[Math.floor(sRand(71 + i * 3) * awningPalette.length)],
+                        seed: sRand(72 + i)
+                    });
+                }
+                this.subStructures = rebuilt;
+            }
+
+            // Assign each business in this.businessList to its corresponding storefront subStructure
+            // (ordered from West to East / NW to SE by Seattle house number parity & block order)
+            const orderedBiz = [...this.businessList].sort((a, b) => (b.houseNum || 0) - (a.houseNum || 0));
+            const activeSubs = this.subStructures.filter(s => !s.isGarage && !s.isWing);
+            for (let i = 0; i < orderedBiz.length && i < activeSubs.length; i++) {
+                const biz = orderedBiz[i];
+                activeSubs[i].label = biz.name;
+                activeSubs[i].businessCategory = biz.category || this.businessCategory || 'SHOP';
+                activeSubs[i].hasBladeSign = true;
+            }
+        }
+
+        // 2. Diagonal Street Building Orientation (`this.edges.diagInfo`):
+        //    When a building fronts a diagonal street (Ballard Ave NW, Leary Ave NW, NW Leary Way, Shilshole Ave NW,
+        //    Holman Rd NW, Russell Ave NW, Loyal Way NW, etc.), orient its 3D subStructures parallel to the diagonal curb!
+        if (this.edges && this.edges.diagInfo && this.subStructures.length > 0) {
+            const dInfo = this.edges.diagInfo;
+            const diagAngle = dInfo.angle || 0;
+            const diagFacing = dInfo.facing || this.facing;
+            const ux = Math.cos(diagAngle);
+            const uy = Math.sin(diagAngle);
+            const vx = -Math.sin(diagAngle);
+            const vy = Math.cos(diagAngle);
+
+            // Keep only primary building volumes on diagonal lots so rotated footprints are clean and well-aligned
+            const primarySubs = this.subStructures.filter(s => !s.isGarage && !s.isWing);
+            if (primarySubs.length > 0) {
+                this.subStructures = primarySubs;
+                const count = primarySubs.length;
+                const lotCx = this.x + this.w * 0.5;
+                const lotCy = this.y + this.h * 0.5;
+
+                if (count === 1) {
+                    const s = primarySubs[0];
+                    s.w = Math.min(s.w, Math.max(28, Math.floor(this.w * 0.72)));
+                    s.h = Math.min(s.h, Math.max(24, Math.floor(this.h * 0.64)));
+                    s.x = lotCx - s.w * 0.5;
+                    s.y = lotCy - s.h * 0.5;
+                    s.angle = diagAngle;
+                    s.facing = diagFacing;
+                } else {
+                    const maxSpan = Math.min(this.w * 0.82, 84);
+                    const gap = 3;
+                    const unitW = Math.max(22, Math.floor((maxSpan - gap * (count - 1)) / count));
+                    const unitH = Math.min(40, Math.max(24, Math.floor(this.h * 0.60)));
+                    for (let i = 0; i < count; i++) {
+                        const s = primarySubs[i];
+                        const along = (i - (count - 1) * 0.5) * (unitW + gap);
+                        const scx = lotCx + along * ux;
+                        const scy = lotCy + along * uy;
+                        s.w = unitW;
+                        s.h = unitH;
+                        s.x = scx - unitW * 0.5;
+                        s.y = scy - unitH * 0.5;
+                        s.angle = diagAngle;
+                        s.facing = diagFacing;
+                    }
+                }
+
+                // Reposition sidewalk patio tables along the diagonal storefront facade
+                if (this.patioTables && this.patioTables.length > 0) {
+                    const frontSign = (diagFacing === 'UP') ? -1 : 1;
+                    this.patioTables = [];
+                    for (let i = 0; i < primarySubs.length; i++) {
+                        const s = primarySubs[i];
+                        const scx = s.x + s.w * 0.5;
+                        const scy = s.y + s.h * 0.5;
+                        const frontDist = s.h * 0.5 + 3.5;
+                        this.patioTables.push(
+                            {
+                                x: scx - s.w * 0.22 * ux + frontSign * frontDist * vx,
+                                y: scy - s.w * 0.22 * uy + frontSign * frontDist * vy
+                            },
+                            {
+                                x: scx + s.w * 0.22 * ux + frontSign * frontDist * vx,
+                                y: scy + s.w * 0.22 * uy + frontSign * frontDist * vy
+                            }
+                        );
+                    }
+                }
+            }
+        }
     }
 
     _buildSubStructures(sRand) {
@@ -1325,10 +1463,25 @@ class Building {
         const isRainy = (typeof Game !== 'undefined') ? Game.isRainy : false;
 
         if (this.isUrban) {
-            ctx.fillStyle = isRainy ? '#3b4454' : '#64748b';
-            ctx.fillRect(screenX, screenY, this.w, this.h);
+            if (this.edges && this.edges.diagInfo && this.subStructures.length > 0) {
+                // Rotated storefront concrete apron parallel to the diagonal street curb
+                ctx.fillStyle = isRainy ? '#3b4454' : '#64748b';
+                for (let i = 0; i < this.subStructures.length; i++) {
+                    const sub = this.subStructures[i];
+                    const scx = (sub.x + sub.w * 0.5) - camX;
+                    const scy = (sub.y + sub.h * 0.5) - camY;
+                    ctx.save();
+                    ctx.translate(scx, scy);
+                    ctx.rotate(sub.angle || 0);
+                    ctx.fillRect(-sub.w * 0.5 - 6, -sub.h * 0.5 - 6, sub.w + 12, sub.h + 12);
+                    ctx.restore();
+                }
+            } else {
+                ctx.fillStyle = isRainy ? '#3b4454' : '#64748b';
+                ctx.fillRect(screenX, screenY, this.w, this.h);
+            }
 
-            if (this.officePlaza) {
+            if (this.officePlaza && !(this.edges && this.edges.diagInfo)) {
                 // Architectural forecourt plaza pavers & entry planters for Office / Civic buildings
                 ctx.fillStyle = isRainy ? '#475569' : '#94a3b8';
                 ctx.fillRect(screenX + 3, screenY + 3, this.w - 6, this.h - 6);
@@ -1633,6 +1786,20 @@ class Building {
         const sy1 = sub.y - camY;
         const sx2 = sx1 + sub.w;
         const sy2 = sy1 + sub.h;
+        const cx = (sx1 + sx2) * 0.5;
+        const cy = (sy1 + sy2) * 0.5;
+        const hw = sub.w * 0.5;
+        const hh = sub.h * 0.5;
+        const rotAngle = sub.angle || 0;
+        const isRotated = Math.abs(rotAngle) > 0.001;
+        const ux = isRotated ? Math.cos(rotAngle) : 1;
+        const uy = isRotated ? Math.sin(rotAngle) : 0;
+        const vx = isRotated ? -Math.sin(rotAngle) : 0;
+        const vy = isRotated ? Math.cos(rotAngle) : 1;
+        const localPt = (lx, ly) => ({
+            x: cx + lx * ux + ly * vx,
+            y: cy + lx * uy + ly * vy
+        });
 
         // Camera-relative 2.5D terrain elevation:
         // The camera remains at a constant height relative to the player's car (`Projection3D.refElevation`).
@@ -1647,6 +1814,12 @@ class Building {
         const isNight = (typeof Game !== 'undefined' && Game.timeOfDay === 3);
         const isRainy = (typeof Game !== 'undefined' && Game.isRainy);
 
+        // Base corners at ground plane (z = 0), supporting diagonal street orientation (`sub.angle`)
+        const bNW = localPt(-hw, -hh);
+        const bNE = localPt(+hw, -hh);
+        const bSE = localPt(+hw, +hh);
+        const bSW = localPt(-hw, +hh);
+
         // Dynamic Time-of-Day Height-Proportional Polygon Cast Shadow
         const sh = (typeof Draw !== 'undefined' && Draw.getShadowVector)
             ? Draw.getShadowVector()
@@ -1655,32 +1828,34 @@ class Building {
         const shOffY = sh.dy * z * 0.46;
         ctx.fillStyle = `rgba(0,0,0,${sh.alpha.toFixed(2)})`;
         ctx.beginPath();
-        ctx.moveTo(sx1, sy1);
-        ctx.lineTo(sx2, sy1);
-        ctx.lineTo(sx2 + shOffX, sy1 + shOffY);
-        ctx.lineTo(sx2 + shOffX, sy2 + shOffY);
-        ctx.lineTo(sx1 + shOffX, sy2 + shOffY);
-        ctx.lineTo(sx1, sy2);
+        ctx.moveTo(bNW.x, bNW.y);
+        ctx.lineTo(bNE.x, bNE.y);
+        ctx.lineTo(bNE.x + shOffX, bNE.y + shOffY);
+        ctx.lineTo(bSE.x + shOffX, bSE.y + shOffY);
+        ctx.lineTo(bSW.x + shOffX, bSW.y + shOffY);
+        ctx.lineTo(bSW.x, bSW.y);
         ctx.closePath();
         ctx.fill();
 
-        // Base corners at ground plane (z = 0)
-        const bNW = { x: sx1, y: sy1 };
-        const bNE = { x: sx2, y: sy1 };
-        const bSE = { x: sx2, y: sy2 };
-        const bSW = { x: sx1, y: sy2 };
-
         // Top of walls at z = zHeight
-        const tNW = Projection3D.project(sx1, sy1, z, centerX, centerY);
-        const tNE = Projection3D.project(sx2, sy1, z, centerX, centerY);
-        const tSE = Projection3D.project(sx2, sy2, z, centerX, centerY);
-        const tSW = Projection3D.project(sx1, sy2, z, centerX, centerY);
+        const tNW = Projection3D.project(bNW.x, bNW.y, z, centerX, centerY);
+        const tNE = Projection3D.project(bNE.x, bNE.y, z, centerX, centerY);
+        const tSE = Projection3D.project(bSE.x, bSE.y, z, centerX, centerY);
+        const tSW = Projection3D.project(bSW.x, bSW.y, z, centerX, centerY);
 
-        // Determine visible walls based on radial perspective projection
-        const showNorth = tNW.y > bNW.y + 0.5;
-        const showSouth = tSW.y < bSW.y - 0.5;
-        const showWest  = tNW.x > bNW.x + 0.5;
-        const showEast  = tNE.x < bNE.x - 0.5;
+        // Determine visible walls based on radial perspective projection & outward wall normal
+        const showNorth = isRotated
+            ? (((tNW.x + tNE.x - bNW.x - bNE.x) * 0.5 * (-vx) + (tNW.y + tNE.y - bNW.y - bNE.y) * 0.5 * (-vy)) < -0.4)
+            : (tNW.y > bNW.y + 0.5);
+        const showSouth = isRotated
+            ? (((tSW.x + tSE.x - bSW.x - bSE.x) * 0.5 * vx + (tSW.y + tSE.y - bSW.y - bSE.y) * 0.5 * vy) < -0.4)
+            : (tSW.y < bSW.y - 0.5);
+        const showWest  = isRotated
+            ? (((tSW.x + tNW.x - bSW.x - bNW.x) * 0.5 * (-ux) + (tSW.y + tNW.y - bSW.y - bNW.y) * 0.5 * (-uy)) < -0.4)
+            : (tNW.x > bNW.x + 0.5);
+        const showEast  = isRotated
+            ? (((tNE.x + tSE.x - bNE.x - bSE.x) * 0.5 * ux + (tNE.y + tSE.y - bNE.y - bSE.y) * 0.5 * uy) < -0.4)
+            : (tNE.x < bNE.x - 0.5);
 
         const drawWallQuad = (bA, bB, tB, tA, wallColor, isFrontWall) => {
             // 1. Wall polygon fill
@@ -1897,25 +2072,27 @@ class Building {
         // =====================================================================
         if (sub.roofType === 'GABLE' || sub.roofType === 'CORRUGATED_GABLE' || sub.roofType === 'HIPPED') {
             const overhang = sub.overhang || (this.isUrban ? 0.5 : 2.0);
-            const eNW = Projection3D.project(sx1 - overhang, sy1 - overhang, z, centerX, centerY);
-            const eNE = Projection3D.project(sx2 + overhang, sy1 - overhang, z, centerX, centerY);
-            const eSE = Projection3D.project(sx2 + overhang, sy2 + overhang, z, centerX, centerY);
-            const eSW = Projection3D.project(sx1 - overhang, sy2 + overhang, z, centerX, centerY);
+            const gNW = localPt(-(hw + overhang), -(hh + overhang));
+            const gNE = localPt(+(hw + overhang), -(hh + overhang));
+            const gSE = localPt(+(hw + overhang), +(hh + overhang));
+            const gSW = localPt(-(hw + overhang), +(hh + overhang));
+            const eNW = Projection3D.project(gNW.x, gNW.y, z, centerX, centerY);
+            const eNE = Projection3D.project(gNE.x, gNE.y, z, centerX, centerY);
+            const eSE = Projection3D.project(gSE.x, gSE.y, z, centerX, centerY);
+            const eSW = Projection3D.project(gSW.x, gSW.y, z, centerX, centerY);
 
             const pitch = sub.pitch || 14;
             const zPeak = z + pitch;
 
             if (sub.roofType === 'HIPPED') {
                 // 4-sided pyramid/hipped Foursquare roof
-                const midX = (sx1 + sx2) / 2;
-                const midY = (sy1 + sy2) / 2;
-                const peak = Projection3D.project(midX, midY, zPeak, centerX, centerY);
+                const peak = Projection3D.project(cx, cy, zPeak, centerX, centerY);
 
                 const faces = [
-                    { pts: [eNW, eNE, peak], col: this.shadeColor(sub.roofColor, -18), dist: (sy1 - centerY) },
-                    { pts: [eSW, eNW, peak], col: this.shadeColor(sub.roofColor, -4),  dist: (sx1 - centerX) },
-                    { pts: [eNE, eSE, peak], col: this.shadeColor(sub.roofColor, -14), dist: -(sx2 - centerX) },
-                    { pts: [eSE, eSW, peak], col: this.shadeColor(sub.roofColor, 6),   dist: -(sy2 - centerY) }
+                    { pts: [eNW, eNE, peak], col: this.shadeColor(sub.roofColor, -18), dist: (cy - hh - centerY) },
+                    { pts: [eSW, eNW, peak], col: this.shadeColor(sub.roofColor, -4),  dist: (cx - hw - centerX) },
+                    { pts: [eNE, eSE, peak], col: this.shadeColor(sub.roofColor, -14), dist: -(cx + hw - centerX) },
+                    { pts: [eSE, eSW, peak], col: this.shadeColor(sub.roofColor, 6),   dist: -(cy + hh - centerY) }
                 ];
                 // Draw back slopes first, front slopes last
                 faces.sort((a, b) => a.dist - b.dist);
@@ -1932,9 +2109,10 @@ class Building {
                     ctx.stroke();
                 }
             } else if (sub.ridgeAxis === 'NS') {
-                const midX = (sx1 + sx2) / 2;
-                const rN = Projection3D.project(midX, sy1 - overhang, zPeak, centerX, centerY);
-                const rS = Projection3D.project(midX, sy2 + overhang, zPeak, centerX, centerY);
+                const gRN = localPt(0, -(hh + overhang));
+                const gRS = localPt(0, +(hh + overhang));
+                const rN = Projection3D.project(gRN.x, gRN.y, zPeak, centerX, centerY);
+                const rS = Projection3D.project(gRS.x, gRS.y, zPeak, centerX, centerY);
 
                 if (showNorth) {
                     ctx.fillStyle = this.shadeColor(sub.wallColor, -22);
@@ -1961,7 +2139,7 @@ class Building {
                     ctx.strokeStyle = '#0f172a'; ctx.lineWidth = 1.2; ctx.stroke();
                 };
 
-                if (midX < centerX) { drawWestSlope(); drawEastSlope(); }
+                if (cx < centerX) { drawWestSlope(); drawEastSlope(); }
                 else { drawEastSlope(); drawWestSlope(); }
 
                 if (showSouth) {
@@ -1979,9 +2157,10 @@ class Building {
                 ctx.lineTo(rS.x, rS.y);
                 ctx.stroke();
             } else {
-                const midY = (sy1 + sy2) / 2;
-                const rW = Projection3D.project(sx1 - overhang, midY, zPeak, centerX, centerY);
-                const rE = Projection3D.project(sx2 + overhang, midY, zPeak, centerX, centerY);
+                const gRW = localPt(-(hw + overhang), 0);
+                const gRE = localPt(+(hw + overhang), 0);
+                const rW = Projection3D.project(gRW.x, gRW.y, zPeak, centerX, centerY);
+                const rE = Projection3D.project(gRE.x, gRE.y, zPeak, centerX, centerY);
 
                 if (showWest) {
                     ctx.fillStyle = this.shadeColor(sub.wallColor, -6);
@@ -2015,7 +2194,7 @@ class Building {
                     ctx.strokeStyle = '#0f172a'; ctx.lineWidth = 1.2; ctx.stroke();
                 };
 
-                if (midY < centerY) { drawNorthSlope(); drawSouthSlope(); }
+                if (cy < centerY) { drawNorthSlope(); drawSouthSlope(); }
                 else { drawSouthSlope(); drawNorthSlope(); }
 
                 ctx.strokeStyle = '#0f172a';
@@ -2028,10 +2207,9 @@ class Building {
 
             // 3D Extruded Brick Chimney Stack
             if (sub.hasChimney) {
-                const cxBase = sx1 + sub.w * 0.25;
-                const cyBase = sy1 + sub.h * 0.3;
-                const chBot = Projection3D.project(cxBase, cyBase, z + pitch * 0.4, centerX, centerY);
-                const chTop = Projection3D.project(cxBase, cyBase, z + pitch + 7, centerX, centerY);
+                const gCh = localPt(-hw * 0.5, -hh * 0.4);
+                const chBot = Projection3D.project(gCh.x, gCh.y, z + pitch * 0.4, centerX, centerY);
+                const chTop = Projection3D.project(gCh.x, gCh.y, z + pitch + 7, centerX, centerY);
 
                 ctx.strokeStyle = '#7f1d1d';
                 ctx.lineWidth = 5;
@@ -2061,48 +2239,46 @@ class Building {
             ctx.lineWidth = sub.roofType === 'FLAT_PARAPET' ? 2.4 : 1.5;
             ctx.stroke();
 
+            const fillRoofQuad = (lx1, ly1, lx2, ly2, zVal, fillCol, strokeCol = null, lineW = 1) => {
+                const p1 = localPt(lx1, ly1), p2 = localPt(lx2, ly1), p3 = localPt(lx2, ly2), p4 = localPt(lx1, ly2);
+                const q1 = Projection3D.project(p1.x, p1.y, zVal, centerX, centerY);
+                const q2 = Projection3D.project(p2.x, p2.y, zVal, centerX, centerY);
+                const q3 = Projection3D.project(p3.x, p3.y, zVal, centerX, centerY);
+                const q4 = Projection3D.project(p4.x, p4.y, zVal, centerX, centerY);
+                ctx.fillStyle = fillCol;
+                ctx.beginPath();
+                ctx.moveTo(q1.x, q1.y);
+                ctx.lineTo(q2.x, q2.y);
+                ctx.lineTo(q3.x, q3.y);
+                ctx.lineTo(q4.x, q4.y);
+                ctx.closePath();
+                ctx.fill();
+                if (strokeCol) {
+                    ctx.strokeStyle = strokeCol;
+                    ctx.lineWidth = lineW;
+                    ctx.stroke();
+                }
+            };
+
             if (sub.roofType === 'MODERN_DECK') {
-                const dNW = Projection3D.project(sx1 + 5, sy1 + 6, z, centerX, centerY);
-                const dSE = Projection3D.project(sx1 + sub.w * 0.55, sy1 + sub.h * 0.42, z, centerX, centerY);
-                ctx.fillStyle = '#9c5d30';
-                ctx.fillRect(dNW.x, dNW.y, dSE.x - dNW.x, dSE.y - dNW.y);
-                ctx.fillStyle = '#2f855a';
-                ctx.fillRect(dNW.x + 2, dSE.y + 3, (dSE.x - dNW.x) * 0.8, 8);
+                fillRoofQuad(-hw + 5, -hh + 6, -hw + sub.w * 0.55, -hh + sub.h * 0.42, z, '#9c5d30');
+                fillRoofQuad(-hw + 7, -hh + sub.h * 0.45, -hw + sub.w * 0.45, -hh + sub.h * 0.45 + 8, z, '#2f855a');
             }
             if (sub.roofType === 'TOWNHOME_ROOF') {
-                const dNW = Projection3D.project(sx1 + 3, sy1 + 4, z, centerX, centerY);
-                const dSE = Projection3D.project(sx2 - 3, sy1 + sub.h * 0.45, z, centerX, centerY);
-                ctx.fillStyle = '#8b5a2b';
-                ctx.fillRect(dNW.x, dNW.y, dSE.x - dNW.x, dSE.y - dNW.y);
+                fillRoofQuad(-hw + 3, -hh + 4, hw - 3, -hh + sub.h * 0.45, z, '#8b5a2b');
             }
             if (sub.hasPenthouse) {
-                const pNW = Projection3D.project(sx1 + sub.w * 0.25, sy1 + sub.h * 0.25, z + 7, centerX, centerY);
-                const pSE = Projection3D.project(sx1 + sub.w * 0.72, sy1 + sub.h * 0.68, z + 7, centerX, centerY);
-                ctx.fillStyle = '#334155';
-                ctx.fillRect(pNW.x, pNW.y, pSE.x - pNW.x, pSE.y - pNW.y);
-                ctx.strokeStyle = '#94a3b8';
-                ctx.lineWidth = 1.1;
-                ctx.strokeRect(pNW.x, pNW.y, pSE.x - pNW.x, pSE.y - pNW.y);
+                fillRoofQuad(-hw * 0.5, -hh * 0.5, hw * 0.44, hh * 0.36, z + 7, '#334155', '#94a3b8', 1.1);
             }
             if (sub.hasHVAC) {
-                const hvac = Projection3D.project(sx2 - 12, sy2 - 12, z + 4, centerX, centerY);
-                ctx.fillStyle = '#64748b';
-                ctx.fillRect(hvac.x - 5, hvac.y - 5, 10, 10);
-                ctx.strokeStyle = '#0f172a';
-                ctx.lineWidth = 1;
-                ctx.strokeRect(hvac.x - 5, hvac.y - 5, 10, 10);
+                fillRoofQuad(hw - 15, hh - 15, hw - 6, hh - 6, z + 4, '#64748b', '#0f172a', 1.0);
             }
             if (sub.hasSkylight) {
-                const sky = Projection3D.project(sx1 + 12, sy1 + 14, z + 1, centerX, centerY);
-                ctx.fillStyle = isNight ? '#fef08a' : '#38bdf8';
-                ctx.fillRect(sky.x - 5, sky.y - 4, 10, 8);
-                ctx.strokeStyle = '#e2e8f0';
-                ctx.lineWidth = 0.9;
-                ctx.strokeRect(sky.x - 5, sky.y - 4, 10, 8);
+                fillRoofQuad(-hw + 7, -hh + 10, -hw + 17, -hh + 18, z + 1, isNight ? '#fef08a' : '#38bdf8', '#e2e8f0', 0.9);
             }
             if (sub.isHospital) {
                 // Swedish Ballard Hospital Rooftop Helipad [H]
-                const hPos = Projection3D.project((sx1 + sx2) / 2, (sy1 + sy2) / 2, z + 8, centerX, centerY);
+                const hPos = Projection3D.project(cx, cy, z + 8, centerX, centerY);
                 ctx.strokeStyle = '#facc15';
                 ctx.lineWidth = 1.4;
                 ctx.beginPath();
@@ -2115,28 +2291,21 @@ class Building {
                 ctx.fillText('H', hPos.x, hPos.y);
             } else if (sub.isLibrary) {
                 // Ballard Branch Library Living Green Sedum Roof & Curved Skylight Monitors
-                const gNW = Projection3D.project(sx1 + 4, sy1 + 4, z + 1, centerX, centerY);
-                const gSE = Projection3D.project(sx2 - 4, sy2 - 4, z + 1, centerX, centerY);
-                ctx.fillStyle = '#2f855a';
-                ctx.fillRect(gNW.x, gNW.y, gSE.x - gNW.x, gSE.y - gNW.y);
-                ctx.fillStyle = '#48bb78';
-                ctx.fillRect(gNW.x + 3, gNW.y + 3, (gSE.x - gNW.x) * 0.55, (gSE.y - gNW.y) * 0.45);
+                fillRoofQuad(-hw + 4, -hh + 4, hw - 4, hh - 4, z + 1, '#2f855a');
+                fillRoofQuad(-hw + 7, -hh + 7, 0, 0, z + 1, '#48bb78');
             } else if (sub.isNordicMuseum) {
                 // National Nordic Museum central linear glass "Fjord" atrium
-                const fW = Projection3D.project(sx1 + 2, (sy1 + sy2) / 2 - 3, z + 2, centerX, centerY);
-                const fE = Projection3D.project(sx2 - 2, (sy1 + sy2) / 2 + 3, z + 2, centerX, centerY);
-                ctx.fillStyle = isNight ? '#fef08a' : '#7dd3fc';
-                ctx.fillRect(fW.x, fW.y, fE.x - fW.x, Math.max(4, fE.y - fW.y));
+                fillRoofQuad(-hw + 2, -3, hw - 2, 3, z + 2, isNight ? '#fef08a' : '#7dd3fc');
             }
         }
 
         // Architectural rooftop sign for Ballard businesses (restaurants, cafes, breweries, markets, shops & landmarks)
-        if (sub.label && sx1 > -60 && sx2 < ctx.canvas.width + 60 && sy1 > -60 && sy2 < ctx.canvas.height + 60) {
+        if (sub.label && cx > -80 && cx < ctx.canvas.width + 80 && cy > -80 && cy < ctx.canvas.height + 80) {
             const normKey = sub.label.toUpperCase();
             if (!Projection3D._drawnLabelsThisFrame.has(normKey)) {
                 Projection3D._drawnLabelsThisFrame.add(normKey);
                 const roofZ = z + (sub.pitch || 0) + 6;
-                const lblPos = Projection3D.project((sx1 + sx2) / 2, (sy1 + sy2) / 2, roofZ, centerX, centerY);
+                const lblPos = Projection3D.project(cx, cy, roofZ, centerX, centerY);
                 const cat = sub.businessCategory || this.businessCategory || (sub.isOffice ? 'LANDMARK' : 'SHOP');
                 let borderCol = '#38bdf8';
                 let dotCol = '#38bdf8';

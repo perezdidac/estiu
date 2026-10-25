@@ -436,190 +436,175 @@ const _BASE_MAP_DATA = {
     businesses: [
         // --- NW Market St Corridor ---
         { name: "RAY'S BOATHOUSE",       x: -3, y: 33, category: "RESTAURANT", desc: "6049 Seaview Ave NW" },
-        { name: "UN BIEN",               x: -3, y: 26, category: "RESTAURANT", desc: "6226 Seaview Ave NW" },
+        { name: "UN BIEN SHILSHOLE",     x: -3, y: 26, category: "RESTAURANT", desc: "6226 Seaview Ave NW" },
         { name: "LOCKSPOT CAFE",         x: 7,  y: 41, category: "RESTAURANT", desc: "3005 NW Locks Pl" },
         { name: "NORDIC MUSEUM",         x: 15, y: 41, category: "LANDMARK",   desc: "2655 NW Market St" },
-        { name: "BALLARD SMOKE SHOP",    x: 19, y: 39, category: "RESTAURANT", desc: "2439 NW Market St" },
-        { name: "SCALAWAG",              x: 21, y: 39, category: "SHOP",       desc: "2407 NW Market St" },
-        { name: "LA CARTE DE OAXACA",    x: 25, y: 39, category: "RESTAURANT", desc: "5431 Ballard Ave NW" },
+        { name: "BALLARD SMOKE SHOP",    x: 19, y: 41, category: "RESTAURANT", desc: "2439 NW Market St" },
+        { name: "SCALAWAG",              x: 21, y: 41, category: "SHOP",       desc: "2407 NW Market St" },
+        { name: "LA CARTA DE OAXACA",    x: 24, y: 42, category: "RESTAURANT", desc: "5431 Ballard Ave NW" },
         { name: "THE MATADOR",           x: 27, y: 41, category: "RESTAURANT", desc: "2221 NW Market St" },
-        { name: "SONIC BOOM RECORDS",    x: 29, y: 39, category: "SHOP",       desc: "2209 NW Market St" },
+        { name: "SONIC BOOM RECORDS",    x: 28, y: 41, category: "SHOP",       desc: "2209 NW Market St" },
         { name: "MAJESTIC BAY THEATRE",  x: 31, y: 39, category: "LANDMARK",   desc: "2044 NW Market St" },
-        { name: "CUPCAKE ROYALE",        x: 31, y: 41, category: "CAFE",       desc: "2052 NW Market St" },
-        { name: "TALL GRASS BAKERY",     x: 33, y: 39, category: "CAFE",       desc: "2040 NW Market St" },
-        { name: "SECRET GARDEN BOOKS",   x: 34, y: 39, category: "SHOP",       desc: "2214 NW Market St" },
-        { name: "BALLARD COFFEE WORKS",  x: 35, y: 41, category: "CAFE",       desc: "2060 NW Market St" },
-        { name: "ARASHI RAMEN",          x: 37, y: 41, category: "RESTAURANT", desc: "1704 NW Market St" },
-        { name: "KANGAROO & KIWI PUB",   x: 38, y: 39, category: "BREWERY",    desc: "2026 NW Market St" },
-        { name: "MOD PIZZA",             x: 39, y: 41, category: "RESTAURANT", desc: "1712 NW Market St" },
-        { name: "MIGHTY-O DONUTS",       x: 41, y: 39, category: "CAFE",       desc: "1555 NW Market St" },
-        { name: "WALGREENS",             x: 42, y: 41, category: "SHOP",       desc: "5409 15th Ave NW" },
-        { name: "TOWN & COUNTRY MKT",    x: 45, y: 39, category: "MARKET",     desc: "1400 NW 56th St" },
-        { name: "SAFEWAY BALLARD",       x: 47, y: 39, category: "MARKET",     desc: "1423 NW Market St" },
-        { name: "WENDY'S",               x: 46, y: 41, category: "RESTAURANT", desc: "5345 15th Ave NW" },
-        { name: "PAGLIACCI PIZZA",       x: 51, y: 39, category: "RESTAURANT", desc: "1125 NW Market St" },
-        { name: "QFC BALLARD",           x: 24, y: 35, category: "MARKET",     desc: "5700 24th Ave NW" },
+        { name: "CUPCAKE ROYALE",        x: 30, y: 39, category: "CAFE",       desc: "2052 NW Market St" },
+        { name: "TALL GRASS BAKERY",     x: 31, y: 39, category: "CAFE",       desc: "2040 NW Market St" },
+        { name: "SECRET GARDEN BOOKS",   x: 27, y: 39, category: "SHOP",       desc: "2214 NW Market St" },
+        { name: "BALLARD COFFEE WORKS",  x: 29, y: 39, category: "CAFE",       desc: "2060 NW Market St" },
+        { name: "ARASHI RAMEN",          x: 31, y: 41, category: "RESTAURANT", desc: "5401 20th Ave NW" },
+        { name: "KANGAROO & KIWI PUB",   x: 31, y: 39, category: "BREWERY",    desc: "2026 NW Market St" },
+        { name: "MOD PIZZA",             x: 37, y: 39, category: "RESTAURANT", desc: "1712 NW Market St" },
+        { name: "MIGHTY-O DONUTS",       x: 41, y: 41, category: "CAFE",       desc: "1555 NW Market St" },
+        { name: "WALGREENS",             x: 43, y: 41, category: "SHOP",       desc: "5409 15th Ave NW" },
+        { name: "TOWN & COUNTRY MKT",    x: 45, y: 37, category: "MARKET",     desc: "1400 NW 56th St" },
+        { name: "SAFEWAY BALLARD",       x: 47, y: 41, category: "MARKET",     desc: "1423 NW Market St" },
+        { name: "WENDY'S",               x: 43, y: 43, category: "RESTAURANT", desc: "5345 15th Ave NW" },
+        { name: "PAGLIACCI PIZZA",       x: 53, y: 41, category: "RESTAURANT", desc: "1125 NW Market St" },
+        { name: "QFC BALLARD",           x: 23, y: 36, category: "MARKET",     desc: "5700 24th Ave NW" },
         { name: "TRADER JOE'S",          x: 57, y: 39, category: "MARKET",     desc: "9th Ave NW & NW Market St" },
 
         // --- Historic Ballard Ave NW ---
-        { name: "CAFFE UMBRIA",          x: 25, y: 41, category: "CAFE",       desc: "5407 Ballard Ave NW" },
-        { name: "SALT & STRAW",          x: 25, y: 43, category: "CAFE",       desc: "5420 Ballard Ave NW" },
-        { name: "HOT CAKES",             x: 26, y: 44, category: "CAFE",       desc: "5427 Ballard Ave NW" },
+        { name: "CAFFE UMBRIA",          x: 27, y: 44, category: "CAFE",       desc: "5407 Ballard Ave NW" },
+        { name: "SALT & STRAW",          x: 26, y: 41, category: "CAFE",       desc: "5420 Ballard Ave NW" },
+        { name: "HOT CAKES",             x: 24, y: 43, category: "CAFE",       desc: "5427 Ballard Ave NW" },
         { name: "BALLARD FARMERS MKT",   x: 27, y: 44, category: "MARKET",     desc: "Ballard Ave NW & 22nd Ave NW" },
-        { name: "SAN FERMO",             x: 28, y: 43, category: "RESTAURANT", desc: "5341 Ballard Ave NW" },
-        { name: "HATTIE'S HAT",          x: 29, y: 43, category: "RESTAURANT", desc: "5231 Ballard Ave NW" },
-        { name: "TRACTOR TAVERN",        x: 30, y: 46, category: "BREWERY",    desc: "5213 Ballard Ave NW" },
-        { name: "KINGS HARDWARE",        x: 31, y: 44, category: "BREWERY",    desc: "5225 Ballard Ave NW" },
-        { name: "PERCY'S & CO",          x: 32, y: 45, category: "RESTAURANT", desc: "5233 Ballard Ave NW" },
-        { name: "BITTERROOT BBQ",        x: 33, y: 46, category: "RESTAURANT", desc: "5239 Ballard Ave NW" },
-        { name: "ASADERO BALLARD",       x: 34, y: 45, category: "RESTAURANT", desc: "5405 Leary Ave NW" },
-        { name: "OCHO TAPAS",            x: 35, y: 47, category: "RESTAURANT", desc: "2325 NW Market / Ballard Ave" },
-        { name: "THE WALRUS & CARPENTER",x: 36, y: 48, category: "RESTAURANT", desc: "4743 Ballard Ave NW" },
+        { name: "SAN FERMO",             x: 28, y: 45, category: "RESTAURANT", desc: "5341 Ballard Ave NW" },
+        { name: "HATTIE'S HAT",          x: 30, y: 46, category: "RESTAURANT", desc: "5231 Ballard Ave NW" },
+        { name: "TRACTOR TAVERN",        x: 31, y: 47, category: "BREWERY",    desc: "5213 Ballard Ave NW" },
+        { name: "KINGS HARDWARE",        x: 30, y: 47, category: "BREWERY",    desc: "5225 Ballard Ave NW" },
+        { name: "PERCY'S & CO",          x: 30, y: 46, category: "RESTAURANT", desc: "5233 Ballard Ave NW" },
+        { name: "BITTERROOT BBQ",        x: 30, y: 46, category: "RESTAURANT", desc: "5239 Ballard Ave NW" },
+        { name: "ASADERO BALLARD",       x: 31, y: 43, category: "RESTAURANT", desc: "5405 Leary Ave NW" },
+        { name: "OCHO TAPAS",            x: 25, y: 41, category: "RESTAURANT", desc: "2325 NW Market St" },
+        { name: "THE WALRUS & CARPENTER",x: 36, y: 50, category: "RESTAURANT", desc: "4743 Ballard Ave NW" },
         { name: "STONEBURNER",           x: 31, y: 45, category: "RESTAURANT", desc: "5214 Ballard Ave NW" },
-        { name: "SABINE CAFE",           x: 29, y: 44, category: "CAFE",       desc: "5307 Ballard Ave NW" },
+        { name: "SABINE CAFE",           x: 29, y: 45, category: "CAFE",       desc: "5307 Ballard Ave NW" },
 
         // --- Ballard Brewery District & Leary Way ---
-        { name: "REUBEN'S BREWS",        x: 47, y: 47, category: "BREWERY",    desc: "5010 14th Ave NW" },
-        { name: "GREAT NOTION",          x: 49, y: 49, category: "BREWERY",    desc: "5101 14th Ave NW" },
-        { name: "URBAN FAMILY BREWING",  x: 51, y: 47, category: "BREWERY",    desc: "1103 NW 52nd St" },
+        { name: "REUBEN'S BREWS",        x: 49, y: 49, category: "BREWERY",    desc: "5010 14th Ave NW" },
+        { name: "GREAT NOTION",          x: 47, y: 48, category: "BREWERY",    desc: "5101 14th Ave NW" },
+        { name: "URBAN FAMILY BREWING",  x: 53, y: 47, category: "BREWERY",    desc: "1103 NW 52nd St" },
         { name: "OBEC BREWING",          x: 52, y: 45, category: "BREWERY",    desc: "1144 NW 52nd St" },
-        { name: "STOUP BREWING",         x: 53, y: 47, category: "BREWERY",    desc: "1108 NW 52nd St" },
-        { name: "BALE BREAKER & YONDER", x: 55, y: 49, category: "BREWERY",    desc: "826 NW 49th St" },
+        { name: "STOUP BREWING",         x: 53, y: 45, category: "BREWERY",    desc: "1108 NW 52nd St" },
+        { name: "BALE BREAKER & YONDER", x: 61, y: 51, category: "BREWERY",    desc: "826 NW 49th St" },
         { name: "FAIR ISLE BREWING",     x: 57, y: 51, category: "BREWERY",    desc: "936 NW 49th St" },
-        { name: "FRED MEYER",            x: 57, y: 53, category: "MARKET",     desc: "915 NW 48th St" },
+        { name: "FRED MEYER",            x: 57, y: 55, category: "MARKET",     desc: "915 NW 48th St" },
 
         // --- North Ballard, 24th Ave NW, 15th Ave NW, Holman Rd & Crown Hill ---
-        { name: "CAFE FIORE",            x: 1,  y: 19, category: "CAFE",       desc: "3125 NW 85th / Sunset Hill" },
-        { name: "DELANCEY PIZZA",        x: 45, y: 11, category: "RESTAURANT", desc: "1415 NW 70th St" },
-        { name: "FAT HEN CAFE",          x: 44, y: 11, category: "CAFE",       desc: "1418 NW 70th St" },
-        { name: "FRANKIE & JO'S",        x: 46, y: 11, category: "CAFE",       desc: "1411 NW 70th St" },
-        { name: "UN BIEN 15TH",          x: 43, y: 9,  category: "RESTAURANT", desc: "7302 15th Ave NW" },
-        { name: "LARSEN'S BAKERY",       x: 23, y: 3,  category: "CAFE",       desc: "8000 24th Ave NW" },
-        { name: "LA CONCHA BALLARD",     x: 23, y: 9,  category: "RESTAURANT", desc: "7005 24th Ave NW" },
-        { name: "SLOOP TAVERN",          x: 13, y: 39, category: "BREWERY",    desc: "2830 NW Market St" },
-        { name: "LITTLE CONEY",          x: -3, y: 5,  category: "RESTAURANT", desc: "8001 Seaview Ave NW" },
-        { name: "SHILSHOLE BAY MARINA",  x: -3, y: 20, category: "LANDMARK",   desc: "7001 Seaview Ave NW" },
+        { name: "CAFE FIORE",            x: 5,  y: 1,  category: "CAFE",       desc: "3125 NW 85th St" },
+        { name: "DELANCEY PIZZA",        x: 47, y: 15, category: "RESTAURANT", desc: "1415 NW 70th St" },
+        { name: "FAT HEN CAFE",          x: 47, y: 13, category: "CAFE",       desc: "1418 NW 70th St" },
+        { name: "FRANKIE & JO'S",        x: 47, y: 15, category: "CAFE",       desc: "1411 NW 70th St" },
+        { name: "UN BIEN",               x: 45, y: 10, category: "RESTAURANT", desc: "7302 15th Ave NW" },
+        { name: "LARSEN'S BAKERY",       x: 23, y: 4,  category: "CAFE",       desc: "8000 24th Ave NW" },
+        { name: "LA CONCHA BALLARD",     x: 21, y: 14, category: "RESTAURANT", desc: "7005 24th Ave NW" },
+        { name: "SLOOP TAVERN",          x: 11, y: 39, category: "BREWERY",    desc: "2830 NW Market St" },
+        { name: "LITTLE CONEY",          x: -5, y: 4,  category: "RESTAURANT", desc: "8001 Seaview Ave NW" },
+        { name: "SHILSHOLE BAY MARINA",  x: -5, y: 14, category: "LANDMARK",   desc: "7001 Seaview Ave NW" },
         { name: "SWANSON'S NURSERY",     x: 43, y: -13, category: "SHOP",      desc: "9701 15th Ave NW" },
         { name: "NORTH BEACH CAFE",      x: 23, y: -11, category: "CAFE",      desc: "24th Ave NW & NW 96th St" },
-        { name: "DICK'S DRIVE-IN",       x: 49, y: -11, category: "RESTAURANT",desc: "9208 Holman Rd NW" },
-        { name: "QFC HOLMAN RD",         x: 47, y: -9,  category: "MARKET",    desc: "9000 Holman Rd NW" },
-        { name: "PETCO CROWN HILL",      x: 45, y: -5,  category: "SHOP",      desc: "8725 Holman Rd NW" },
-        { name: "SAFEWAY CROWN HILL",    x: 43, y: -1,  category: "MARKET",    desc: "8340 15th Ave NW" },
+        { name: "DICK'S DRIVE-IN",       x: 48, y: -10, category: "RESTAURANT",desc: "9208 Holman Rd NW" },
+        { name: "QFC HOLMAN RD",         x: 45, y: -7,  category: "MARKET",    desc: "9000 Holman Rd NW" },
+        { name: "PETCO CROWN HILL",      x: 45, y: -2,  category: "SHOP",      desc: "8725 Holman Rd NW" },
+        { name: "SAFEWAY CROWN HILL",    x: 45, y: 1,   category: "MARKET",    desc: "8340 15th Ave NW" },
         { name: "CHUCK'S HOP SHOP",      x: 61, y: -1,  category: "BREWERY",   desc: "656 NW 85th St" },
-        { name: "BALLARD LIBRARY",       x: 27, y: 37, category: "LANDMARK",   desc: "5614 22nd Ave NW" },
+        { name: "BALLARD LIBRARY",       x: 29, y: 37, category: "LANDMARK",   desc: "5614 22nd Ave NW" },
         { name: "BALLARD HIGH SCHOOL",   x: 47, y: 19, category: "LANDMARK",   desc: "1418 NW 65th St" },
         { name: "SALMON BAY SCHOOL",     x: 35, y: 19, category: "LANDMARK",   desc: "1810 NW 65th St" },
+
         // --- Additional Real OpenStreetMap Ballard Businesses (from data/osm_pois_and_landuse_raw.json) ---
-        { name: "Baker's", x: 3, y: 21, category: "BREWERY", desc: "6408 32nd Avenue Northwest" },
-        { name: "Essex", x: 47, y: 14, category: "BREWERY", desc: "1421 Northwest 70th Street" },
-        { name: "Urban Family Brewery", x: 53, y: 48, category: "BREWERY", desc: "1100 Northwest 51st Street" },
+        { name: "Baker's", x: 5, y: 21, category: "BREWERY", desc: "6408 32nd Avenue Northwest" },
+        { name: "Essex", x: 47, y: 15, category: "BREWERY", desc: "1421 Northwest 70th Street" },
         { name: "Dirty Couch Brewing", x: 52, y: 49, category: "BREWERY", desc: "1110 Northwest 50th Street" },
         { name: "Reuben's Brews: Barrel House", x: 51, y: 49, category: "BREWERY", desc: "1133 Northwest 51st Street" },
-        { name: "Reuben's Brews: The Taproom", x: 49, y: 49, category: "BREWERY", desc: "5010 14th Avenue Northwest" },
-        { name: "Bad Albert's Tap & Grill", x: 35, y: 51, category: "BREWERY", desc: "5100 Ballard Avenue Northwest" },
-        { name: "Roam", x: 34, y: 51, category: "BREWERY", desc: "5105 Ballard Avenue Northwest" },
-        { name: "Mox Boarding House", x: 36, y: 50, category: "BREWERY", desc: "5105 Leary Avenue Northwest" },
-        { name: "The Little Beast", x: 34, y: 51, category: "BREWERY", desc: "5107 Ballard Avenue Northwest" },
-        { name: "Conor Byrne", x: 33, y: 49, category: "BREWERY", desc: "5140 Ballard Avenue Northwest" },
-        { name: "The Lock & Keel", x: 33, y: 49, category: "BREWERY", desc: "5144 Ballard Avenue Northwest" },
-        { name: "MacLeod's", x: 33, y: 48, category: "BREWERY", desc: "5200 Ballard Avenue Northwest" },
-        { name: "Good Grief", x: 30, y: 46, category: "BREWERY", desc: "5316 Ballard Avenue Northwest" },
+        { name: "Bad Albert's Tap & Grill", x: 35, y: 47, category: "BREWERY", desc: "5100 Ballard Avenue Northwest" },
+        { name: "Roam", x: 34, y: 49, category: "BREWERY", desc: "5105 Ballard Avenue Northwest" },
+        { name: "Mox Boarding House", x: 36, y: 46, category: "BREWERY", desc: "5105 Leary Avenue Northwest" },
+        { name: "The Little Beast", x: 34, y: 49, category: "BREWERY", desc: "5107 Ballard Avenue Northwest" },
+        { name: "Conor Byrne", x: 33, y: 46, category: "BREWERY", desc: "5140 Ballard Avenue Northwest" },
+        { name: "The Lock & Keel", x: 33, y: 46, category: "BREWERY", desc: "5144 Ballard Avenue Northwest" },
+        { name: "MacLeod's", x: 32, y: 45, category: "BREWERY", desc: "5200 Ballard Avenue Northwest" },
+        { name: "Good Grief", x: 30, y: 44, category: "BREWERY", desc: "5316 Ballard Avenue Northwest" },
         { name: "The Ink Drinker", x: 29, y: 39, category: "BREWERY", desc: "2050 Northwest Market Street" },
         { name: "The Old County", x: 21, y: 32, category: "BREWERY", desc: "5811 24th Avenue Northwest" },
         { name: "Olaf's", x: 21, y: 24, category: "BREWERY", desc: "6301 24th Avenue Northwest" },
         { name: "Rupee Bar", x: 21, y: 24, category: "BREWERY", desc: "6307 24th Avenue Northwest" },
-        { name: "Skål Beer Hall", x: 25, y: 41, category: "BREWERY", desc: "5429 Ballard Avenue Northwest" },
-        { name: "The Sunset Tavern", x: 25, y: 41, category: "BREWERY", desc: "5433 Ballard Avenue Northwest" },
-        { name: "The Hazlewood", x: 24, y: 40, category: "BREWERY", desc: "2311 Northwest Market Street" },
-        { name: "King's Hardware", x: 31, y: 48, category: "BREWERY", desc: "5225 Ballard Avenue Northwest" },
-        { name: "Thirsty Fish", x: 46, y: -7, category: "BREWERY", desc: "9041 Holman Road Northwest" },
-        { name: "The Old Pequliar", x: 36, y: 40, category: "BREWERY", desc: "1722 Northwest Market Street" },
-        { name: "Slim Goody", x: 27, y: 42, category: "BREWERY", desc: "5411 Ballard Avenue Northwest" },
-        { name: "Ocho", x: 22, y: 40, category: "BREWERY", desc: "2325 Northwest Market Street" },
+        { name: "Skål Beer Hall", x: 24, y: 42, category: "BREWERY", desc: "5429 Ballard Avenue Northwest" },
+        { name: "The Sunset Tavern", x: 24, y: 42, category: "BREWERY", desc: "5433 Ballard Avenue Northwest" },
+        { name: "The Hazlewood", x: 25, y: 41, category: "BREWERY", desc: "2311 Northwest Market Street" },
+        { name: "Thirsty Fish", x: 46, y: -5, category: "BREWERY", desc: "9041 Holman Road Northwest" },
+        { name: "The Old Pequliar", x: 37, y: 39, category: "BREWERY", desc: "1722 Northwest Market Street" },
+        { name: "Slim Goody", x: 26, y: 44, category: "BREWERY", desc: "5411 Ballard Avenue Northwest" },
         { name: "Cloudburst on Shilshole", x: 24, y: 42, category: "BREWERY", desc: "5456 Shilshole Avenue Northwest" },
         { name: "Rough & Tumble", x: 27, y: 45, category: "BREWERY", desc: "5309 22nd Avenue Northwest" },
-        { name: "Bale Breaker Yonder Taproom", x: 59, y: 51, category: "BREWERY", desc: "pub" },
-        { name: "Kochendorfer’s", x: 38, y: 51, category: "BREWERY", desc: "4910 Leary Avenue Northwest" },
-        { name: "Picolino's", x: 3, y: 22, category: "BREWERY", desc: "bar" },
-        { name: "Single Hill Commons", x: 22, y: 22, category: "BREWERY", desc: "6400 24th Avenue Northwest" },
-        { name: "Lucky Envelope Brewing", x: 56, y: 50, category: "BREWERY", desc: "907 Northwest 50th Street" },
-        { name: "Egan's Ballard Jam House", x: 37, y: 40, category: "BREWERY", desc: "1707 Northwest Market Street" },
-        { name: "Mezcaleria", x: 27, y: 41, category: "BREWERY", desc: "5410 Ballard Avenue Northwest" },
-        { name: "Urban Family Brewing Co.", x: 53, y: 47, category: "BREWERY", desc: "1103 Northwest 52nd Street" },
+        { name: "Kochendorfer’s", x: 38, y: 45, category: "BREWERY", desc: "4910 Leary Avenue Northwest" },
+        { name: "Picolino's", x: 3, y: 21, category: "BREWERY", desc: "6415 32nd Avenue Northwest" },
+        { name: "Single Hill Commons", x: 23, y: 22, category: "BREWERY", desc: "6400 24th Avenue Northwest" },
+        { name: "Lucky Envelope Brewing", x: 56, y: 51, category: "BREWERY", desc: "907 Northwest 50th Street" },
+        { name: "Egan's Ballard Jam House", x: 37, y: 41, category: "BREWERY", desc: "1707 Northwest Market Street" },
+        { name: "Mezcaleria", x: 26, y: 42, category: "BREWERY", desc: "5410 Ballard Avenue Northwest" },
         { name: "Wildwood Spirits Co.", x: 49, y: 44, category: "BREWERY", desc: "distillery" },
-        { name: "Tilda's Lounge", x: 31, y: 47, category: "BREWERY", desc: "5239 Ballard Avenue Northwest" },
-        { name: "Barnacle", x: 36, y: 53, category: "BREWERY", desc: "4743 Ballard Avenue Northwest" },
+        { name: "Tilda's Lounge", x: 30, y: 46, category: "BREWERY", desc: "5239 Ballard Avenue Northwest" },
+        { name: "Barnacle", x: 36, y: 50, category: "BREWERY", desc: "4743 Ballard Avenue Northwest" },
         { name: "Pine Tavern", x: 39, y: 52, category: "BREWERY", desc: "4818 17th Avenue Northwest" },
-        { name: "Shibuya Hifi", x: 38, y: 51, category: "BREWERY", desc: "4912 Leary Avenue Northwest" },
-        { name: "Kangaroo & Kiwi", x: 31, y: 39, category: "BREWERY", desc: "2026 Northwest Market Street" },
+        { name: "Shibuya Hifi", x: 38, y: 45, category: "BREWERY", desc: "4912 Leary Avenue Northwest" },
         { name: "Thunderbird Tavern", x: 43, y: 7, category: "BREWERY", desc: "7515 15th Avenue Northwest" },
         { name: "Trailbend Taproom", x: 52, y: 49, category: "BREWERY", desc: "1118 Northwest 50th Street" },
-        { name: "Channel Marker Cider", x: 45, y: 46, category: "BREWERY", desc: "5201 15th Avenue Northwest" },
-        { name: "Lamplighter Public House", x: 61, y: 0, category: "BREWERY", desc: "820 Northwest 85th Street" },
-        { name: "The Crown", x: 44, y: 4, category: "BREWERY", desc: "8000 15th Avenue Northwest" },
-        { name: "Sunny Hill", x: 4, y: 0, category: "RESTAURANT", desc: "3127 Northwest 85th Street" },
-        { name: "McDonald's", x: 47, y: -7, category: "RESTAURANT", desc: "9000 Holman Road Northwest" },
+        { name: "Channel Marker Cider", x: 43, y: 46, category: "BREWERY", desc: "5201 15th Avenue Northwest" },
+        { name: "Lamplighter Public House", x: 61, y: -1, category: "BREWERY", desc: "820 Northwest 85th Street" },
+        { name: "The Crown", x: 45, y: 4, category: "BREWERY", desc: "8000 15th Avenue Northwest" },
+        { name: "Sunny Hill", x: 5, y: 1, category: "RESTAURANT", desc: "3127 Northwest 85th Street" },
+        { name: "McDonald's", x: 46, y: -7, category: "RESTAURANT", desc: "9000 Holman Road Northwest" },
         { name: "Tacos & Beer", x: 51, y: -9, category: "RESTAURANT", desc: "restaurant" },
-        { name: "A Lamb’s Quandary", x: 48, y: 14, category: "RESTAURANT", desc: "1418 Northwest 70th Street" },
-        { name: "The Ballard Cut", x: 25, y: 40, category: "RESTAURANT", desc: "2221 Northwest Market Street" },
-        { name: "El Moose", x: 33, y: 46, category: "RESTAURANT", desc: "5242 Leary Avenue Northwest" },
-        { name: "Little Coney's", x: -2, y: 4, category: "RESTAURANT", desc: "restaurant" },
-        { name: "Domino's", x: 44, y: 1, category: "RESTAURANT", desc: "8345 15th Avenue Northwest" },
+        { name: "The Ballard Cut", x: 27, y: 41, category: "RESTAURANT", desc: "2221 Northwest Market Street" },
+        { name: "El Moose", x: 34, y: 42, category: "RESTAURANT", desc: "5242 Leary Avenue Northwest" },
+        { name: "Domino's", x: 43, y: 1, category: "RESTAURANT", desc: "8345 15th Avenue Northwest" },
         { name: "Pink Bee", x: 32, y: 37, category: "RESTAURANT", desc: "2010 Northwest 56th Street" },
         { name: "Mr. Gyros", x: 33, y: 38, category: "RESTAURANT", desc: "5522 20th Avenue Northwest" },
         { name: "Serious Pie Ballard", x: 49, y: 47, category: "RESTAURANT", desc: "5118 14th Avenue Northwest" },
-        { name: "Ballard Mandarin", x: 61, y: 40, category: "RESTAURANT", desc: "5500 8th Avenue Northwest" },
-        { name: "NoLIta", x: 45, y: 31, category: "RESTAURANT", desc: "5909 15th Avenue Northwest" },
-        { name: "Migaku", x: 45, y: 26, category: "RESTAURANT", desc: "6201 15th Avenue Northwest" },
+        { name: "Ballard Mandarin", x: 63, y: 40, category: "RESTAURANT", desc: "5500 8th Avenue Northwest" },
+        { name: "NoLIta", x: 43, y: 31, category: "RESTAURANT", desc: "5909 15th Avenue Northwest" },
+        { name: "Migaku", x: 43, y: 26, category: "RESTAURANT", desc: "6201 15th Avenue Northwest" },
         { name: "NUA Thai", x: 39, y: 41, category: "RESTAURANT", desc: "5410 17th Avenue Northwest" },
-        { name: "Monkey Bridge", x: 36, y: 40, category: "RESTAURANT", desc: "1723 Northwest Market Street" },
-        { name: "Staple & Fancy", x: 36, y: 53, category: "RESTAURANT", desc: "4739 Ballard Avenue Northwest" },
-        { name: "The Walrus and the Carpenter", x: 36, y: 53, category: "RESTAURANT", desc: "4743 Ballard Avenue Northwest" },
-        { name: "GoodMart", x: 34, y: 49, category: "RESTAURANT", desc: "5130 Ballard Avenue Northwest" },
-        { name: "Thai Thani Kitchen", x: 29, y: 40, category: "RESTAURANT", desc: "2021 Northwest Market Street" },
-        { name: "MacLeod's Fish & Chips", x: 32, y: 48, category: "RESTAURANT", desc: "5206 Ballard Avenue Northwest" },
-        { name: "Spoonfull Thai Kitchen", x: 32, y: 48, category: "RESTAURANT", desc: "5210 Ballard Avenue Northwest" },
-        { name: "Percy's and Co.", x: 31, y: 47, category: "RESTAURANT", desc: "5233 Ballard Avenue Northwest" },
-        { name: "Lupe’s Situ Tacos", x: 31, y: 47, category: "RESTAURANT", desc: "5239 Ballard Avenue Northwest" },
-        { name: "Shiku", x: 31, y: 46, category: "RESTAURANT", desc: "5310 Ballard Avenue Northwest" },
-        { name: "Radiator Whiskey", x: 30, y: 46, category: "RESTAURANT", desc: "5313 Ballard Avenue Northwest" },
-        { name: "The Other Coast Cafe", x: 30, y: 46, category: "RESTAURANT", desc: "5315 Ballard Avenue Northwest" },
-        { name: "Moshi Moshi Sushi & Izakaya", x: 30, y: 45, category: "RESTAURANT", desc: "5324 Ballard Avenue Northwest" },
-        { name: "Fuego", x: 31, y: 41, category: "RESTAURANT", desc: "5425 Russell Avenue Northwest" },
+        { name: "Monkey Bridge", x: 36, y: 41, category: "RESTAURANT", desc: "1723 Northwest Market Street" },
+        { name: "Staple & Fancy", x: 36, y: 50, category: "RESTAURANT", desc: "4739 Ballard Avenue Northwest" },
+        { name: "GoodMart", x: 34, y: 47, category: "RESTAURANT", desc: "5130 Ballard Avenue Northwest" },
+        { name: "Thai Thani Kitchen", x: 31, y: 41, category: "RESTAURANT", desc: "2021 Northwest Market Street" },
+        { name: "MacLeod's Fish & Chips", x: 32, y: 45, category: "RESTAURANT", desc: "5206 Ballard Avenue Northwest" },
+        { name: "Spoonfull Thai Kitchen", x: 32, y: 45, category: "RESTAURANT", desc: "5210 Ballard Avenue Northwest" },
+        { name: "Lupe’s Situ Tacos", x: 30, y: 46, category: "RESTAURANT", desc: "5239 Ballard Avenue Northwest" },
+        { name: "Shiku", x: 30, y: 44, category: "RESTAURANT", desc: "5310 Ballard Avenue Northwest" },
+        { name: "Radiator Whiskey", x: 29, y: 45, category: "RESTAURANT", desc: "5313 Ballard Avenue Northwest" },
+        { name: "The Other Coast Cafe", x: 29, y: 45, category: "RESTAURANT", desc: "5315 Ballard Avenue Northwest" },
+        { name: "Moshi Moshi Sushi & Izakaya", x: 29, y: 44, category: "RESTAURANT", desc: "5324 Ballard Avenue Northwest" },
+        { name: "Fuego", x: 33, y: 42, category: "RESTAURANT", desc: "5425 Russell Avenue Northwest" },
         { name: "Rachel's Bagels & Burritos", x: 30, y: 42, category: "RESTAURANT", desc: "5451 Leary Avenue Northwest" },
-        { name: "Sunny Teriyaki", x: 30, y: 41, category: "RESTAURANT", desc: "5460 Leary Avenue Northwest" },
-        { name: "aa sushi", x: 29, y: 41, category: "RESTAURANT", desc: "5463 Leary Avenue Northwest" },
-        { name: "Cairo", x: 29, y: 41, category: "RESTAURANT", desc: "5465 Leary Avenue Northwest" },
+        { name: "Sunny Teriyaki", x: 30, y: 40, category: "RESTAURANT", desc: "5460 Leary Avenue Northwest" },
+        { name: "aa sushi", x: 29, y: 42, category: "RESTAURANT", desc: "5463 Leary Avenue Northwest" },
+        { name: "Cairo", x: 29, y: 42, category: "RESTAURANT", desc: "5465 Leary Avenue Northwest" },
         { name: "Spice Waala", x: 32, y: 37, category: "RESTAURANT", desc: "2008 Northwest 56th Street" },
         { name: "Sushi-licious", x: 30, y: 37, category: "RESTAURANT", desc: "2034 Northwest 56th Street" },
-        { name: "Lil Woody's", x: 29, y: 39, category: "RESTAURANT", desc: "2040 Northwest Market Street" },
-        { name: "Sam's Sushi", x: 28, y: 39, category: "RESTAURANT", desc: "5506 22nd Avenue Northwest" },
+        { name: "Lil Woody's", x: 31, y: 39, category: "RESTAURANT", desc: "2040 Northwest Market Street" },
+        { name: "Sam's Sushi", x: 29, y: 39, category: "RESTAURANT", desc: "5506 22nd Avenue Northwest" },
         { name: "CrackleMi", x: 27, y: 37, category: "RESTAURANT", desc: "5605 22nd Avenue Northwest" },
-        { name: "Ballard Beer Box", x: 18, y: 40, category: "RESTAURANT", desc: "2446 Northwest Market Street" },
+        { name: "Ballard Beer Box", x: 20, y: 39, category: "RESTAURANT", desc: "2446 Northwest Market Street" },
         { name: "Kimchi House", x: 21, y: 32, category: "RESTAURANT", desc: "5809 24th Avenue Northwest" },
         { name: "Sea Rose", x: 21, y: 31, category: "RESTAURANT", desc: "5903 24th Avenue Northwest" },
-        { name: "Kiss Cafe", x: 10, y: 41, category: "RESTAURANT", desc: "2817 Northwest Market Street" },
-        { name: "Taco Time", x: 7, y: 41, category: "RESTAURANT", desc: "2853 Northwest Market Street" },
-        { name: "Eldr", x: 3, y: 20, category: "RESTAURANT", desc: "6414 32nd Avenue Northwest" },
-        { name: "Picolinos", x: 3, y: 21, category: "RESTAURANT", desc: "6415 32nd Avenue Northwest" },
-        { name: "Cafe Munir", x: 21, y: 4, category: "RESTAURANT", desc: "2408 Northwest 80th Street" },
+        { name: "Kiss Cafe", x: 11, y: 41, category: "RESTAURANT", desc: "2817 Northwest Market Street" },
+        { name: "Taco Time", x: 10, y: 41, category: "RESTAURANT", desc: "2853 Northwest Market Street" },
+        { name: "Eldr", x: 5, y: 20, category: "RESTAURANT", desc: "6414 32nd Avenue Northwest" },
+        { name: "Cafe Munir", x: 21, y: 3, category: "RESTAURANT", desc: "2408 Northwest 80th Street" },
         { name: "Soprano's Pizza & Pasta", x: 21, y: 5, category: "RESTAURANT", desc: "7729 24th Avenue Northwest" },
-        { name: "La Carta de Oaxaca", x: 25, y: 41, category: "RESTAURANT", desc: "5431 Ballard Avenue Northwest" },
-        { name: "Market Pho", x: 30, y: 40, category: "RESTAURANT", desc: "2021 Northwest Market Street" },
+        { name: "Market Pho", x: 31, y: 41, category: "RESTAURANT", desc: "2021 Northwest Market Street" },
         { name: "Teriyaki 1st", x: 61, y: -1, category: "RESTAURANT", desc: "806 Northwest 85th Street" },
-        { name: "Palermo", x: 32, y: 40, category: "RESTAURANT", desc: "2005 Northwest Market Street" },
-        { name: "Secret Savory", x: 26, y: 40, category: "RESTAURANT", desc: "2213 Northwest Market Street" },
-        { name: "Just Poké", x: 26, y: 40, category: "RESTAURANT", desc: "2215 Northwest Market Street" },
-        { name: "India Bistro", x: 24, y: 40, category: "RESTAURANT", desc: "2301 Northwest Market Street" },
-        { name: "Pestle Rock", x: 24, y: 40, category: "RESTAURANT", desc: "2305 Northwest Market Street" },
-        { name: "The Garrison", x: 23, y: 40, category: "RESTAURANT", desc: "2319 Northwest Market Street" },
-        { name: "Matador", x: 27, y: 41, category: "RESTAURANT", desc: "5410 Ballard Avenue Northwest" },
+        { name: "Palermo", x: 32, y: 41, category: "RESTAURANT", desc: "2005 Northwest Market Street" },
+        { name: "Secret Savory", x: 27, y: 41, category: "RESTAURANT", desc: "2213 Northwest Market Street" },
+        { name: "Just Poké", x: 27, y: 41, category: "RESTAURANT", desc: "2215 Northwest Market Street" },
+        { name: "India Bistro", x: 26, y: 41, category: "RESTAURANT", desc: "2301 Northwest Market Street" },
+        { name: "Pestle Rock", x: 25, y: 41, category: "RESTAURANT", desc: "2305 Northwest Market Street" },
+        { name: "The Garrison", x: 25, y: 41, category: "RESTAURANT", desc: "2319 Northwest Market Street" },
         { name: "Vera's Pizza & Bar", x: 27, y: 41, category: "RESTAURANT", desc: "5417 22nd Avenue Northwest" },
-        { name: "Shawarma Time", x: 33, y: 41, category: "RESTAURANT", desc: "5407 20th Avenue Northwest" },
-        { name: "Delancey", x: 47, y: 14, category: "RESTAURANT", desc: "1415 Northwest 70th Street" },
-        { name: "Tarasco", x: 47, y: 14, category: "RESTAURANT", desc: "7001 Alonzo Avenue Northwest" },
-        { name: "Arashi Ramen - Ballard", x: 33, y: 41, category: "RESTAURANT", desc: "5401 20th Avenue Northwest" },
-        { name: "Gracia", x: 30, y: 46, category: "RESTAURANT", desc: "5313 Ballard Avenue Northwest" }
+        { name: "Shawarma Time", x: 31, y: 41, category: "RESTAURANT", desc: "5407 20th Avenue Northwest" },
+        { name: "Tarasco", x: 45, y: 14, category: "RESTAURANT", desc: "7001 Alonzo Avenue Northwest" },
+        { name: "Gracia", x: 29, y: 45, category: "RESTAURANT", desc: "5313 Ballard Avenue Northwest" }
     ],
 
     // GTA-Style Multi-Stop Ballard Errands (Pickups & Drop-offs across Real Ballard Businesses)
@@ -833,35 +818,159 @@ const MapData = (() => {
         y2: Math.round((r.y2 + OY) * SY)
     }));
 
-    // Build exact set of road cells on the scaled grid so every destination & gas station
-    // snaps to a non-road parcel cardinally adjacent (±1 tile) to its street.
+    const maxW = Math.round((64 + OX) * SX);
+    const maxH = Math.round((56 + OY) * SY);
+    const tSize = (typeof TILE_SIZE !== 'undefined') ? TILE_SIZE : 120;
+
+    // Build exact road, park, water & diagonal setback grids matching Game.generateMap() and Game.generateBuildingsAndTrees()
+    // so every business and destination snaps to a guaranteed buildable parcel on its exact street & side of street!
+    const tileTypeGrid = Array(maxH).fill(0).map(() => Array(maxW).fill(0));
+    const parkSet = new Set();
+    const waterSet = new Set();
+    const vertRoadByCol = {};
+    const horizRoadByRow = {};
+
+    const distToSegPx = (px, py, x1, y1, x2, y2) => {
+        const dx = x2 - x1, dy = y2 - y1;
+        const l2 = dx * dx + dy * dy || 1;
+        const t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / l2));
+        return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+    };
+
     const roadSet = new Set();
     for (const r of scaledRoads) {
         if (r.x1 === r.x2) {
+            vertRoadByCol[r.x1] = r;
             for (let y = Math.min(r.y1, r.y2); y <= Math.max(r.y1, r.y2); y++) {
                 roadSet.add(`${r.x1},${y}`);
+                if (y >= 0 && y < maxH && r.x1 >= 0 && r.x1 < maxW) {
+                    tileTypeGrid[y][r.x1] = tileTypeGrid[y][r.x1] === 0 ? r.type : 3;
+                }
             }
         } else if (r.y1 === r.y2) {
+            horizRoadByRow[r.y1] = r;
             for (let x = Math.min(r.x1, r.x2); x <= Math.max(r.x1, r.x2); x++) {
                 roadSet.add(`${x},${r.y1}`);
+                if (r.y1 >= 0 && r.y1 < maxH && x >= 0 && x < maxW) {
+                    tileTypeGrid[r.y1][x] = tileTypeGrid[r.y1][x] === 0 ? r.type : 3;
+                }
             }
         } else {
+            const x1_w = r.x1 * tSize + tSize / 2;
+            const y1_w = r.y1 * tSize + tSize / 2;
+            const x2_w = r.x2 * tSize + tSize / 2;
+            const y2_w = r.y2 * tSize + tSize / 2;
             const minX = Math.max(0, Math.min(r.x1, r.x2) - 2);
-            const maxX = Math.max(r.x1, r.x2) + 2;
+            const maxX = Math.min(maxW - 1, Math.max(r.x1, r.x2) + 2);
             const minY = Math.max(0, Math.min(r.y1, r.y2) - 2);
-            const maxY = Math.max(r.y1, r.y2) + 2;
-            const halfBand = (r.type === 9) ? 0.72 : 0.55;
-            const dx = r.x2 - r.x1, dy = r.y2 - r.y1;
-            const l2 = dx * dx + dy * dy || 1;
+            const maxY = Math.min(maxH - 1, Math.max(r.y1, r.y2) + 2);
+            const halfBandPx = (r.type === 9) ? (tSize * 0.75) : (tSize * 0.65);
             for (let y = minY; y <= maxY; y++) {
                 for (let x = minX; x <= maxX; x++) {
-                    const t = Math.max(0, Math.min(1, ((x - r.x1) * dx + (y - r.y1) * dy) / l2));
-                    const d = Math.hypot(x - (r.x1 + t * dx), y - (r.y1 + t * dy));
-                    if (d < halfBand) roadSet.add(`${x},${y}`);
+                    const cellX = x * tSize + tSize / 2;
+                    const cellY = y * tSize + tSize / 2;
+                    if (distToSegPx(cellX, cellY, x1_w, y1_w, x2_w, y2_w) < halfBandPx) {
+                        roadSet.add(`${x},${y}`);
+                        if (tileTypeGrid[y][x] === 0) tileTypeGrid[y][x] = r.type;
+                    }
                 }
             }
         }
     }
+
+    const scaledParks = _BASE_MAP_DATA.parks.map(p => ({
+        ...p,
+        x1: Math.round((p.x1 + OX) * SX) + 1,
+        y1: Math.round((p.y1 + OY) * SY),
+        x2: Math.round((p.x2 + OX) * SX) - 1,
+        y2: Math.round((p.y2 + OY) * SY)
+    }));
+    for (const p of scaledParks) {
+        for (let y = p.y1; y <= p.y2; y++) {
+            for (let x = p.x1; x <= p.x2; x++) {
+                if (y >= 0 && y < maxH && x >= 0 && x < maxW && tileTypeGrid[y][x] === 0) {
+                    parkSet.add(`${x},${y}`);
+                }
+            }
+        }
+    }
+    for (let y = 0; y < maxH; y++) {
+        for (let x = 0; x < maxW; x++) {
+            if (tileTypeGrid[y][x] !== 0) continue;
+            const ox = x / SX - OX;
+            const oy = y / SY - OY;
+            const westCoastX = (oy < -8) ? (-4.2 + (-8 - oy) * 1.85) : -4.35;
+            if (ox < westCoastX) {
+                waterSet.add(`${x},${y}`);
+            } else if (oy >= 42.5 && ox < 38) {
+                const shilsholeY = ox < 22 ? 42.5 : (42 + (ox - 22) * (12 / 16));
+                if (oy >= shilsholeY + 0.55) waterSet.add(`${x},${y}`);
+            }
+        }
+    }
+
+    const diagSegs = scaledRoads
+        .filter(r => r.x1 !== r.x2 && r.y1 !== r.y2)
+        .map(r => ({
+            road: r,
+            x1_w: r.x1 * tSize + tSize / 2,
+            y1_w: r.y1 * tSize + tSize / 2,
+            x2_w: r.x2 * tSize + tSize / 2,
+            y2_w: r.y2 * tSize + tSize / 2,
+            clearCornerDist: (r.type === 9) ? 94 : 68,
+            minTx: Math.min(r.x1, r.x2) - 2,
+            maxTx: Math.max(r.x1, r.x2) + 2,
+            minTy: Math.min(r.y1, r.y2) - 2,
+            maxTy: Math.max(r.y1, r.y2) + 2
+        }));
+
+    const getEdgeSetback = (nx, ny) => {
+        if (nx < 0 || nx >= maxW || ny < 0 || ny >= maxH) return 12;
+        const t = tileTypeGrid[ny][nx];
+        if (t === 6 || t === 7 || t === 9) return 28;
+        if (t === 3) {
+            if (vertRoadByCol[nx]?.type === 6 || horizRoadByRow[ny]?.type === 7) return 28;
+            return 14;
+        }
+        const key = `${nx},${ny}`;
+        if ((t !== 0 && t !== 4) || parkSet.has(key) || waterSet.has(key)) return 12;
+        return 0;
+    };
+
+    const isBuildableParcel = (x, y) => {
+        if (x < 1 || y < 1 || x >= maxW - 1 || y >= maxH - 1) return false;
+        const key = `${x},${y}`;
+        if (tileTypeGrid[y][x] !== 0 || parkSet.has(key) || waterSet.has(key)) return false;
+        const padT = getEdgeSetback(x, y - 1);
+        const padB = getEdgeSetback(x, y + 1);
+        const padL = getEdgeSetback(x - 1, y);
+        const padR = getEdgeSetback(x + 1, y);
+        if (!(padT > 0 || padB > 0 || padL > 0 || padR > 0)) {
+            let nearDiag = false;
+            const cellCx = x * tSize + tSize / 2;
+            const cellCy = y * tSize + tSize / 2;
+            for (let i = 0; i < diagSegs.length; i++) {
+                const ds = diagSegs[i];
+                if (x < ds.minTx || x > ds.maxTx || y < ds.minTy || y > ds.maxTy) continue;
+                if (distToSegPx(cellCx, cellCy, ds.x1_w, ds.y1_w, ds.x2_w, ds.y2_w) < tSize * 1.45) {
+                    nearDiag = true;
+                    break;
+                }
+            }
+            if (!nearDiag) return false;
+        }
+        const bw = tSize - (padL + padR);
+        const bh = tSize - (padT + padB);
+        if (bw <= 20 || bh <= 20) return false;
+        const cx = x * tSize + padL + bw / 2;
+        const cy = y * tSize + padT + bh / 2;
+        for (let i = 0; i < diagSegs.length; i++) {
+            const ds = diagSegs[i];
+            if (x < ds.minTx || x > ds.maxTx || y < ds.minTy || y > ds.maxTy) continue;
+            if (distToSegPx(cx, cy, ds.x1_w, ds.y1_w, ds.x2_w, ds.y2_w) < ds.clearCornerDist) return false;
+        }
+        return true;
+    };
 
     const isAdjacentToRoad = (x, y) => (
         !roadSet.has(`${x},${y}`) && (
@@ -871,9 +980,6 @@ const MapData = (() => {
             roadSet.has(`${x},${y + 1}`)
         )
     );
-
-    const maxW = Math.round((64 + OX) * SX);
-    const maxH = Math.round((56 + OY) * SY);
 
     const scaleLotCoord = (item) => {
         const targetX = Math.round((item.x + OX) * SX);
@@ -888,8 +994,8 @@ const MapData = (() => {
                     const cx = targetX + dx;
                     const cy = targetY + dy;
                     if (cx < 1 || cy < 1 || cx >= maxW - 1 || cy >= maxH - 1) continue;
-                    if (isAdjacentToRoad(cx, cy)) {
-                        const d = dx * dx + dy * dy;
+                    if (isBuildableParcel(cx, cy) || isAdjacentToRoad(cx, cy)) {
+                        const d = dx * dx + dy * dy + (isBuildableParcel(cx, cy) ? 0 : 8);
                         if (d < bestDist) {
                             bestDist = d;
                             bestX = cx;
@@ -1035,63 +1141,363 @@ const MapData = (() => {
         return { dx, dy, grade, gx: dx, gy: dy, slope: grade, elev };
     };
 
-    const scaledDestinations = _BASE_MAP_DATA.destinations.map(scaleLotCoord);
-    const scaledLandmarks = _BASE_MAP_DATA.landmarks.map(scaleLotCoord);
+    // =========================================================================
+    // SEATTLE ADDRESS & PARITY GEOCODER FOR BALLARD BUSINESSES & DESTINATIONS
+    // Parses each business's real-world street address (`desc`) and computes:
+    //   1. Exact street segment (NW Market St, Ballard Ave NW, Leary Ave NW, 15th/24th/22nd/20th/14th/32nd Ave NW, NW 85th/70th/52nd St, Holman Rd NW, etc.)
+    //   2. Exact block & intra-block house-number position
+    //   3. Exact side of the street from Seattle's odd/even parity rule:
+    //      - East-West streets (NW Market St, NW 85th..48th St): Odd -> South side (+y), Even -> North side (-y)
+    //      - North-South avenues (15th..32nd Ave NW): Odd -> West side (-x), Even -> East side (+x)
+    //      - Diagonal streets (Ballard Ave NW, Leary Ave NW, Shilshole Ave NW, Holman Rd NW): Odd -> SW/SE side (+y), Even -> NE/NW side (-y)
+    // =========================================================================
+    const AVE_ANCHORS = [
+        [8, 62], [8.5, 60], [9, 58], [10, 56], [11, 54], [12, 52], [13, 50], [14, 48],
+        [14.5, 46], [15, 44], [15.5, 42], [16, 40], [17, 38], [18, 36], [19, 34], [20, 32],
+        [21, 30], [22, 28], [23, 26], [23.5, 24], [24, 22], [25, 20], [26, 18], [27, 16],
+        [27.5, 14], [28, 12], [29, 10], [30, 8], [31, 6], [32, 4], [34, 2], [36, 0], [37, -2], [38, -4]
+    ];
+    const aveFloatToBaseX = (ave) => {
+        if (ave < AVE_ANCHORS[0][0]) return 61.5;
+        for (let i = 0; i < AVE_ANCHORS.length - 1; i++) {
+            const [a0, x0] = AVE_ANCHORS[i];
+            const [a1, x1] = AVE_ANCHORS[i + 1];
+            if (ave >= a0 && ave <= a1) {
+                return Math.max(-4.5, Math.min(62, x0 + ((ave - a0) / (a1 - a0)) * (x1 - x0)));
+            }
+        }
+        return -4;
+    };
+    const houseNumToAveFloat = (num, isMarketSt = false) => {
+        const block = Math.floor(num / 100);
+        const rem = num % 100;
+        if (isMarketSt && block === 20) {
+            return 20 + Math.min(1.88, (rem / 64) * 1.85);
+        }
+        if (isMarketSt && (block === 22 || block === 23 || block === 24 || block === 17)) {
+            return block + Math.min(0.88, (rem / 34) * 0.85);
+        }
+        return block + Math.min(0.90, (rem / 48) * 0.88);
+    };
 
-    // Build deduplicated business directory and tile lookup so every commercial building lot gets a rooftop business sign
-    const usedBizTiles = new Set();
+    const ST_ANCHORS = [
+        [48, 54], [49, 52], [50, 50], [51, 48], [52, 46], [53, 44], [54, 42], [55, 40],
+        [56, 38], [57, 36], [58, 34], [59, 32], [60, 30], [61, 28], [62, 26], [63, 24],
+        [64, 22], [65, 20], [67, 18], [68, 16], [70, 14], [72, 12], [73, 10], [75, 8],
+        [77, 6], [80, 4], [83, 2], [85, 0], [87, -2], [88, -4], [90, -6], [92, -8],
+        [95, -10], [96, -12], [98, -14], [100, -16]
+    ];
+    const stFloatToBaseY = (st) => {
+        if (st <= ST_ANCHORS[0][0]) return ST_ANCHORS[0][1];
+        for (let i = 0; i < ST_ANCHORS.length - 1; i++) {
+            const [s0, y0] = ST_ANCHORS[i];
+            const [s1, y1] = ST_ANCHORS[i + 1];
+            if (st >= s0 && st <= s1) {
+                return y0 + ((st - s0) / (s1 - s0)) * (y1 - y0);
+            }
+        }
+        return -16;
+    };
+
+    const normalizeStreetDesc = (desc) => {
+        if (!desc) return '';
+        return String(desc)
+            .replace(/\bNorthwest\b/gi, 'NW')
+            .replace(/\bStreet\b/gi, 'St')
+            .replace(/\bAvenue\b/gi, 'Ave')
+            .replace(/\bRoad\b/gi, 'Rd')
+            .replace(/\bPlace\b/gi, 'Pl')
+            .replace(/\bDrive\b/gi, 'Dr')
+            .trim();
+    };
+
+    const geocodeSeattleAddress = (item) => {
+        const rawDesc = normalizeStreetDesc(item.desc);
+        const m = rawDesc.match(/^(\d+)\s+(.+)$/);
+        if (!m) {
+            if (/Ballard Ave NW\s*&\s*22nd Ave NW/i.test(rawDesc)) {
+                return { ox: 27.2, oy: 44.3, streetType: 'DIAG_BALLARD', isOdd: true, num: 5401, minX: 85, maxX: 101, streetName: 'Ballard Ave NW' };
+            }
+            if (/9th Ave NW\s*&\s*NW Market St/i.test(rawDesc)) {
+                return { ox: 57.5, oy: 39.3, streetType: 'EW', roadScaledY: 84, isOdd: false, num: 900, streetName: 'NW Market St' };
+            }
+            if (/24th Ave NW\s*&\s*NW 96th St/i.test(rawDesc)) {
+                return { ox: 22.6, oy: -11.3, streetType: 'NS', roadScaledX: 84, isOdd: false, num: 9600, streetName: '24th Ave NW' };
+            }
+            if (/28th Ave NW\s*&\s*NW 85th St/i.test(rawDesc)) {
+                return { ox: 12.6, oy: 0.7, streetType: 'EW', roadScaledY: 24, isOdd: true, num: 2801, streetName: 'NW 85th St' };
+            }
+            if (/34th Ave NW\s*&\s*NW 80th St/i.test(rawDesc)) {
+                return { ox: 1.4, oy: 4.7, streetType: 'NS', roadScaledX: 24, isOdd: true, num: 8001, streetName: '34th Ave NW' };
+            }
+            return { ox: item.x, oy: item.y, streetType: 'RAW', num: 0, streetName: '' };
+        }
+
+        const num = parseInt(m[1], 10);
+        const rest = m[2].trim();
+        const isOdd = (num % 2) === 1;
+
+        if (/^NW Market/i.test(rest)) {
+            const block = Math.floor(num / 100);
+            const aveFloat = houseNumToAveFloat(num, true);
+            const ox = aveFloatToBaseX(aveFloat);
+            const roadY = 40;
+            const oy = isOdd ? (roadY + 0.67) : (roadY - 0.67);
+            let minX = 1, maxX = maxW - 2;
+            if (block === 22) { minX = 96; maxX = 101; }
+            else if (block === 23) { minX = 85; maxX = 95; }
+            else if (block === 20 || block === 21) { minX = 103; maxX = 113; }
+            else if (block === 24) { minX = 73; maxX = 83; }
+            else if (block === 17) { minX = 127; maxX = 131; }
+            else if (block === 15) { minX = 139; maxX = 149; }
+            else if (block === 14) { minX = 151; maxX = 161; }
+            return { ox, oy, streetType: 'EW', roadScaledY: Math.round((roadY + OY) * SY), isOdd, num, minX, maxX, streetName: 'NW Market St' };
+        }
+
+        const ewMatch = rest.match(/^NW\s+(\d+)(?:st|nd|rd|th)\s+(?:St|Pl)/i);
+        if (ewMatch) {
+            const stNum = parseInt(ewMatch[1], 10);
+            const roadY = stFloatToBaseY(stNum);
+            const aveFloat = houseNumToAveFloat(num, false);
+            const ox = aveFloatToBaseX(aveFloat);
+            const oy = isOdd ? (roadY + 0.67) : (roadY - 0.67);
+            return { ox, oy, streetType: 'EW', roadScaledY: Math.round((roadY + OY) * SY), isOdd, num, streetName: `NW ${stNum}th St` };
+        }
+
+        if (/^NW Locks Pl/i.test(rest)) {
+            const aveFloat = houseNumToAveFloat(num, false);
+            const ox = aveFloatToBaseX(aveFloat);
+            const roadY = 40;
+            return { ox, oy: roadY + 0.67, streetType: 'EW', roadScaledY: Math.round((roadY + OY) * SY), isOdd: true, num, streetName: 'NW Locks Pl' };
+        }
+
+        if (/^Ballard Ave NW/i.test(rest)) {
+            let ox, minX = 85, maxX = 131;
+            if (num >= 5400) {
+                const t = Math.max(0, Math.min(1, (num - 5405) / 30));
+                ox = 27.3 - t * 4.0;
+                minX = 85; maxX = 101;
+            } else if (num >= 5300) {
+                const t = Math.max(0, Math.min(1, (num - 5305) / 38));
+                ox = 29.8 - t * 1.4;
+                minX = 103; maxX = 113;
+            } else if (num >= 5200) {
+                const t = Math.max(0, Math.min(1, (num - 5200) / 40));
+                ox = 31.6 - t * 1.6;
+                minX = 103; maxX = 113;
+            } else if (num >= 5100) {
+                const t = Math.max(0, Math.min(1, (num - 5100) / 46));
+                ox = 35.2 - t * 2.6;
+                minX = 115; maxX = 131;
+            } else {
+                const t = Math.max(0, Math.min(1, (num - 4738) / 20));
+                ox = 37.2 - t * 1.2;
+                minX = 115; maxX = 131;
+            }
+            const roadY = 40 + ((ox - 22) / (38 - 22)) * (50 - 40);
+            const oy = isOdd ? (roadY + 1.0) : (roadY - 1.0);
+            const shiftX = isOdd ? -0.3 : 0.3;
+            return { ox: ox + shiftX, oy, streetType: 'DIAG_BALLARD', isOdd, num, minX, maxX, streetName: 'Ballard Ave NW' };
+        }
+
+        if (/^(?:NW\s+)?Leary\s+(?:Ave|Way)/i.test(rest)) {
+            let ox;
+            if (num >= 5400) {
+                const t = Math.max(0, Math.min(1, (num - 5400) / 70));
+                ox = 31.6 - t * 2.8;
+            } else if (num >= 5200) {
+                const t = Math.max(0, Math.min(1, (num - 5200) / 60));
+                ox = 34.5 - t * 2.2;
+            } else if (num >= 5000) {
+                const t = Math.max(0, Math.min(1, (num - 5000) / 120));
+                ox = 36.8 - t * 1.8;
+            } else {
+                const t = Math.max(0, Math.min(1, (num - 4800) / 200));
+                ox = 39.2 - t * 1.8;
+            }
+            const roadY = (ox <= 38) ? (40 + ((ox - 28) / 10) * 6) : (46 + ((ox - 38) / 24) * 8);
+            const oy = isOdd ? (roadY + 1.15) : (roadY - 1.15);
+            return { ox, oy, streetType: 'DIAG_LEARY', isOdd, num, streetName: 'Leary Ave NW' };
+        }
+
+        if (/^Shilshole Ave NW/i.test(rest)) {
+            const t = Math.max(0, Math.min(1, (5500 - num) / 400));
+            const ox = 23.5 + t * 8;
+            const roadY = 42 + ((ox - 22) / 16) * 12;
+            const oy = isOdd ? (roadY + 1.0) : (roadY - 1.0);
+            return { ox, oy, streetType: 'DIAG_SHILSHOLE', isOdd, num, streetName: 'Shilshole Ave NW' };
+        }
+
+        if (/^Russell Ave NW/i.test(rest)) {
+            const ox = 33.5;
+            const roadY = 40 + ((ox - 32) / 6) * 4;
+            const oy = isOdd ? (roadY + 0.9) : (roadY - 0.9);
+            return { ox, oy, streetType: 'DIAG_RUSSELL', isOdd, num, streetName: 'Russell Ave NW' };
+        }
+
+        if (/^Holman Rd NW/i.test(rest)) {
+            const stFloat = num / 100;
+            const oyRoad = stFloatToBaseY(stFloat);
+            const oxRoad = (oyRoad >= -8) ? (44 + ((-6 - oyRoad) / 2) * 2) : (46 + ((-8 - oyRoad) / 8) * 16);
+            const oy = isOdd ? (oyRoad + 1.15) : (oyRoad - 1.15);
+            return { ox: oxRoad, oy, streetType: 'DIAG_HOLMAN', isOdd, num, streetName: 'Holman Rd NW' };
+        }
+
+        const nsMatch = rest.match(/^(\d+)(?:st|nd|rd|th)\s+Ave\s+NW/i);
+        if (nsMatch) {
+            const aveNum = parseInt(nsMatch[1], 10);
+            const roadX = aveFloatToBaseX(aveNum);
+            const stFloat = num / 100;
+            const oy = stFloatToBaseY(stFloat);
+            const ox = isOdd ? (roadX - 0.5) : (roadX + 0.5);
+            return { ox, oy, streetType: 'NS', roadScaledX: Math.round((roadX + OX) * SX), isOdd, num, streetName: `${aveNum}th Ave NW` };
+        }
+
+        if (/^Seaview\s+(?:Ave|Pl)\s+NW/i.test(rest)) {
+            const roadX = -4;
+            const stFloat = num / 100;
+            const oy = stFloatToBaseY(stFloat);
+            const ox = isOdd ? (roadX - 0.35) : (roadX + 0.35);
+            return { ox, oy, streetType: 'NS_SEAVIEW', roadScaledX: Math.round((roadX + OX) * SX), isOdd, num, streetName: 'Seaview Ave NW' };
+        }
+
+        if (/^Alonzo Ave NW/i.test(rest)) {
+            const roadX = 46;
+            const stFloat = num / 100;
+            const oy = stFloatToBaseY(stFloat);
+            const ox = isOdd ? (roadX - 0.4) : (roadX + 0.4);
+            return { ox, oy, streetType: 'NS', roadScaledX: Math.round((roadX + OX) * SX), isOdd, num, streetName: 'Alonzo Ave NW' };
+        }
+
+        return { ox: item.x, oy: item.y, streetType: 'RAW', num, streetName: rest };
+    };
+
+    const matchesSideConstraint = (cx, cy, g) => {
+        if (g.minX !== undefined && (cx < g.minX || cx > g.maxX)) return false;
+        if (g.streetType === 'EW') {
+            const ry = g.roadScaledY;
+            if (g.isOdd) return cy === ry + 1;
+            return cy === ry - 1;
+        }
+        if (g.streetType === 'NS') {
+            const rx = g.roadScaledX;
+            if (g.isOdd) return cx === rx - 1;
+            return cx === rx + 1;
+        }
+        if (g.streetType === 'NS_SEAVIEW') {
+            const rx = g.roadScaledX;
+            if (g.isOdd) return cx === rx - 1 || cx === rx + 1;
+            return cx === rx + 1 || cx === rx + 2;
+        }
+        if (g.streetType === 'DIAG_BALLARD') {
+            const roadY = 84 + ((cx - 84) / (132 - 84)) * (99 - 84);
+            if (g.isOdd) return cy > roadY + 0.25 && cy <= roadY + 2.4;
+            return cy < roadY - 0.25 && cy >= roadY - 2.4 && (cx < 92 || cy >= 86);
+        }
+        if (g.streetType === 'DIAG_LEARY') {
+            const roadY = (cx <= 132)
+                ? (84 + ((cx - 102) / 30) * 9)
+                : (93 + ((cx - 132) / 72) * 12);
+            if (g.isOdd) return cy > roadY + 0.2 && cy <= roadY + 3.2;
+            return cy < roadY - 0.2 && cy >= roadY - 3.2;
+        }
+        if (g.streetType === 'DIAG_SHILSHOLE') {
+            const roadY = 87 + ((cx - 84) / 48) * 18;
+            if (g.isOdd) return cy > roadY;
+            return cy < roadY;
+        }
+        if (g.streetType === 'DIAG_HOLMAN') {
+            const roadY = (cx <= 156)
+                ? (15 - ((cx - 150) / 6) * 3)
+                : (12 - ((cx - 156) / 48) * 12);
+            if (g.isOdd) return cy > roadY;
+            return cy < roadY;
+        }
+        return true;
+    };
+
     const businessesByTile = {};
+    const businessListByTile = {};
     const scaledBusinesses = [];
 
-    const scaleBusinessLot = (item) => {
-        const targetX = Math.round((item.x + OX) * SX);
-        const targetY = Math.round((item.y + OY) * SY);
+    const placeBusinessLot = (item) => {
+        const g = geocodeSeattleAddress(item);
+        const targetX = Math.round((g.ox + OX) * SX);
+        const targetY = Math.round((g.oy + OY) * SY);
         let bestX = targetX;
         let bestY = targetY;
-        let bestDist = Infinity;
+        let bestScore = Infinity;
 
-        for (let r = 0; r <= 10; r++) {
+        for (let r = 0; r <= 7; r++) {
             for (let dy = -r; dy <= r; dy++) {
                 for (let dx = -r; dx <= r; dx++) {
                     const cx = targetX + dx;
                     const cy = targetY + dy;
-                    if (cx < 1 || cy < 1 || cx >= maxW - 1 || cy >= maxH - 1) continue;
+                    if (!isBuildableParcel(cx, cy)) continue;
+                    if (!matchesSideConstraint(cx, cy, g)) continue;
                     const key = `${cx},${cy}`;
-                    if (!usedBizTiles.has(key) && isAdjacentToRoad(cx, cy)) {
-                        const d = dx * dx + dy * dy;
-                        if (d < bestDist) {
-                            bestDist = d;
-                            bestX = cx;
-                            bestY = cy;
-                        }
+                    const cnt = businessListByTile[key] ? businessListByTile[key].length : 0;
+                    if (cnt >= 3) continue;
+                    let distScore = dx * dx + dy * dy + cnt * 2.2;
+                    if (g.streetType === 'DIAG_BALLARD') {
+                        const roadY = 84 + ((cx - 84) / (132 - 84)) * (99 - 84);
+                        distScore += Math.abs(cy - roadY) * 1.5;
+                    }
+                    if (distScore < bestScore) {
+                        bestScore = distScore;
+                        bestX = cx;
+                        bestY = cy;
                     }
                 }
             }
-            if (bestDist < Infinity) break;
+            if (bestScore <= (r + 1) * (r + 1)) break;
+        }
+
+        // Fallback if a raw/park destination didn't match a street-side constraint
+        if (bestScore === Infinity) {
+            const fallback = scaleLotCoord({ ...item, x: g.ox, y: g.oy });
+            bestX = fallback.x;
+            bestY = fallback.y;
         }
 
         const key = `${bestX},${bestY}`;
-        usedBizTiles.add(key);
-        const scaled = { ...item, x: bestX, y: bestY };
-        businessesByTile[key] = scaled;
+        const scaled = {
+            ...item,
+            x: bestX,
+            y: bestY,
+            streetType: g.streetType,
+            isOdd: g.isOdd,
+            houseNum: g.num || 0,
+            streetName: g.streetName || ''
+        };
+        if (!businessListByTile[key]) businessListByTile[key] = [];
+        businessListByTile[key].push(scaled);
+        if (!businessesByTile[key]) businessesByTile[key] = scaled;
         scaledBusinesses.push(scaled);
         return scaled;
     };
 
     for (const b of (_BASE_MAP_DATA.businesses || [])) {
-        scaleBusinessLot(b);
+        placeBusinessLot(b);
     }
-    // Ensure any destination not already in businesses also gets a rooftop sign if it's a building lot
-    for (const d of _BASE_MAP_DATA.destinations) {
-        if (!scaledBusinesses.some(b => b.name === d.name)) {
-            scaleBusinessLot({ ...d, category: "LANDMARK" });
+
+    // Ensure destinations match their geocoded business lot (if they correspond to a business) or snap via address geocoder
+    const scaledDestinations = _BASE_MAP_DATA.destinations.map(d => {
+        const matchBiz = scaledBusinesses.find(b => b.name.toUpperCase() === d.name.toUpperCase());
+        if (matchBiz) {
+            return { ...d, x: matchBiz.x, y: matchBiz.y };
         }
-    }
+        const placedDest = placeBusinessLot({ ...d, category: "LANDMARK" });
+        return { ...d, x: placedDest.x, y: placedDest.y };
+    });
+
+    const scaledLandmarks = _BASE_MAP_DATA.landmarks.map(scaleLotCoord);
 
     return {
         roads: scaledRoads,
         getElevationAt,
         getSlopeAt,
+        geocodeSeattleAddress,
         trafficSignals: _BASE_MAP_DATA.trafficSignals.map(s => ({
             ...s,
             x: Math.round((s.x + OX) * SX),
@@ -1102,17 +1508,12 @@ const MapData = (() => {
             x: Math.round((s.x + OX) * SX),
             y: Math.round((s.y + OY) * SY)
         })),
-        parks: _BASE_MAP_DATA.parks.map(p => ({
-            ...p,
-            x1: Math.round((p.x1 + OX) * SX) + 1,
-            y1: Math.round((p.y1 + OY) * SY),
-            x2: Math.round((p.x2 + OX) * SX) - 1,
-            y2: Math.round((p.y2 + OY) * SY)
-        })),
+        parks: scaledParks,
         destinations: scaledDestinations,
         landmarks: scaledLandmarks,
         businesses: scaledBusinesses,
         businessesByTile,
+        businessListByTile,
         errands: _BASE_MAP_DATA.errands || []
     };
 })();

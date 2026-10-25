@@ -2499,10 +2499,19 @@ const Game = {
                             let facing = 'DOWN';
                             let isApartment = false;
                             let nearDiag = false;
+                            let diagInfo = null;
                             const ox = x / SX - OX;
                             const oy = y / SY - OY;
 
-                            if (nearestDiagSeg && minDiagDist < TILE_SIZE * 1.45) {
+                            const bizOnTile = (typeof MapData !== 'undefined' && MapData.businessesByTile)
+                                ? MapData.businessesByTile[`${x},${y}`]
+                                : null;
+                            const isOrthogonalBiz = Boolean(bizOnTile && (bizOnTile.streetType === 'EW' || bizOnTile.streetType === 'NS' || bizOnTile.streetType === 'NS_SEAVIEW'));
+                            const isDiagBiz = Boolean(bizOnTile && String(bizOnTile.streetType || '').startsWith('DIAG_'));
+                            const touchesHorizArterial = (y > 0 && this.map[y - 1][x] === 7) || (y < MAP_H - 1 && this.map[y + 1][x] === 7);
+                            const touchesVertArterial = (x > 0 && this.map[y][x - 1] === 6) || (x < MAP_W - 1 && this.map[y][x + 1] === 6);
+
+                            if (nearestDiagSeg && minDiagDist < TILE_SIZE * 1.45 && !isOrthogonalBiz && (isDiagBiz || (!touchesHorizArterial && !touchesVertArterial))) {
                                 nearDiag = true;
                                 const closest = Utils.getClosestPointOnSegment(
                                     centerWorldX, centerWorldY,
@@ -2518,6 +2527,21 @@ const Game = {
                                 } else {
                                     facing = vy > 0 ? 'DOWN' : 'UP';
                                 }
+
+                                let dxSeg = nearestDiagSeg.x2_w - nearestDiagSeg.x1_w;
+                                let dySeg = nearestDiagSeg.y2_w - nearestDiagSeg.y1_w;
+                                if (dxSeg < 0) {
+                                    dxSeg = -dxSeg;
+                                    dySeg = -dySeg;
+                                }
+                                const diagAngle = Math.atan2(dySeg, dxSeg);
+                                const diagFacing = (vy > 0) ? 'DOWN' : 'UP';
+                                diagInfo = {
+                                    angle: diagAngle,
+                                    facing: diagFacing,
+                                    roadName: nearestDiagSeg.road.name || '',
+                                    reqDist: nearestDiagSeg.clearCornerDist
+                                };
 
                                 if (nearestDiagSeg.road.type === 9 || oy >= 40) {
                                     isApartment = true;
@@ -2547,11 +2571,34 @@ const Game = {
                                 }
                             }
 
-                            const edges = { N: openN, S: openS, W: openW, E: openE, diag: nearDiag };
+                            const edges = { N: openN, S: openS, W: openW, E: openE, diag: nearDiag, diagInfo };
                             const bld = new Building(bx, by, bw, bh, facing, isApartment, edges);
 
                             // Ensure any 3D subStructure near a diagonal/curved street sits cleanly behind the curved curb
-                            if (nearDiag && nearestDiagSeg && bld.subStructures && bld.subStructures.length > 0) {
+                            if (nearestDiagSeg && minDiagDist < TILE_SIZE * 1.45 && bld.subStructures && bld.subStructures.length > 0) {
+                                const getSubCorners = (sub) => {
+                                    const scx = sub.x + sub.w * 0.5;
+                                    const scy = sub.y + sub.h * 0.5;
+                                    const a = sub.angle || 0;
+                                    if (Math.abs(a) < 0.001) {
+                                        return [
+                                            { x: sub.x, y: sub.y },
+                                            { x: sub.x + sub.w, y: sub.y },
+                                            { x: sub.x + sub.w, y: sub.y + sub.h },
+                                            { x: sub.x, y: sub.y + sub.h }
+                                        ];
+                                    }
+                                    const ux = Math.cos(a), uy = Math.sin(a);
+                                    const vx = -Math.sin(a), vy = Math.cos(a);
+                                    const hw = sub.w * 0.5, hh = sub.h * 0.5;
+                                    return [
+                                        { x: scx - hw * ux - hh * vx, y: scy - hw * uy - hh * vy },
+                                        { x: scx + hw * ux - hh * vx, y: scy + hw * uy - hh * vy },
+                                        { x: scx + hw * ux + hh * vx, y: scy + hw * uy + hh * vy },
+                                        { x: scx - hw * ux + hh * vx, y: scy - hw * uy + hh * vy }
+                                    ];
+                                };
+
                                 const reqDist = nearestDiagSeg.clearCornerDist;
                                 bld.subStructures = bld.subStructures.filter(sub => {
                                     const subCx = sub.x + sub.w / 2;
@@ -2561,12 +2608,7 @@ const Game = {
                                         nearestDiagSeg.x1_w, nearestDiagSeg.y1_w,
                                         nearestDiagSeg.x2_w, nearestDiagSeg.y2_w
                                     );
-                                    const corners = [
-                                        { x: sub.x, y: sub.y },
-                                        { x: sub.x + sub.w, y: sub.y },
-                                        { x: sub.x, y: sub.y + sub.h },
-                                        { x: sub.x + sub.w, y: sub.y + sub.h }
-                                    ];
+                                    const corners = getSubCorners(sub);
                                     let minCornerD = Infinity;
                                     for (const pt of corners) {
                                         const d = Utils.distToSegment(pt.x, pt.y, nearestDiagSeg.x1_w, nearestDiagSeg.y1_w, nearestDiagSeg.x2_w, nearestDiagSeg.y2_w);
@@ -2577,16 +2619,12 @@ const Game = {
                                         const awayY = subCy - closest.y;
                                         const awayLen = Math.hypot(awayX, awayY) || 1;
                                         const push = (reqDist - minCornerD) + 4;
-                                        sub.x = Math.max(bx + 2, Math.min(bx + bw - sub.w - 2, sub.x + (awayX / awayLen) * push));
-                                        sub.y = Math.max(by + 2, Math.min(by + bh - sub.h - 2, sub.y + (awayY / awayLen) * push));
+                                        sub.x = sub.x + (awayX / awayLen) * push;
+                                        sub.y = sub.y + (awayY / awayLen) * push;
                                     }
+                                    if (sub.label) return true;
                                     // Verify all 4 corners after shift clear every diagonal road segment
-                                    const shiftedCorners = [
-                                        { x: sub.x, y: sub.y },
-                                        { x: sub.x + sub.w, y: sub.y },
-                                        { x: sub.x, y: sub.y + sub.h },
-                                        { x: sub.x + sub.w, y: sub.y + sub.h }
-                                    ];
+                                    const shiftedCorners = getSubCorners(sub);
                                     for (let sIdx = 0; sIdx < diagSegs.length; sIdx++) {
                                         const ds = diagSegs[sIdx];
                                         if (x < ds.minTx || x > ds.maxTx || y < ds.minTy || y > ds.maxTy) continue;

@@ -1145,5 +1145,106 @@ console.log('===================================================================
     console.log(`[PASS] Test 17 (SDOT Overhead Street Signs, Block Stencils, Named Parks & Ballard Ave Landmarks): signalSigns=${signalSignCount}, stopSigns=${stopSignCount}, pavementStencils=${Game.textOverlay.length}, hud='${Game.currentStreetName}'!`);
 }
 
-console.log('\nALL 17 BALLARD GTA, STREET REALISM, 2.5D TERRAIN, STUDIO MUSIC, PEDESTRIANS, KINEMATICS & PERFORMANCE TEST SUITES PASSED! ✨');
+// =========================================================================
+// TEST 18: SEATTLE ADDRESS GEOCODER, SIDE-OF-STREET PARITY & DIAGONAL 3D BUILDINGS
+// =========================================================================
+{
+    const findBiz = (name) => MapData.businesses.find(b => b.name.toUpperCase() === name.toUpperCase());
+
+    // 1. Verify The Ballard Cut (2221 NW Market St), The Matador (2221 NW Market St), and Sonic Boom Records (2209 NW Market St)
+    //    are on the SOUTH side of NW Market St (y === 85, where NW Market St is y === 84) in the 2200 block (96 <= x <= 101, between 22nd Ave x=102 and 23rd Ave x=96)
+    const ballardCut = findBiz('The Ballard Cut');
+    const matador = findBiz('THE MATADOR');
+    const sonicBoom = findBiz('SONIC BOOM RECORDS');
+    assert(ballardCut, 'Expected The Ballard Cut in MapData.businesses');
+    assert(matador, 'Expected THE MATADOR in MapData.businesses');
+    assert(sonicBoom, 'Expected SONIC BOOM RECORDS in MapData.businesses');
+
+    assert.strictEqual(ballardCut.y, 85, `Expected The Ballard Cut (2221 NW Market St, odd) on South side of Market St (y=85), got y=${ballardCut.y}`);
+    assert(ballardCut.x >= 96 && ballardCut.x <= 101, `Expected The Ballard Cut in 2200 block (96..101), got x=${ballardCut.x}`);
+    assert.strictEqual(matador.y, 85, `Expected THE MATADOR (2221 NW Market St, odd) on South side of Market St (y=85), got y=${matador.y}`);
+    assert(matador.x >= 96 && matador.x <= 101, `Expected THE MATADOR in 2200 block (96..101), got x=${matador.x}`);
+    assert.strictEqual(sonicBoom.y, 85, `Expected SONIC BOOM RECORDS (2209 NW Market St, odd) on South side of Market St (y=85), got y=${sonicBoom.y}`);
+    assert(sonicBoom.x >= 96 && sonicBoom.x <= 101, `Expected SONIC BOOM RECORDS in 2200 block (96..101), got x=${sonicBoom.x}`);
+
+    // 2. Verify The Hazlewood (2311 NW Market St) and Ocho Tapas (2325 NW Market St)
+    //    are on the SOUTH side of NW Market St (y === 85) in the 2300 block (85 <= x <= 95, between 23rd Ave x=96 and 24th Ave x=84)
+    const hazlewood = findBiz('The Hazlewood');
+    const ocho = findBiz('OCHO TAPAS');
+    assert(hazlewood, 'Expected The Hazlewood in MapData.businesses');
+    assert(ocho, 'Expected OCHO TAPAS in MapData.businesses');
+    assert.strictEqual(hazlewood.y, 85, `Expected The Hazlewood (2311 NW Market St, odd) on South side of Market St (y=85), got y=${hazlewood.y}`);
+    assert(hazlewood.x >= 85 && hazlewood.x <= 95, `Expected The Hazlewood in 2300 block (85..95), got x=${hazlewood.x}`);
+    assert.strictEqual(ocho.y, 85, `Expected OCHO TAPAS (2325 NW Market St, odd) on South side of Market St (y=85), got y=${ocho.y}`);
+    assert(ocho.x >= 85 && ocho.x <= 95, `Expected OCHO TAPAS in 2300 block (85..95), got x=${ocho.x}`);
+
+    // 3. Verify Secret Garden Books (2214 NW Market St, even) and Majestic Bay Theatre (2044 NW Market St, even)
+    //    are on the NORTH side of NW Market St (y === 83)
+    const secretGarden = findBiz('SECRET GARDEN BOOKS');
+    const majesticBay = findBiz('MAJESTIC BAY THEATRE');
+    assert.strictEqual(secretGarden.y, 83, `Expected SECRET GARDEN BOOKS (2214 NW Market St, even) on North side of Market St (y=83), got y=${secretGarden.y}`);
+    assert(secretGarden.x >= 96 && secretGarden.x <= 101, `Expected SECRET GARDEN BOOKS in 2200 block (96..101), got x=${secretGarden.x}`);
+    assert.strictEqual(majesticBay.y, 83, `Expected MAJESTIC BAY THEATRE (2044 NW Market St, even) on North side of Market St (y=83), got y=${majesticBay.y}`);
+    assert(majesticBay.x >= 103 && majesticBay.x <= 113, `Expected MAJESTIC BAY THEATRE in 2000 block (103..113), got x=${majesticBay.x}`);
+
+    // 4. Verify La Carta de Oaxaca (5431 Ballard Ave NW), Skål Beer Hall (5429 Ballard Ave NW), Hot Cakes (5427 Ballard Ave NW),
+    //    Hattie's Hat (5231 Ballard Ave NW), Tractor Tavern (5213 Ballard Ave NW), and The Walrus & Carpenter (4743 Ballard Ave NW)
+    //    are on the SOUTHWEST side of Ballard Ave NW (y > roadY(x)), while Salt & Straw (5420 Ballard Ave NW) and Stoneburner (5214 Ballard Ave NW)
+    //    are on the NORTHEAST side of Ballard Ave NW (y < roadY(x))!
+    const ballardRoadY = (x) => 84 + ((x - 84) / (132 - 84)) * (99 - 84);
+    const laCarta = findBiz('LA CARTA DE OAXACA');
+    const skal = findBiz('Skål Beer Hall');
+    const hotCakes = findBiz('HOT CAKES');
+    const saltStraw = findBiz('SALT & STRAW');
+    const hatties = findBiz("HATTIE'S HAT");
+    const tractor = findBiz('TRACTOR TAVERN');
+    const stoneburner = findBiz('STONEBURNER');
+    const walrus = findBiz('THE WALRUS & CARPENTER');
+
+    assert(laCarta, 'Expected LA CARTA DE OAXACA in MapData.businesses');
+    assert(laCarta.x >= 85 && laCarta.x <= 101, `Expected LA CARTA DE OAXACA in 5400 block of Ballard Ave NW (85..101), got x=${laCarta.x}`);
+    assert(laCarta.y > ballardRoadY(laCarta.x), `Expected LA CARTA DE OAXACA (5431 Ballard Ave NW, odd) on SW side of Ballard Ave NW (y > ${ballardRoadY(laCarta.x).toFixed(2)}), got y=${laCarta.y}`);
+    assert(skal.y > ballardRoadY(skal.x), 'Expected Skål Beer Hall (5429 Ballard Ave NW, odd) on SW side of Ballard Ave NW');
+    assert(hotCakes.y > ballardRoadY(hotCakes.x), 'Expected HOT CAKES (5427 Ballard Ave NW, odd) on SW side of Ballard Ave NW');
+    assert(saltStraw.y < ballardRoadY(saltStraw.x), 'Expected SALT & STRAW (5420 Ballard Ave NW, even) on NE side of Ballard Ave NW');
+    assert(hatties.x >= 103 && hatties.x <= 113 && hatties.y > ballardRoadY(hatties.x), 'Expected HATTIE\'S HAT (5231 Ballard Ave NW, odd) in 5200 block on SW side of Ballard Ave NW');
+    assert(tractor.x >= 103 && tractor.x <= 113 && tractor.y > ballardRoadY(tractor.x), 'Expected TRACTOR TAVERN (5213 Ballard Ave NW, odd) in 5200 block on SW side of Ballard Ave NW');
+    assert(stoneburner.x >= 103 && stoneburner.x <= 113 && stoneburner.y < ballardRoadY(stoneburner.x), 'Expected STONEBURNER (5214 Ballard Ave NW, even) in 5200 block on NE side of Ballard Ave NW');
+    assert(walrus.x >= 115 && walrus.x <= 131 && walrus.y > ballardRoadY(walrus.x), 'Expected THE WALRUS & CARPENTER (4743 Ballard Ave NW, odd) in 4700 block on SW side of Ballard Ave NW');
+
+    // 5. Verify every business has a spawned Building on its tile with its rooftop sign label attached to a subStructure
+    for (const biz of [ballardCut, matador, sonicBoom, hazlewood, ocho, secretGarden, majesticBay, laCarta, skal, hotCakes, saltStraw, hatties, tractor, stoneburner, walrus]) {
+        const bld = Game.buildingGrid[biz.y] && Game.buildingGrid[biz.y][biz.x];
+        assert(bld, `Expected spawned Building at (${biz.x},${biz.y}) for ${biz.name}`);
+        const hasLabel = bld.subStructures.some(s => (s.label || '').toUpperCase() === biz.name.toUpperCase());
+        assert(hasLabel, `Expected Building at (${biz.x},${biz.y}) to have subStructure rooftop sign for '${biz.name}', got [${bld.subStructures.map(s => s.label).join(', ')}]`);
+    }
+
+    // 6. Verify Diagonal Streets (Ballard Ave NW, Leary Ave NW, Holman Rd NW, Shilshole Ave NW, Loyal Way NW)
+    //    have rotated diagonal 3D buildings (`sub.angle`) oriented parallel to the diagonal curb!
+    let diagonalBuildingCount = 0;
+    for (const bld of Game.buildings) {
+        if (bld.edges && bld.edges.diagInfo && bld.subStructures.length > 0) {
+            const a = bld.subStructures[0].angle || 0;
+            if (Math.abs(a) > 0.08) {
+                diagonalBuildingCount++;
+            }
+        }
+    }
+    assert(diagonalBuildingCount >= 90, `Expected >= 90 rotated diagonal 3D buildings along diagonal streets across Ballard, got ${diagonalBuildingCount}`);
+
+    const laCartaBld = Game.buildingGrid[laCarta.y][laCarta.x];
+    const expectedBallardAngle = Math.atan2(99 - 84, 132 - 84);
+    assert(laCartaBld.edges && laCartaBld.edges.diagInfo, 'Expected LA CARTA DE OAXACA building to have diagInfo');
+    assert(Math.abs(laCartaBld.subStructures[0].angle - expectedBallardAngle) < 0.02, `Expected LA CARTA DE OAXACA building angle to match Ballard Ave NW (${expectedBallardAngle.toFixed(3)} rad), got ${laCartaBld.subStructures[0].angle}`);
+
+    // Render frame over Ballard Ave NW & Market St to exercise rotated 3D building projection and rooftop labels
+    Game.player.x = laCarta.x * TILE_SIZE;
+    Game.player.y = laCarta.y * TILE_SIZE;
+    Game.loop();
+
+    console.log(`[PASS] Test 18 (Seattle Address Geocoder, Side-of-Street Parity & Diagonal 3D Buildings): The Ballard Cut=(${ballardCut.x},${ballardCut.y}), The Hazlewood=(${hazlewood.x},${hazlewood.y}), La Carta de Oaxaca=(${laCarta.x},${laCarta.y}, angle=${(laCartaBld.subStructures[0].angle * 180 / Math.PI).toFixed(1)}°), diagonalBuildings=${diagonalBuildingCount}!`);
+}
+
+console.log('\nALL 18 BALLARD GTA, STREET REALISM, SEATTLE ADDRESS GEOCODER, DIAGONAL BUILDINGS, 2.5D TERRAIN, STUDIO MUSIC & PERFORMANCE TEST SUITES PASSED! ✨');
 process.exit(0);

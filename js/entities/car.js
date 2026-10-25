@@ -623,15 +623,38 @@ class Car {
                             const top = sub.y + 1.5;
                             const bottom = sub.y + sub.h - 1.5;
                             if (right <= left || bottom <= top) continue;
-                            // Fast AABB rejection before the (expensive) SAT test
-                            if (nx + rad < left || nx - rad > right || ny + rad < top || ny - rad > bottom) continue;
+                            const scx = sub.x + sub.w * 0.5;
+                            const scy = sub.y + sub.h * 0.5;
+                            const rotA = sub.angle || 0;
+                            const isRot = Math.abs(rotA) > 0.001;
+                            if (isRot) {
+                                const subRad = 0.5 * Math.hypot(sub.w, sub.h);
+                                if (Math.hypot(nx - scx, ny - scy) > rad + subRad) continue;
+                            } else {
+                                // Fast AABB rejection before the (expensive) SAT test
+                                if (nx + rad < left || nx - rad > right || ny + rad < top || ny - rad > bottom) continue;
+                            }
                             if (!nextPoly) nextPoly = Utils.getRectCorners(nx, ny, this.w, this.h, testAngle + Math.PI / 2);
-                            const bldPoly = [
-                                { x: left, y: top },
-                                { x: right, y: top },
-                                { x: right, y: bottom },
-                                { x: left, y: bottom }
-                            ];
+                            let bldPoly;
+                            if (isRot) {
+                                const ux = Math.cos(rotA), uy = Math.sin(rotA);
+                                const vx = -Math.sin(rotA), vy = Math.cos(rotA);
+                                const hw = Math.max(2, sub.w * 0.5 - 1.5);
+                                const hh = Math.max(2, sub.h * 0.5 - 1.5);
+                                bldPoly = [
+                                    { x: scx - hw * ux - hh * vx, y: scy - hw * uy - hh * vy },
+                                    { x: scx + hw * ux - hh * vx, y: scy + hw * uy - hh * vy },
+                                    { x: scx + hw * ux + hh * vx, y: scy + hw * uy + hh * vy },
+                                    { x: scx - hw * ux + hh * vx, y: scy - hw * uy + hh * vy }
+                                ];
+                            } else {
+                                bldPoly = [
+                                    { x: left, y: top },
+                                    { x: right, y: top },
+                                    { x: right, y: bottom },
+                                    { x: left, y: bottom }
+                                ];
+                            }
                             const mtv = Utils.getPolyMTV
                                 ? Utils.getPolyMTV(nextPoly, bldPoly)
                                 : (Utils.polysIntersect(nextPoly, bldPoly) ? { nx: 0, ny: -1, overlap: 6 } : null);
@@ -641,8 +664,8 @@ class Car {
                                     right,
                                     top,
                                     bottom,
-                                    cx: (left + right) * 0.5,
-                                    cy: (top + bottom) * 0.5,
+                                    cx: scx,
+                                    cy: scy,
                                     mtv
                                 };
                             }
