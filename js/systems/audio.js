@@ -169,17 +169,17 @@ const AudioSys = {
         delayFilter.connect(delayWet);
         delayWet.connect(warmLowShelf);
 
-        // 3. Stereo Algorithmic Studio Hall / Plate Convolution Reverb
+        // 3. Stereo Algorithmic Studio Hall / Plate Convolution Reverb (compact 0.9s tail for low CPU)
         if (typeof this.ctx.createConvolver === 'function') {
             try {
-                const revLen = Math.floor(sr * 1.85);
+                const revLen = Math.floor(sr * 0.9);
                 const revBuf = this.ctx.createBuffer(2, revLen, sr);
                 for (let ch = 0; ch < 2; ch++) {
                     const chData = revBuf.getChannelData(ch);
                     for (let i = 0; i < revLen; i++) {
                         const tNorm = i / revLen;
                         // Early reflections + smooth exponential hall tail
-                        const env = Math.pow(1 - tNorm, 2.8) * (i < sr * 0.04 ? (i / (sr * 0.04)) : 1.0);
+                        const env = Math.pow(1 - tNorm, 2.8) * (i < sr * 0.03 ? (i / (sr * 0.03)) : 1.0);
                         chData[i] = (Math.random() * 2 - 1) * env * 0.55;
                     }
                 }
@@ -195,6 +195,26 @@ const AudioSys = {
                 this.reverbWet.connect(warmLowShelf);
             } catch (e) {}
         }
+
+        // Pre-allocated shared stereo panners & auxiliary send buses so per-note synthesis never leaks persistent AudioNodes
+        this._panBuses = {};
+        if (typeof this.ctx.createStereoPanner === 'function') {
+            for (const p of [-0.45, -0.35, -0.25, -0.15, 0, 0.15, 0.25, 0.35, 0.45]) {
+                try {
+                    const panner = this.ctx.createStereoPanner();
+                    panner.pan.setValueAtTime(p, now);
+                    panner.connect(this.radioBus);
+                    this._panBuses[p] = panner;
+                } catch (e) {}
+            }
+        }
+        this._reverbSendBus = this.ctx.createGain();
+        this._reverbSendBus.gain.setValueAtTime(0.26, now);
+        if (this.reverbNode) this._reverbSendBus.connect(this.reverbNode);
+
+        this._delaySendBus = this.ctx.createGain();
+        this._delaySendBus.gain.setValueAtTime(0.22, now);
+        if (this.delayNode) this._delaySendBus.connect(this.delayNode);
 
         this.radioBus.connect(warmLowShelf);
         warmLowShelf.connect(airHighShelf);
@@ -239,28 +259,30 @@ const AudioSys = {
 
     _connectStereo(node, pan = 0, reverbSend = 0, delaySend = 0) {
         if (!this.ctx || !this.radioBus) return;
-        let outNode = node;
-        if (pan !== 0 && typeof this.ctx.createStereoPanner === 'function') {
-            try {
-                const panner = this.ctx.createStereoPanner();
-                panner.pan.setValueAtTime(Math.max(-1, Math.min(1, pan)), this.ctx.currentTime);
-                node.connect(panner);
-                outNode = panner;
-            } catch (e) {}
+        let connectedPan = false;
+        if (pan !== 0 && this._panBuses) {
+            // Snap to nearest pre-allocated stereo panner bus to prevent AudioNode graph accumulation
+            let bestKey = 0;
+            let bestDist = 999;
+            for (const k of [-0.45, -0.35, -0.25, -0.15, 0, 0.15, 0.25, 0.35, 0.45]) {
+                const d = Math.abs(pan - k);
+                if (d < bestDist) { bestDist = d; bestKey = k; }
+            }
+            const panBus = this._panBuses[bestKey];
+            if (panBus) {
+                node.connect(panBus);
+                connectedPan = true;
+            }
         }
-        outNode.connect(this.radioBus);
+        if (!connectedPan) {
+            node.connect(this.radioBus);
+        }
 
-        if (reverbSend > 0 && this.reverbNode) {
-            const rg = this.ctx.createGain();
-            rg.gain.setValueAtTime(reverbSend, this.ctx.currentTime);
-            outNode.connect(rg);
-            rg.connect(this.reverbNode);
+        if (reverbSend > 0.05 && this._reverbSendBus) {
+            node.connect(this._reverbSendBus);
         }
-        if (delaySend > 0 && this.delayNode) {
-            const dg = this.ctx.createGain();
-            dg.gain.setValueAtTime(delaySend, this.ctx.currentTime);
-            outNode.connect(dg);
-            dg.connect(this.delayNode);
+        if (delaySend > 0.05 && this._delaySendBus) {
+            node.connect(this._delaySendBus);
         }
     },
 

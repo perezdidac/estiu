@@ -139,9 +139,11 @@ vm.runInContext(`
     this.Projection3D = Projection3D;
     this.AudioSys = AudioSys;
     this.Pedestrian = Pedestrian;
+    this.Draw = Draw;
+    this.Building = Building;
 `, sandbox);
 
-const { TILE_SIZE, MAP_W, MAP_H, Utils, MapData, Car, Game, Projection3D, AudioSys, Pedestrian } = sandbox;
+const { TILE_SIZE, MAP_W, MAP_H, Utils, MapData, Car, Game, Projection3D, AudioSys, Pedestrian, Draw, Building } = sandbox;
 
 // Initialize map & game state
 Game.init();
@@ -1246,5 +1248,71 @@ console.log('===================================================================
     console.log(`[PASS] Test 18 (Seattle Address Geocoder, Side-of-Street Parity & Diagonal 3D Buildings): The Ballard Cut=(${ballardCut.x},${ballardCut.y}), The Hazlewood=(${hazlewood.x},${hazlewood.y}), La Carta de Oaxaca=(${laCarta.x},${laCarta.y}, angle=${(laCartaBld.subStructures[0].angle * 180 / Math.PI).toFixed(1)}°), diagonalBuildings=${diagonalBuildingCount}!`);
 }
 
-console.log('\nALL 18 BALLARD GTA, STREET REALISM, SEATTLE ADDRESS GEOCODER, DIAGONAL BUILDINGS, 2.5D TERRAIN, STUDIO MUSIC & PERFORMANCE TEST SUITES PASSED! ✨');
+// =========================================================================
+// TEST 19: MOBILE TOUCH DRIVING CONTROLS (360° POINT-&-DRIVE + PEDALS + WHEEL MODE) & CPU/GPU CACHES
+// =========================================================================
+{
+    // 1. Verify spatial render caches & hex color shade caches are built and populated
+    assert(Array.isArray(Game.treeGrid) && Game.treeGrid.length === MAP_H, 'Expected Game.treeGrid spatial index to be populated');
+    assert(Array.isArray(Game.textGrid) && Game.textGrid.length === MAP_H, 'Expected Game.textGrid spatial index to be populated');
+    assert(Array.isArray(Game.diagRoads) && Game.diagRoads.length >= 6, 'Expected Game.diagRoads cache to be populated');
+    assert(Game.diagRoads.every(r => Array.isArray(r._dashSegments)), 'Expected precomputed non-intersection _dashSegments on diagonal roads');
+    const BuildingClass = Game.buildings[0].constructor;
+    assert(BuildingClass._shadeCache instanceof Map && BuildingClass._shadeCache.size > 0, 'Expected Building._shadeCache to memoize hex color shading');
+    assert(Draw._shadeCache instanceof Map && Draw._shadeCache.size > 0, 'Expected Draw._shadeCache to memoize hex color shading');
+
+    // 2. Verify 360° Direct Stick ("Point & Drive") steers the player smoothly to any compass heading
+    //    regardless of the car's current orientation (no mental left/right inversion when driving South!)
+    const p = Game.player;
+    p.x = 44 * 3 * TILE_SIZE;
+    p.y = 40 * 1.5 * TILE_SIZE;
+    p.angle = Math.PI / 2; // Facing South (+PI/2)
+    p.speed = 0;
+    Game.cruiseControl = false;
+    Game.touchControlMode = 'DIRECT';
+
+    // Push stick West (nx = -0.9, ny = 0): while facing South, car should smoothly steer toward West (±PI) and auto-accelerate!
+    Game.setTouchInput(-0.9, 0, false, false);
+    for (let f = 0; f < 45; f++) {
+        p.handleInput();
+    }
+    const diffToWest = Math.abs(Utils.angleDiff(Math.PI, p.angle));
+    assert(diffToWest < 0.25, `Expected 360° Direct Stick pushed West to align car from South toward West (±PI), got angle=${p.angle.toFixed(3)} (diff=${diffToWest.toFixed(3)})`);
+    assert(p.speed > 1.2, `Expected 360° Direct Stick to auto-accelerate proportionally with stick deflection, got speed=${p.speed.toFixed(2)}`);
+
+    // 3. Verify Right-Thumb GAS pedal boosts speed and BRAKE/REVERSE pedal slows to a stop and reverses
+    Game.setTouchInput(-0.9, 0, true, false); // Stick + GAS pedal held
+    for (let f = 0; f < 30; f++) {
+        p.handleInput();
+    }
+    const boostedSpeed = p.speed;
+    assert(boostedSpeed > 2.5, `Expected GAS pedal to accelerate car strongly, got speed=${boostedSpeed.toFixed(2)}`);
+
+    // Hold BRAKE/REVERSE pedal until car stops and engages reverse gear
+    Game.setTouchInput(0, 0, false, true);
+    for (let f = 0; f < 70; f++) {
+        p.handleInput();
+    }
+    assert(p.speed < -0.3, `Expected holding BRAKE/REVERSE pedal to stop the car and reverse, got speed=${p.speed.toFixed(2)}`);
+
+    // 4. Verify Wheel Steer mode ('WHEEL') toggle works for relative left/right steering
+    const modeAfterToggle = Game.toggleTouchControlMode();
+    assert.strictEqual(modeAfterToggle, 'WHEEL', 'Expected toggleTouchControlMode() to switch from DIRECT to WHEEL');
+    p.speed = 2.0;
+    const angleBeforeWheel = p.angle;
+    Game.setTouchInput(0.85, 0, true, false); // Steer right + gas in WHEEL mode
+    for (let f = 0; f < 15; f++) {
+        p.handleInput();
+    }
+    assert(Utils.angleDiff(p.angle, angleBeforeWheel) > 0.15, 'Expected WHEEL mode right deflection to turn car clockwise');
+
+    // Release touch inputs and restore DIRECT mode
+    Game.setTouchInput(0, 0, false, false);
+    Game.toggleTouchControlMode();
+    assert.strictEqual(Game.touchControlMode, 'DIRECT', 'Expected toggleTouchControlMode() to restore DIRECT mode');
+
+    console.log(`[PASS] Test 19 (Mobile Touch Driving Controls & CPU/GPU Render Caches): directStickDiffToWest=${diffToWest.toFixed(3)}rad, gasSpeed=${boostedSpeed.toFixed(2)}, reverseSpeed=${p.speed.toFixed(2)}, shadeCacheEntries=${BuildingClass._shadeCache.size + Draw._shadeCache.size}!`);
+}
+
+console.log('\nALL 19 BALLARD GTA, STREET REALISM, SEATTLE ADDRESS GEOCODER, DIAGONAL BUILDINGS, MOBILE CONTROLS & CPU/GPU PERFORMANCE TEST SUITES PASSED! ✨');
 process.exit(0);

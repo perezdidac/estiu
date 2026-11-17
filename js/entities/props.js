@@ -1441,12 +1441,19 @@ class Building {
 
     shadeColor(hex, percent) {
         if (!hex || hex[0] !== '#') return hex || '#4a5568';
+        if (percent === 0) return hex;
+        if (!Building._shadeCache) Building._shadeCache = new Map();
+        const key = hex + '|' + percent;
+        const cached = Building._shadeCache.get(key);
+        if (cached !== undefined) return cached;
         const num = parseInt(hex.slice(1), 16);
         const amt = Math.round(2.55 * percent);
         const R = Math.min(255, Math.max(0, (num >> 16) + amt));
         const G = Math.min(255, Math.max(0, ((num >> 8) & 0x00FF) + amt));
         const B = Math.min(255, Math.max(0, (num & 0x0000FF) + amt));
-        return "#" + (0x1000000 + R * 0x10000 + G * 0x100 + B).toString(16).slice(1);
+        const res = "#" + (0x1000000 + R * 0x10000 + G * 0x100 + B).toString(16).slice(1);
+        Building._shadeCache.set(key, res);
+        return res;
     }
 
     // Pass 1: Ground-level parcel lot (z = 0)
@@ -1454,10 +1461,10 @@ class Building {
         const screenX = this.x - camX;
         const screenY = this.y - camY;
         const vb = (typeof Game !== 'undefined' && Game.viewBounds) ? Game.viewBounds : null;
-        const minX = vb ? vb.minX - 60 : -60;
-        const maxX = vb ? vb.maxX + 60 : ctx.canvas.width + 60;
-        const minY = vb ? vb.minY - 60 : -60;
-        const maxY = vb ? vb.maxY + 60 : ctx.canvas.height + 60;
+        const minX = vb ? vb.minX - 10 : -20;
+        const maxX = vb ? vb.maxX + 10 : ctx.canvas.width + 20;
+        const minY = vb ? vb.minY - 10 : -20;
+        const maxY = vb ? vb.maxY + 10 : ctx.canvas.height + 20;
         if (screenX > maxX || screenX + this.w < minX || screenY > maxY || screenY + this.h < minY) return;
 
         const isRainy = (typeof Game !== 'undefined') ? Game.isRainy : false;
@@ -1487,12 +1494,12 @@ class Building {
                 ctx.fillRect(screenX + 3, screenY + 3, this.w - 6, this.h - 6);
                 ctx.strokeStyle = isRainy ? 'rgba(15,23,42,0.25)' : 'rgba(255,255,255,0.22)';
                 ctx.lineWidth = 0.8;
+                ctx.beginPath();
                 for (let px = 14; px < this.w - 8; px += 16) {
-                    ctx.beginPath();
                     ctx.moveTo(screenX + px, screenY + 3);
                     ctx.lineTo(screenX + px, screenY + this.h - 3);
-                    ctx.stroke();
                 }
+                ctx.stroke();
                 // Corner plaza planter beds
                 ctx.fillStyle = isRainy ? '#1e4631' : '#2f855a';
                 ctx.fillRect(screenX + 5, screenY + 5, 10, 10);
@@ -1508,31 +1515,40 @@ class Building {
                         ctx.fillRect(pt.x - camX - 5, pt.y - camY - 3, 10, 6);
                     }
                 }
-                if (this.brewTanks) {
+                if (this.brewTanks && this.brewTanks.length > 0) {
+                    ctx.fillStyle = '#cbd5e0';
+                    ctx.strokeStyle = '#475569';
+                    ctx.lineWidth = 1.2;
+                    ctx.beginPath();
                     for (let bt of this.brewTanks) {
-                        ctx.fillStyle = '#cbd5e0';
-                        ctx.beginPath();
-                        ctx.arc(bt.x - camX, bt.y - camY, bt.r, 0, Math.PI * 2);
-                        ctx.fill();
-                        ctx.strokeStyle = '#475569';
-                        ctx.lineWidth = 1.2;
-                        ctx.stroke();
+                        const bx = bt.x - camX;
+                        const by = bt.y - camY;
+                        ctx.moveTo(bx + bt.r, by);
+                        ctx.arc(bx, by, bt.r, 0, Math.PI * 2);
                     }
+                    ctx.fill();
+                    ctx.stroke();
                 }
             } else if (this.patioTables && this.patioTables.length > 0) {
-                // Historic Ballard Ave NW & Market St sidewalk cafe bistro tables & umbrellas
+                // Historic Ballard Ave NW & Market St sidewalk cafe bistro tables & umbrellas (batched)
+                ctx.fillStyle = '#78350f';
+                ctx.beginPath();
                 for (let pt of this.patioTables) {
                     const ptx = pt.x - camX;
                     const pty = pt.y - camY;
-                    ctx.fillStyle = '#78350f';
-                    ctx.beginPath();
+                    ctx.moveTo(ptx + 3.2, pty);
                     ctx.arc(ptx, pty, 3.2, 0, Math.PI * 2);
-                    ctx.fill();
-                    ctx.fillStyle = '#dc2626';
-                    ctx.beginPath();
-                    ctx.arc(ptx, pty, 2.1, 0, Math.PI * 2);
-                    ctx.fill();
                 }
+                ctx.fill();
+                ctx.fillStyle = '#dc2626';
+                ctx.beginPath();
+                for (let pt of this.patioTables) {
+                    const ptx = pt.x - camX;
+                    const pty = pt.y - camY;
+                    ctx.moveTo(ptx + 2.1, pty);
+                    ctx.arc(ptx, pty, 2.1, 0, Math.PI * 2);
+                }
+                ctx.fill();
             }
         } else {
             // Base residential lot lawn (with 2.5D terrain slope directional hillshading)
@@ -1549,67 +1565,89 @@ class Building {
                 ctx.fillRect(screenX + 2, screenY + Math.floor(this.h * 0.48) + 2.5, this.w - 4, 1.5);
             }
 
-            // Lush Front Yards between sidewalk and front porches
+            // Lush Front Yards between sidewalk and front porches (batched fills)
             if (this.frontYards && this.frontYards.length > 0) {
-                for (let fy of this.frontYards) {
-                    const fx = fy.x - camX;
-                    const fyY = fy.y - camY;
-                    ctx.fillStyle = isRainy ? '#285c42' : '#3d9660';
-                    ctx.fillRect(fx, fyY, fy.w, fy.h);
+                ctx.fillStyle = isRainy ? '#285c42' : '#3d9660';
+                ctx.beginPath();
+                for (let i = 0; i < this.frontYards.length; i++) {
+                    const fy = this.frontYards[i];
+                    ctx.rect(fy.x - camX, fy.y - camY, fy.w, fy.h);
+                }
+                ctx.fill();
 
-                    // Subtle manicured front lawn stripes
-                    ctx.fillStyle = isRainy ? 'rgba(255,255,255,0.035)' : 'rgba(255,255,255,0.075)';
+                ctx.fillStyle = isRainy ? 'rgba(255,255,255,0.035)' : 'rgba(255,255,255,0.075)';
+                ctx.beginPath();
+                for (let i = 0; i < this.frontYards.length; i++) {
+                    const fy = this.frontYards[i];
+                    const fx = fy.x - camX + 1;
+                    const fyY = fy.y - camY;
+                    const fw = fy.w - 2;
                     for (let s = 3; s < fy.h - 3; s += 6) {
-                        ctx.fillRect(fx + 1, fyY + s, fy.w - 2, 3);
+                        ctx.rect(fx, fyY + s, fw, 3);
                     }
                 }
+                ctx.fill();
             }
 
-            // Private fenced backyards with mowed lawn stripes, wooden decks & patio umbrellas
+            // Private fenced backyards with mowed lawn stripes, wooden decks & patio umbrellas (batched)
             if (this.backyards && this.backyards.length > 0) {
-                for (let by of this.backyards) {
-                    const bx = by.x - camX;
+                ctx.fillStyle = isRainy ? '#24543d' : '#3b945e';
+                ctx.beginPath();
+                for (let i = 0; i < this.backyards.length; i++) {
+                    const by = this.backyards[i];
+                    ctx.rect(by.x - camX, by.y - camY, by.w, by.h);
+                }
+                ctx.fill();
+
+                ctx.fillStyle = isRainy ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.08)';
+                ctx.beginPath();
+                for (let i = 0; i < this.backyards.length; i++) {
+                    const by = this.backyards[i];
+                    const bx = by.x - camX + 2;
                     const byY = by.y - camY;
-                    ctx.fillStyle = isRainy ? '#24543d' : '#3b945e';
-                    ctx.fillRect(bx, byY, by.w, by.h);
-
-                    // Subtle mowed grass stripes
-                    ctx.fillStyle = isRainy ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.08)';
+                    const bw = by.w - 4;
                     for (let s = 4; s < by.h - 4; s += 8) {
-                        ctx.fillRect(bx + 2, byY + s, by.w - 4, 4);
+                        ctx.rect(bx, byY + s, bw, 4);
                     }
+                }
+                ctx.fill();
 
-                    // Wooden back deck / patio off the rear of the house
-                    ctx.fillStyle = isRainy ? '#5c3d24' : '#8c5832';
-                    ctx.fillRect(by.deckX - camX, by.deckY - camY, by.deckW, by.deckH);
-                    ctx.strokeStyle = 'rgba(0,0,0,0.25)';
-                    ctx.lineWidth = 0.8;
-                    ctx.strokeRect(by.deckX - camX, by.deckY - camY, by.deckW, by.deckH);
+                ctx.fillStyle = isRainy ? '#5c3d24' : '#8c5832';
+                ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+                ctx.lineWidth = 0.8;
+                ctx.beginPath();
+                for (let i = 0; i < this.backyards.length; i++) {
+                    const by = this.backyards[i];
+                    ctx.rect(by.deckX - camX, by.deckY - camY, by.deckW, by.deckH);
+                }
+                ctx.fill();
+                ctx.stroke();
 
-                    // Patio umbrella on back deck
+                for (let i = 0; i < this.backyards.length; i++) {
+                    const by = this.backyards[i];
                     if (by.hasUmbrella) {
                         ctx.fillStyle = by.umbrellaCol;
                         ctx.beginPath();
                         ctx.arc(by.deckX - camX + by.deckW / 2, by.deckY - camY + by.deckH / 2, 4.0, 0, Math.PI * 2);
                         ctx.fill();
-                        ctx.strokeStyle = '#ffffff';
-                        ctx.lineWidth = 0.7;
-                        ctx.stroke();
                     }
                 }
             }
 
             // Raised cedar vegetable/flower garden beds in backyards
             if (this.gardenBeds && this.gardenBeds.length > 0) {
+                ctx.fillStyle = '#4a2f1d';
+                ctx.beginPath();
                 for (let gb of this.gardenBeds) {
-                    ctx.fillStyle = '#4a2f1d';
-                    ctx.fillRect(gb.x - camX, gb.y - camY, gb.w, gb.h);
-                    ctx.strokeStyle = '#8b5a2b';
-                    ctx.lineWidth = 1;
-                    ctx.strokeRect(gb.x - camX, gb.y - camY, gb.w, gb.h);
-                    ctx.fillStyle = '#38a169';
-                    ctx.fillRect(gb.x - camX + 2, gb.y - camY + 2, gb.w - 4, gb.h - 4);
+                    ctx.rect(gb.x - camX, gb.y - camY, gb.w, gb.h);
                 }
+                ctx.fill();
+                ctx.fillStyle = '#38a169';
+                ctx.beginPath();
+                for (let gb of this.gardenBeds) {
+                    ctx.rect(gb.x - camX + 1.5, gb.y - camY + 1.5, gb.w - 3, gb.h - 3);
+                }
+                ctx.fill();
             }
 
             // Mid-block gravel/concrete alley
@@ -1646,9 +1684,7 @@ class Building {
                     ctx.fillStyle = 'rgba(0,0,0,0.35)';
                     ctx.fillRect(px + 1.5, py + 1.5, pc.w, pc.h);
                     ctx.fillStyle = pc.color;
-                    ctx.beginPath();
-                    ctx.roundRect(px, py, pc.w, pc.h, 2);
-                    ctx.fill();
+                    ctx.fillRect(px, py, pc.w, pc.h);
                     ctx.fillStyle = '#0f172a';
                     ctx.fillRect(px + 1.2, py + 3.5, pc.w - 2.4, pc.h - 7);
                     ctx.fillStyle = this.shadeColor(pc.color, 12);
@@ -1656,34 +1692,51 @@ class Building {
                 }
             }
 
-            // Seattle Recycling (Blue), Compost (Green), and Trash (Charcoal) bins by the rear alley
+            // Seattle Recycling (Blue), Compost (Green), and Trash (Charcoal) bins by the rear alley (batched by color)
             if (this.alleyBins && this.alleyBins.length > 0) {
-                for (let ab of this.alleyBins) {
-                    const ax = ab.x - camX;
-                    const ay = ab.y - camY;
-                    ctx.fillStyle = '#2b6cb0';
-                    ctx.fillRect(ax, ay, 3, 3);
-                    ctx.fillStyle = '#2f855a';
-                    ctx.fillRect(ax + 4, ay, 3, 3);
-                    ctx.fillStyle = '#1e293b';
-                    ctx.fillRect(ax + 8, ay, 3, 3);
+                ctx.fillStyle = '#2b6cb0';
+                ctx.beginPath();
+                for (let i = 0; i < this.alleyBins.length; i++) {
+                    const ab = this.alleyBins[i];
+                    ctx.rect(ab.x - camX, ab.y - camY, 3, 3);
                 }
+                ctx.fill();
+                ctx.fillStyle = '#2f855a';
+                ctx.beginPath();
+                for (let i = 0; i < this.alleyBins.length; i++) {
+                    const ab = this.alleyBins[i];
+                    ctx.rect(ab.x - camX + 4, ab.y - camY, 3, 3);
+                }
+                ctx.fill();
+                ctx.fillStyle = '#1e293b';
+                ctx.beginPath();
+                for (let i = 0; i < this.alleyBins.length; i++) {
+                    const ab = this.alleyBins[i];
+                    ctx.rect(ab.x - camX + 8, ab.y - camY, 3, 3);
+                }
+                ctx.fill();
             }
 
             // Individual front walkways from street sidewalk through front yard to each house
-            ctx.fillStyle = isRainy ? '#718096' : '#cbd5e1';
-            for (let wk of this.walkways) {
-                ctx.fillRect(wk.x - camX, wk.y - camY, wk.w, wk.h);
+            if (this.walkways && this.walkways.length > 0) {
+                ctx.fillStyle = isRainy ? '#718096' : '#cbd5e1';
+                ctx.beginPath();
+                for (let i = 0; i < this.walkways.length; i++) {
+                    const wk = this.walkways[i];
+                    ctx.rect(wk.x - camX, wk.y - camY, wk.w, wk.h);
+                }
+                ctx.fill();
             }
 
             // Front-yard mailboxes next to the front walkway
             if (this.mailboxes && this.mailboxes.length > 0) {
-                for (let mb of this.mailboxes) {
-                    ctx.fillStyle = '#1e293b';
-                    ctx.fillRect(mb.x - camX, mb.y - camY, 2.5, 2.5);
-                    ctx.fillStyle = '#e53e3e';
-                    ctx.fillRect(mb.x - camX + 2, mb.y - camY, 1.2, 1.2);
+                ctx.fillStyle = '#1e293b';
+                ctx.beginPath();
+                for (let i = 0; i < this.mailboxes.length; i++) {
+                    const mb = this.mailboxes[i];
+                    ctx.rect(mb.x - camX, mb.y - camY, 2.5, 2.5);
                 }
+                ctx.fill();
             }
 
             // Front yard hedges or low white/cedar picket fences along the sidewalk
@@ -1738,21 +1791,36 @@ class Building {
                 }
             }
 
-            // Shrubs, front-yard trees & flowers
-            for (let f of this.flowers) {
-                ctx.fillStyle = f.color;
-                ctx.beginPath();
-                ctx.arc(screenX + f.x, screenY + f.y, 1.8, 0, Math.PI * 2);
-                ctx.fill();
+            // Shrubs & flowers (batched paths!)
+            if (this.flowers && this.flowers.length > 0) {
+                for (let i = 0; i < this.flowers.length; i++) {
+                    const f = this.flowers[i];
+                    ctx.fillStyle = f.color;
+                    ctx.fillRect(screenX + f.x - 1.6, screenY + f.y - 1.6, 3.2, 3.2);
+                }
             }
-            for (let s of this.shrubs) {
+            if (this.shrubs && this.shrubs.length > 0) {
                 ctx.fillStyle = isRainy ? '#183d2a' : '#276749';
                 ctx.beginPath();
-                ctx.arc(screenX + s.x, screenY + s.y, s.r, 0, Math.PI * 2);
+                for (let i = 0; i < this.shrubs.length; i++) {
+                    const s = this.shrubs[i];
+                    const sx = screenX + s.x;
+                    const sy = screenY + s.y;
+                    ctx.moveTo(sx + s.r, sy);
+                    ctx.arc(sx, sy, s.r, 0, Math.PI * 2);
+                }
                 ctx.fill();
+
                 ctx.fillStyle = isRainy ? '#22543d' : '#38a169';
                 ctx.beginPath();
-                ctx.arc(screenX + s.x - 1, screenY + s.y - 1, s.r * 0.65, 0, Math.PI * 2);
+                for (let i = 0; i < this.shrubs.length; i++) {
+                    const s = this.shrubs[i];
+                    const sx = screenX + s.x - 1;
+                    const sy = screenY + s.y - 1;
+                    const r2 = s.r * 0.65;
+                    ctx.moveTo(sx + r2, sy);
+                    ctx.arc(sx, sy, r2, 0, Math.PI * 2);
+                }
                 ctx.fill();
             }
         }
@@ -1762,10 +1830,19 @@ class Building {
     draw3D(ctx, camX, camY) {
         const screenX = this.x - camX;
         const screenY = this.y - camY;
-        if (screenX > ctx.canvas.width + 140 || screenX + this.w < -140 || screenY > ctx.canvas.height + 140 || screenY + this.h < -140) return;
+        const vb = (typeof Game !== 'undefined' && Game.viewBounds) ? Game.viewBounds : null;
+        const minX = vb ? vb.minX - 110 : -140;
+        const maxX = vb ? vb.maxX + 110 : ctx.canvas.width + 140;
+        const minY = vb ? vb.minY - 110 : -140;
+        const maxY = vb ? vb.maxY + 110 : ctx.canvas.height + 140;
+        if (screenX > maxX || screenX + this.w < minX || screenY > maxY || screenY + this.h < minY) return;
 
         const centerX = ctx.canvas.width / 2;
         const centerY = ctx.canvas.height / 2;
+        if (this.subStructures.length === 1) {
+            this.drawSingleSubStructure3D(ctx, this.subStructures[0], camX, camY, centerX, centerY);
+            return;
+        }
         const vp = Projection3D.getVanishingPoint(centerX, centerY);
 
         const orderedSubs = [...this.subStructures].sort((a, b) => {
@@ -1776,8 +1853,8 @@ class Building {
             return (bx * bx + by * by) - (ax * ax + ay * ay);
         });
 
-        for (let sub of orderedSubs) {
-            this.drawSingleSubStructure3D(ctx, sub, camX, camY, centerX, centerY);
+        for (let i = 0; i < orderedSubs.length; i++) {
+            this.drawSingleSubStructure3D(ctx, orderedSubs[i], camX, camY, centerX, centerY);
         }
     }
 
@@ -1858,30 +1935,8 @@ class Building {
             : (tNE.x < bNE.x - 0.5);
 
         const drawWallQuad = (bA, bB, tB, tA, wallColor, isFrontWall) => {
-            // 1. Wall polygon fill
+            // 1. Wall polygon fill & corner trim in a single path construction
             ctx.fillStyle = wallColor;
-            ctx.beginPath();
-            ctx.moveTo(bA.x, bA.y);
-            ctx.lineTo(bB.x, bB.y);
-            ctx.lineTo(tB.x, tB.y);
-            ctx.lineTo(tA.x, tA.y);
-            ctx.closePath();
-            ctx.fill();
-
-            // 2. Horizontal siding / floor bands along the 3D wall
-            const floors = sub.floors || 1;
-            ctx.strokeStyle = 'rgba(0,0,0,0.18)';
-            ctx.lineWidth = 0.8;
-            const bands = Math.max(2, floors * 2);
-            for (let b = 1; b < bands; b++) {
-                const v = b / bands;
-                ctx.beginPath();
-                ctx.moveTo(bA.x + (tA.x - bA.x) * v, bA.y + (tA.y - bA.y) * v);
-                ctx.lineTo(bB.x + (tB.x - bB.x) * v, bB.y + (tB.y - bB.y) * v);
-                ctx.stroke();
-            }
-
-            // 3. Corner trim & base ambient occlusion
             ctx.strokeStyle = sub.trimColor || '#1e293b';
             ctx.lineWidth = 1.1;
             ctx.beginPath();
@@ -1890,101 +1945,149 @@ class Building {
             ctx.lineTo(tB.x, tB.y);
             ctx.lineTo(tA.x, tA.y);
             ctx.closePath();
+            ctx.fill();
             ctx.stroke();
+
+            // 2. Horizontal siding / floor bands along the 3D wall (batched into 1 path!)
+            const floors = sub.floors || 1;
+            const bands = Math.max(2, floors * 2);
+            const dAx = tA.x - bA.x;
+            const dAy = tA.y - bA.y;
+            const dBx = tB.x - bB.x;
+            const dBy = tB.y - bB.y;
+            if (bands > 1) {
+                ctx.strokeStyle = 'rgba(0,0,0,0.18)';
+                ctx.lineWidth = 0.8;
+                ctx.beginPath();
+                for (let b = 1; b < bands; b++) {
+                    const v = b / bands;
+                    ctx.moveTo(bA.x + dAx * v, bA.y + dAy * v);
+                    ctx.lineTo(bB.x + dBx * v, bB.y + dBy * v);
+                }
+                ctx.stroke();
+            }
 
             // 4. Perspective-mapped windows on the 3D wall
             const cols = sub.winCols || 2;
-            const lerpPt = (u, v) => {
-                const bx = bA.x + (bB.x - bA.x) * u;
-                const by = bA.y + (bB.y - bA.y) * u;
-                const tx = tA.x + (tB.x - tA.x) * u;
-                const ty = tA.y + (tB.y - tA.y) * u;
-                return { x: bx + (tx - bx) * v, y: by + (ty - by) * v };
+            const bDx = bB.x - bA.x;
+            const bDy = bB.y - bA.y;
+            const tDx = tB.x - tA.x;
+            const tDy = tB.y - tA.y;
+            const addQuadToPath = (u0, u1, v0, v1) => {
+                const bx0 = bA.x + bDx * u0, by0 = bA.y + bDy * u0;
+                const tx0 = tA.x + tDx * u0, ty0 = tA.y + tDy * u0;
+                const bx1 = bA.x + bDx * u1, by1 = bA.y + bDy * u1;
+                const tx1 = tA.x + tDx * u1, ty1 = tA.y + tDy * u1;
+                ctx.moveTo(bx0 + (tx0 - bx0) * v0, by0 + (ty0 - by0) * v0);
+                ctx.lineTo(bx1 + (tx1 - bx1) * v0, by1 + (ty1 - by1) * v0);
+                ctx.lineTo(bx1 + (tx1 - bx1) * v1, by1 + (ty1 - by1) * v1);
+                ctx.lineTo(bx0 + (tx0 - bx0) * v1, by0 + (ty0 - by0) * v1);
+                ctx.closePath();
             };
 
             if (sub.isGarage) {
                 // Detached backyard garage overhead sectional door on alley-facing wall
                 if (isFrontWall) {
-                    const g00 = lerpPt(0.18, 0.0);
-                    const g10 = lerpPt(0.82, 0.0);
-                    const g11 = lerpPt(0.82, 0.72);
-                    const g01 = lerpPt(0.18, 0.72);
                     ctx.fillStyle = '#e2e8f0';
-                    ctx.beginPath();
-                    ctx.moveTo(g00.x, g00.y);
-                    ctx.lineTo(g10.x, g10.y);
-                    ctx.lineTo(g11.x, g11.y);
-                    ctx.lineTo(g01.x, g01.y);
-                    ctx.closePath();
-                    ctx.fill();
                     ctx.strokeStyle = '#64748b';
                     ctx.lineWidth = 0.7;
+                    ctx.beginPath();
+                    addQuadToPath(0.18, 0.82, 0.0, 0.72);
+                    ctx.fill();
                     ctx.stroke();
                 }
             } else if (sub.isOffice) {
-                // Reflective glass curtain-wall ribbon windows with vertical aluminum mullions
+                // Reflective glass curtain-wall ribbon windows with batched vertical aluminum mullions
+                const seedBase = (sub.seed || 1) * 97;
+                ctx.strokeStyle = '#cbd5e1';
+                ctx.lineWidth = 0.75;
                 for (let r = 0; r < floors; r++) {
                     const v0 = (r + 0.18) / (floors + 0.1);
                     const v1 = (r + 0.82) / (floors + 0.1);
-                    const p00 = lerpPt(0.08, v0);
-                    const p10 = lerpPt(0.92, v0);
-                    const p11 = lerpPt(0.92, v1);
-                    const p01 = lerpPt(0.08, v1);
-                    const litHash = Math.sin((sub.seed || 1) * 97 + r * 19);
+                    const litHash = Math.sin(seedBase + r * 19);
                     const isLit = isNight ? (litHash > -0.25) : (litHash > 0.65);
                     ctx.fillStyle = isLit ? (isNight ? '#fef08a' : '#7dd3fc') : '#0369a1';
                     ctx.beginPath();
-                    ctx.moveTo(p00.x, p00.y);
-                    ctx.lineTo(p10.x, p10.y);
-                    ctx.lineTo(p11.x, p11.y);
-                    ctx.lineTo(p01.x, p01.y);
-                    ctx.closePath();
+                    addQuadToPath(0.08, 0.92, v0, v1);
                     ctx.fill();
-                    // Vertical curtain-wall mullions
-                    ctx.strokeStyle = '#cbd5e1';
-                    ctx.lineWidth = 0.75;
-                    for (let m = 1; m < cols; m++) {
-                        const um = 0.08 + (m / cols) * 0.84;
-                        const pm0 = lerpPt(um, v0);
-                        const pm1 = lerpPt(um, v1);
-                        ctx.beginPath();
-                        ctx.moveTo(pm0.x, pm0.y);
-                        ctx.lineTo(pm1.x, pm1.y);
-                        ctx.stroke();
+                }
+                if (cols > 1) {
+                    ctx.beginPath();
+                    for (let r = 0; r < floors; r++) {
+                        const v0 = (r + 0.18) / (floors + 0.1);
+                        const v1 = (r + 0.82) / (floors + 0.1);
+                        for (let m = 1; m < cols; m++) {
+                            const um = 0.08 + (m / cols) * 0.84;
+                            const bx = bA.x + bDx * um, by = bA.y + bDy * um;
+                            const tx = tA.x + tDx * um, ty = tA.y + tDy * um;
+                            ctx.moveTo(bx + (tx - bx) * v0, by + (ty - by) * v0);
+                            ctx.lineTo(bx + (tx - bx) * v1, by + (ty - by) * v1);
+                        }
                     }
+                    ctx.stroke();
                 }
             } else {
+                // Batch all unlit windows into 1 path and all lit windows into 1 path per wall!
+                const seedBase = (sub.seed || 1) * 97;
+                const thresh = isNight ? -0.15 : 0.72;
+                const invFloors = 1 / (floors + 0.15);
+                const invCols = 1 / (cols + 0.15);
+                let hasUnlit = false;
+                let hasLit = false;
+
+                ctx.fillStyle = '#0f172a';
+                ctx.beginPath();
                 for (let r = 0; r < floors; r++) {
-                    const v0 = (r + 0.25) / (floors + 0.15);
-                    const v1 = (r + 0.72) / (floors + 0.15);
+                    const v0 = (r + 0.25) * invFloors;
+                    const v1 = (r + 0.72) * invFloors;
+                    const rSeed = seedBase + r * 13;
                     for (let c = 0; c < cols; c++) {
-                        const u0 = (c + 0.22) / (cols + 0.15);
-                        const u1 = (c + 0.78) / (cols + 0.15);
-
-                        const p00 = lerpPt(u0, v0);
-                        const p10 = lerpPt(u1, v0);
-                        const p11 = lerpPt(u1, v1);
-                        const p01 = lerpPt(u0, v1);
-
-                        const litHash = Math.sin((sub.seed || 1) * 97 + r * 13 + c * 29);
-                        const isLit = isNight ? (litHash > -0.15) : (litHash > 0.72);
-                        ctx.fillStyle = isLit ? '#fef08a' : '#0f172a';
-                        ctx.beginPath();
-                        ctx.moveTo(p00.x, p00.y);
-                        ctx.lineTo(p10.x, p10.y);
-                        ctx.lineTo(p11.x, p11.y);
-                        ctx.lineTo(p01.x, p01.y);
-                        ctx.closePath();
-                        ctx.fill();
-
-                        if (!this.isUrban) {
-                            ctx.strokeStyle = '#f8fafc';
-                            ctx.lineWidth = 0.7;
-                            ctx.stroke();
+                        if (Math.sin(rSeed + c * 29) > thresh) {
+                            hasLit = true;
+                        } else {
+                            hasUnlit = true;
+                            addQuadToPath((c + 0.22) * invCols, (c + 0.78) * invCols, v0, v1);
                         }
                     }
                 }
+                if (hasUnlit) {
+                    ctx.fill();
+                    if (!this.isUrban) {
+                        ctx.strokeStyle = '#f8fafc';
+                        ctx.lineWidth = 0.7;
+                        ctx.stroke();
+                    }
+                }
+
+                if (hasLit) {
+                    ctx.fillStyle = '#fef08a';
+                    ctx.beginPath();
+                    for (let r = 0; r < floors; r++) {
+                        const v0 = (r + 0.25) * invFloors;
+                        const v1 = (r + 0.72) * invFloors;
+                        const rSeed = seedBase + r * 13;
+                        for (let c = 0; c < cols; c++) {
+                            if (Math.sin(rSeed + c * 29) > thresh) {
+                                addQuadToPath((c + 0.22) * invCols, (c + 0.78) * invCols, v0, v1);
+                            }
+                        }
+                    }
+                    ctx.fill();
+                    if (!this.isUrban) {
+                        ctx.strokeStyle = '#f8fafc';
+                        ctx.lineWidth = 0.7;
+                        ctx.stroke();
+                    }
+                }
             }
+
+            const lerpPt = (u, v) => {
+                const bx = bA.x + bDx * u;
+                const by = bA.y + bDy * u;
+                const tx = tA.x + tDx * u;
+                const ty = tA.y + tDy * u;
+                return { x: bx + (tx - bx) * v, y: by + (ty - by) * v };
+            };
 
             // 4b. 3D Stepped Concrete Hillside Foundation on sloped/elevated Ballard terrain (Olympic Manor, Sunset Hill, North Beach, Crown Hill)
             if (effectiveFoundationH >= 2 && !sub.isGarage) {
@@ -2149,13 +2252,6 @@ class Building {
                     ctx.closePath(); ctx.fill();
                     ctx.strokeStyle = sub.trimColor || '#f8fafc'; ctx.lineWidth = 1.5; ctx.stroke();
                 }
-
-                ctx.strokeStyle = '#0f172a';
-                ctx.lineWidth = 1.8;
-                ctx.beginPath();
-                ctx.moveTo(rN.x, rN.y);
-                ctx.lineTo(rS.x, rS.y);
-                ctx.stroke();
             } else {
                 const gRW = localPt(-(hw + overhang), 0);
                 const gRE = localPt(+(hw + overhang), 0);
@@ -2196,13 +2292,6 @@ class Building {
 
                 if (cy < centerY) { drawNorthSlope(); drawSouthSlope(); }
                 else { drawSouthSlope(); drawNorthSlope(); }
-
-                ctx.strokeStyle = '#0f172a';
-                ctx.lineWidth = 1.8;
-                ctx.beginPath();
-                ctx.moveTo(rW.x, rW.y);
-                ctx.lineTo(rE.x, rE.y);
-                ctx.stroke();
             }
 
             // 3D Extruded Brick Chimney Stack

@@ -257,9 +257,9 @@ class Car {
         this.lastStepSpeed = this.speed; // speed actually used for this frame's motion & steering
 
         if (this.isPlayer) {
-            const upPressed = typeof Game !== 'undefined' && !!(Game.keys['ArrowUp'] || Game.keys['KeyW']);
-            const downPressed = typeof Game !== 'undefined' && !!(Game.keys['ArrowDown'] || Game.keys['KeyS']);
-            const wantDown = downPressed && (!upPressed || Game.lastThrottleDir === -1);
+            const upPressed = typeof Game !== 'undefined' && !!(Game.keys['ArrowUp'] || Game.keys['KeyW'] || Game.touchGasActive);
+            const downPressed = typeof Game !== 'undefined' && !!(Game.keys['ArrowDown'] || Game.keys['KeyS'] || Game.touchBrakeActive);
+            const wantDown = downPressed && (!upPressed || Game.touchBrakeActive || Game.lastThrottleDir === -1);
             this.isBraking = (wantDown && this.speed > 0.1);
         } else {
             this.isBraking = (this.speed < this.prevSpeed - 0.015 && this.speed > 0.1);
@@ -438,19 +438,42 @@ class Car {
             }
         } else {
             // AI movement: prevent AI cars from ever moving into or clipping 3D buildings or parked cars!
-            const aiHitBld = this.checkBuildingCollision(nextX, nextY);
-            const aiHitPk = !aiHitBld ? this.checkParkedCarCollision(nextX, nextY) : null;
-            if (!aiHitBld && !aiHitPk) {
+            const moved = Math.abs(this.vx) > 0.001 || Math.abs(this.vy) > 0.001;
+            if (!moved) {
+                if (!this.poly || Math.abs(this.angle - this.prevAngle) > 0.0005) {
+                    this.poly = Utils.getRectCorners(this.x, this.y, this.w, this.h, this.angle + Math.PI / 2);
+                }
+                return;
+            }
+            const lodFrame = (typeof Game !== 'undefined' && Game._lodFrame) ? Game._lodFrame : 0;
+            const steadyCruise = Boolean(
+                this.currentRoad &&
+                !this.narrowYieldState &&
+                !this.pullOutPlan &&
+                (this.pullingOutTimer || 0) <= 0 &&
+                (this.unstuckTimer || 0) <= 0 &&
+                this.state === 'DRIVE'
+            );
+            const checkEveryFrame = !steadyCruise || (((this.id || 0) + lodFrame) & 3) === 0;
+
+            if (!checkEveryFrame) {
                 this.x = nextX;
                 this.y = nextY;
             } else {
-                const mtv = aiHitBld ? aiHitBld.mtv : (aiHitPk ? aiHitPk.mtv : null);
-                if (mtv) {
-                    const candX = nextX - mtv.nx * (mtv.overlap + 2.5);
-                    const candY = nextY - mtv.ny * (mtv.overlap + 2.5);
-                    if (!this.checkBuildingCollision(candX, candY) && !this.checkParkedCarCollision(candX, candY)) {
-                        this.x = candX;
-                        this.y = candY;
+                const aiHitBld = this.checkBuildingCollision(nextX, nextY);
+                const aiHitPk = !aiHitBld ? this.checkParkedCarCollision(nextX, nextY) : null;
+                if (!aiHitBld && !aiHitPk) {
+                    this.x = nextX;
+                    this.y = nextY;
+                } else {
+                    const mtv = aiHitBld ? aiHitBld.mtv : (aiHitPk ? aiHitPk.mtv : null);
+                    if (mtv) {
+                        const candX = nextX - mtv.nx * (mtv.overlap + 2.5);
+                        const candY = nextY - mtv.ny * (mtv.overlap + 2.5);
+                        if (!this.checkBuildingCollision(candX, candY) && !this.checkParkedCarCollision(candX, candY)) {
+                            this.x = candX;
+                            this.y = candY;
+                        }
                     }
                 }
             }
@@ -961,16 +984,30 @@ class Car {
             return;
         }
         const currentAccel = this.coffeeBoostTimer > 0 ? this.accel * 1.5 : this.accel;
-        const upPressed = !!(Game.keys['ArrowUp'] || Game.keys['KeyW']);
-        const downPressed = !!(Game.keys['ArrowDown'] || Game.keys['KeyS']);
-        const leftPressed = !!(Game.keys['ArrowLeft'] || Game.keys['KeyA']);
-        const rightPressed = !!(Game.keys['ArrowRight'] || Game.keys['KeyD']);
+        const touchGas = !!(typeof Game !== 'undefined' && Game.touchGasActive);
+        const touchBrake = !!(typeof Game !== 'undefined' && Game.touchBrakeActive);
+        const directStickActive = !!(
+            typeof Game !== 'undefined' &&
+            Game.touchSteerActive &&
+            Game.touchControlMode !== 'WHEEL' &&
+            typeof Game.touchStickMag === 'number' &&
+            Game.touchStickMag > 0.12
+        );
+        const stickAutoGas = directStickActive && Game.touchStickMag > 0.22 && !touchBrake;
+        const throttleScale = (stickAutoGas && !touchGas && !(Game.keys['ArrowUp'] || Game.keys['KeyW']))
+            ? Math.min(1.0, Math.max(0.38, (Game.touchStickMag - 0.12) / 0.72))
+            : 1.0;
+
+        const upPressed = !!(Game.keys['ArrowUp'] || Game.keys['KeyW'] || touchGas || stickAutoGas);
+        const downPressed = !!(Game.keys['ArrowDown'] || Game.keys['KeyS'] || touchBrake);
+        let leftPressed = !!(Game.keys['ArrowLeft'] || Game.keys['KeyA']);
+        let rightPressed = !!(Game.keys['ArrowRight'] || Game.keys['KeyD']);
 
         // If both Forward and Backward are held simultaneously, honor whichever direction was pressed most recently
         let wantUp = upPressed;
         let wantDown = downPressed;
         if (upPressed && downPressed) {
-            if (Game.lastThrottleDir === -1) {
+            if (touchBrake || Game.lastThrottleDir === -1) {
                 wantUp = false;
                 wantDown = true;
             } else {
@@ -988,9 +1025,9 @@ class Car {
                     this.cruiseControl = false;
                 }
                 if (typeof Game !== 'undefined' && Game.updateCruiseUI) Game.updateCruiseUI();
-            } else if (wantUp) {
+            } else if (wantUp && !stickAutoGas) {
                 // Holding Forward boosts speed and raises the locked Cruise Speed
-                this.speed += currentAccel;
+                this.speed += currentAccel * throttleScale;
                 this.cruiseSpeed = Math.min(this.maxSpeed, Math.max(this.cruiseSpeed, this.speed));
                 if (typeof Game !== 'undefined' && Game.updateCruiseUI) Game.updateCruiseUI();
             } else {
@@ -1010,7 +1047,10 @@ class Car {
                 // Smoothly brake from reverse and transition straight into forward acceleration
                 this.speed += currentAccel * 2.4;
             } else {
-                this.speed += currentAccel;
+                const targetMax = this.maxSpeed * throttleScale;
+                if (this.speed < targetMax || throttleScale >= 0.98) {
+                    this.speed += currentAccel * throttleScale;
+                }
             }
         } else if (wantDown) {
             if (this.speed > 0) {
@@ -1021,11 +1061,25 @@ class Car {
             }
         }
 
+        // Mobile Direct-Stick ("Point & Drive") 360° World-Direction Steering:
+        // Pointing the thumbstick in any screen direction smoothly turns the car toward that exact street direction!
+        let directDiff = null;
+        if (directStickActive && typeof Game.touchTargetAngle === 'number') {
+            directDiff = Utils.angleDiff(Game.touchTargetAngle, this.angle);
+            if (Math.abs(directDiff) > 0.03) {
+                if (directDiff < 0) { leftPressed = true; rightPressed = false; }
+                else { rightPressed = true; leftPressed = false; }
+            } else {
+                leftPressed = false;
+                rightPressed = false;
+            }
+        }
+
         let steerInput = 0;
         if (leftPressed) steerInput -= 1;
         if (rightPressed) steerInput += 1;
 
-        if (steerInput !== 0) {
+        if (steerInput !== 0 && (directDiff === null || Math.abs(directDiff) > 0.32)) {
             this.turnSignal = steerInput;
             this.turnSignalHold = 18;
         } else if (this.turnSignalHold > 0) {
@@ -1034,34 +1088,51 @@ class Car {
         }
 
         // Smooth front wheel articulation angle
-        this.steerAngle = Utils.lerp(this.steerAngle || 0, steerInput * 0.38, 0.25);
+        const wheelTarget = directDiff !== null
+            ? Math.max(-1, Math.min(1, directDiff / 0.55)) * 0.38
+            : steerInput * 0.38;
+        this.steerAngle = Utils.lerp(this.steerAngle || 0, wheelTarget, 0.25);
 
-        if (Math.abs(this.speed) > 0.08 && this.hydroplaneTimer <= 0 && (leftPressed || rightPressed)) {
-            const dir = this.speed > 0 ? 1 : -1;
-            const turnScale = (typeof Game.joystickTurn === 'number' && Game.joystickTurn !== 0)
-                ? Math.abs(Game.joystickTurn)
-                : 1.0;
-            // Speed-dependent power steering curve: responsive at low/medium speeds, smooth at top speed
+        if (Math.abs(this.speed) > 0.06 && this.hydroplaneTimer <= 0 && (leftPressed || rightPressed || directDiff !== null)) {
+            const dir = this.speed >= 0 ? 1 : -1;
             const absSpd = Math.abs(this.speed);
-            const speedCurve = Math.min(1.0, 0.45 + absSpd * 0.55) * (1.0 - Math.min(0.18, Math.max(0, absSpd - 1.8) * 0.12));
+            // Speed-dependent power steering curve: responsive at low/medium speeds, smooth at top speed
+            const speedCurve = Math.min(1.0, 0.48 + absSpd * 0.52) * (1.0 - Math.min(0.18, Math.max(0, absSpd - 1.8) * 0.12));
             let deltaAngle = 0;
-            if (leftPressed) deltaAngle -= this.turnSpeed * dir * turnScale * speedCurve;
-            if (rightPressed) deltaAngle += this.turnSpeed * dir * turnScale * speedCurve;
-            const candAngle = Utils.normalizeAngle(this.angle + deltaAngle);
 
-            const rotBld = this.checkBuildingCollision(this.x, this.y, candAngle);
-            const rotPk = !rotBld ? this.checkParkedCarCollision(this.x, this.y, candAngle) : null;
-            if (!rotBld && !rotPk) {
-                this.angle = candAngle;
+            if (directDiff !== null) {
+                // Direct 360° target-angle steering with exact clamp so the car aligns onto any street without oscillation
+                const maxStep = this.turnSpeed * 1.22 * speedCurve * Math.min(1.0, 0.55 + (Game.touchStickMag || 0.5) * 0.45);
+                if (Math.abs(directDiff) <= maxStep) {
+                    deltaAngle = directDiff;
+                } else {
+                    deltaAngle = Math.sign(directDiff) * maxStep;
+                }
             } else {
-                const mtv = rotBld ? rotBld.mtv : (rotPk ? rotPk.mtv : null);
-                if (mtv && mtv.overlap < 8) {
-                    const nudgeX = this.x - mtv.nx * (mtv.overlap + 1.5);
-                    const nudgeY = this.y - mtv.ny * (mtv.overlap + 1.5);
-                    if (this.isSpotFree(nudgeX, nudgeY, candAngle)) {
-                        this.x = nudgeX;
-                        this.y = nudgeY;
-                        this.angle = candAngle;
+                const turnScale = (typeof Game.joystickTurn === 'number' && Game.joystickTurn !== 0)
+                    ? Math.abs(Game.joystickTurn)
+                    : 1.0;
+                if (leftPressed) deltaAngle -= this.turnSpeed * dir * turnScale * speedCurve;
+                if (rightPressed) deltaAngle += this.turnSpeed * dir * turnScale * speedCurve;
+            }
+
+            if (Math.abs(deltaAngle) > 0.0005) {
+                const candAngle = Utils.normalizeAngle(this.angle + deltaAngle);
+
+                const rotBld = this.checkBuildingCollision(this.x, this.y, candAngle);
+                const rotPk = !rotBld ? this.checkParkedCarCollision(this.x, this.y, candAngle) : null;
+                if (!rotBld && !rotPk) {
+                    this.angle = candAngle;
+                } else {
+                    const mtv = rotBld ? rotBld.mtv : (rotPk ? rotPk.mtv : null);
+                    if (mtv && mtv.overlap < 8) {
+                        const nudgeX = this.x - mtv.nx * (mtv.overlap + 1.5);
+                        const nudgeY = this.y - mtv.ny * (mtv.overlap + 1.5);
+                        if (this.isSpotFree(nudgeX, nudgeY, candAngle)) {
+                            this.x = nudgeX;
+                            this.y = nudgeY;
+                            this.angle = candAngle;
+                        }
                     }
                 }
             }
@@ -1884,8 +1955,10 @@ class Car {
                             ? 'REV'
                             : (this.narrowYieldState === 'YIELD_FORWARD_TO_SIDE' ? 'FWD' : null);
                         const plan = this.pocketPlan;
-                        const planStale = !plan || plan.pocket.road !== r || plan.pocket.travelDir !== this.travelDir ||
-                            (wantEntry && plan.entry !== wantEntry && (plan.phase === 'PRE' || plan.phase === 'ENTER') && myLat < 10);
+                        if (this._noPocketCooldown > 0) this._noPocketCooldown--;
+                        const planStale = (!plan && !(this._noPocketCooldown > 0)) ||
+                            (plan && (plan.pocket.road !== r || plan.pocket.travelDir !== this.travelDir ||
+                            (wantEntry && plan.entry !== wantEntry && (plan.phase === 'PRE' || plan.phase === 'ENTER') && myLat < 10)));
 
                         if (planStale) {
                             this.pocketPlan = null;
@@ -1910,6 +1983,9 @@ class Car {
                             }
                             if (pocket) {
                                 this.pocketPlan = this.planPocketManeuver(pocket, entry, 0);
+                                this._noPocketCooldown = 0;
+                            } else {
+                                this._noPocketCooldown = 12;
                             }
                         }
 
@@ -2117,10 +2193,11 @@ class Car {
         }
 
         // 4C. Yield to Pedestrians Actively Crossing on a Green Walk Signal at Signalized Crosswalks
+        const crossPeds = (typeof Game !== 'undefined') ? (Game.crossingPedestrians || Game.pedestrians) : null;
         if (!shouldStop && !isBackingUp && nearestInter && nearestInter.hasSignal && minInterDist < 105 &&
-            typeof Game !== 'undefined' && Game.pedestrians && Game.pedestrians.length > 0) {
-            for (let pIdx = 0; pIdx < Game.pedestrians.length; pIdx++) {
-                const ped = Game.pedestrians[pIdx];
+            crossPeds && crossPeds.length > 0) {
+            for (let pIdx = 0; pIdx < crossPeds.length; pIdx++) {
+                const ped = crossPeds[pIdx];
                 if (!ped || ped.state !== 'CROSSING') continue;
                 const pdx = ped.x - this.x;
                 const pdy = ped.y - this.y;

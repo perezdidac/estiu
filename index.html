@@ -327,13 +327,37 @@
             </div>
         </div>
 
-        <!-- Mobile Controls -->
-        <div id="honk-area">
-            <div class="honk-btn" id="btn-honk">HONK</div>
-        </div>
+        <!-- Mobile Controls (Left: 360° Point-&-Drive / Wheel Stick | Right: Gas, Brake/Rev, Honk, Cruise) -->
         <div id="mobile-controls">
+            <div class="mobile-steer-header">
+                <button class="touch-mode-btn" id="btn-touch-mode" onclick="Game.toggleTouchControlMode()">MODE: 360° STICK</button>
+            </div>
             <div id="joystick-container">
+                <div class="joystick-compass joystick-compass-n">N</div>
+                <div class="joystick-compass joystick-compass-e">E</div>
+                <div class="joystick-compass joystick-compass-s">S</div>
+                <div class="joystick-compass joystick-compass-w">W</div>
                 <div id="joystick-knob"></div>
+            </div>
+            <div id="joystick-mode-hint" class="joystick-hint">POINT &amp; DRIVE (360°)</div>
+        </div>
+
+        <div id="honk-area">
+            <div class="mobile-aux-row">
+                <div class="aux-touch-btn" id="btn-mobile-cruise">CRUISE</div>
+                <div class="honk-btn" id="btn-honk">HONK</div>
+            </div>
+            <div class="mobile-pedal-row">
+                <div class="pedal-btn brake-pedal" id="btn-brake">
+                    <span class="pedal-icon">&#9660;</span>
+                    <span class="pedal-label">BRAKE</span>
+                    <span class="pedal-sub">REVERSE</span>
+                </div>
+                <div class="pedal-btn gas-pedal" id="btn-gas">
+                    <span class="pedal-icon">&#9650;</span>
+                    <span class="pedal-label">GAS</span>
+                    <span class="pedal-sub">BOOST</span>
+                </div>
             </div>
         </div>
     </div>

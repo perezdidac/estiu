@@ -980,8 +980,13 @@ const Game = {
     },
 
     rebuildEntityGrid() {
-        if (!this.entityGrid) this.entityGrid = new Map();
-        else this.entityGrid.clear();
+        if (!this.entityGrid) {
+            this.entityGrid = new Map();
+        } else {
+            for (const bucket of this.entityGrid.values()) {
+                bucket.length = 0;
+            }
+        }
         if (typeof MapData !== 'undefined' && MapData.roads) {
             for (let i = 0; i < MapData.roads.length; i++) {
                 MapData.roads[i].activeCarCount = 0;
@@ -1486,7 +1491,69 @@ const Game = {
         this.canvas.height = window.innerHeight;
     },
 
+    toggleTouchControlMode() {
+        this.touchControlMode = (this.touchControlMode === 'WHEEL') ? 'DIRECT' : 'WHEEL';
+        const btn = document.getElementById('btn-touch-mode');
+        const hint = document.getElementById('joystick-mode-hint');
+        if (this.touchControlMode === 'WHEEL') {
+            if (btn) btn.innerText = '🛞 WHEEL STEER';
+            if (hint) hint.innerText = '◀ STEER ▶';
+            this.showNotification('🛞 MOBILE STEERING: WHEEL MODE (LEFT / RIGHT)', '#38bdf8');
+        } else {
+            if (btn) btn.innerText = '🧭 DIRECT STICK';
+            if (hint) hint.innerText = 'POINT & DRIVE';
+            this.showNotification('🧭 MOBILE STEERING: 360° POINT & DRIVE', '#48bb78');
+        }
+        return this.touchControlMode;
+    },
+
+    setTouchInput(nx = 0, ny = 0, gas = false, brake = false) {
+        const mag = Math.min(1, Math.hypot(nx, ny));
+        this.touchGasActive = Boolean(gas);
+        this.touchBrakeActive = Boolean(brake);
+        if (brake) this.lastThrottleDir = -1;
+        else if (gas) this.lastThrottleDir = 1;
+
+        if (!this.touchControlMode) this.touchControlMode = 'DIRECT';
+
+        if (mag > 0.12) {
+            this.touchSteerActive = true;
+            this.touchStickMag = mag;
+            this.touchTargetAngle = Math.atan2(ny, nx);
+            if (this.touchControlMode === 'WHEEL') {
+                const threshold = 0.18;
+                this.keys['ArrowLeft'] = nx < -threshold;
+                this.keys['ArrowRight'] = nx > threshold;
+                this.joystickTurn = Math.abs(nx) > threshold ? nx : 0;
+                if (!gas && !brake) {
+                    this.keys['ArrowUp'] = ny < -0.25;
+                    this.keys['ArrowDown'] = ny > 0.25;
+                }
+            } else {
+                this.keys['ArrowLeft'] = false;
+                this.keys['ArrowRight'] = false;
+                this.joystickTurn = 0;
+            }
+        } else {
+            this.touchSteerActive = false;
+            this.touchStickMag = 0;
+            this.touchTargetAngle = null;
+            this.joystickTurn = 0;
+            this.keys['ArrowLeft'] = false;
+            this.keys['ArrowRight'] = false;
+            if (!gas) this.keys['ArrowUp'] = false;
+            if (!brake) this.keys['ArrowDown'] = false;
+        }
+    },
+
     setupInputs() {
+        this.touchControlMode = this.touchControlMode || 'DIRECT';
+        this.touchSteerActive = false;
+        this.touchStickMag = 0;
+        this.touchTargetAngle = null;
+        this.touchGasActive = false;
+        this.touchBrakeActive = false;
+
         window.addEventListener('keydown', e => {
             this.keys[e.code] = true;
             if (e.code === 'ArrowUp' || e.code === 'KeyW') {
@@ -1557,14 +1624,41 @@ const Game = {
         });
         window.addEventListener('mouseup', () => { isDraggingCam = false; });
 
+        // Two-finger pinch-to-zoom on #gameCanvas for mobile phones & tablets
+        if (this.canvas) {
+            let pinchDist0 = null;
+            let pinchZoom0 = 1.0;
+            this.canvas.addEventListener('touchstart', e => {
+                if (e.touches && e.touches.length === 2) {
+                    const dx = e.touches[0].clientX - e.touches[1].clientX;
+                    const dy = e.touches[0].clientY - e.touches[1].clientY;
+                    pinchDist0 = Math.hypot(dx, dy);
+                    pinchZoom0 = this.zoom || 1.0;
+                }
+            }, { passive: true });
+            this.canvas.addEventListener('touchmove', e => {
+                if (pinchDist0 && e.touches && e.touches.length === 2) {
+                    const dx = e.touches[0].clientX - e.touches[1].clientX;
+                    const dy = e.touches[0].clientY - e.touches[1].clientY;
+                    const dist = Math.hypot(dx, dy);
+                    if (dist > 15) {
+                        const targetZ = Math.max(0.45, Math.min(1.6, pinchZoom0 * (dist / pinchDist0)));
+                        this.zoom = Math.round(targetZ * 100) / 100;
+                        this.updateDebugUI();
+                    }
+                }
+            }, { passive: true });
+            this.canvas.addEventListener('touchend', () => { pinchDist0 = null; }, { passive: true });
+        }
+
         const joystickContainer = document.getElementById('joystick-container');
         const joystickKnob = document.getElementById('joystick-knob');
 
         if (joystickContainer && joystickKnob) {
             let joystickActive = false;
             let joystickTouchId = null;
-            let centerX = 0;
-            let centerY = 0;
+            let originX = 0;
+            let originY = 0;
 
             const handleJoystickStart = (e) => {
                 e.preventDefault();
@@ -1573,21 +1667,26 @@ const Game = {
                 const touch = e.changedTouches[0];
                 joystickTouchId = touch.identifier;
                 joystickActive = true;
+                joystickContainer.classList.add('active');
 
                 const rect = joystickContainer.getBoundingClientRect();
-                centerX = rect.left + rect.width / 2;
-                centerY = rect.top + rect.height / 2;
+                const baseCx = rect.left + rect.width / 2;
+                const baseCy = rect.top + rect.height / 2;
+                // Floating-origin clamping: anchor near the initial thumb contact point (within 18px of pad center)
+                // so steering responds immediately to thumb motion without requiring pixel-perfect centering!
+                originX = baseCx + Math.max(-18, Math.min(18, touch.clientX - baseCx));
+                originY = baseCy + Math.max(-18, Math.min(18, touch.clientY - baseCy));
 
                 updateJoystickPosition(touch, rect.width);
             };
 
             const updateJoystickPosition = (touch, containerWidth) => {
-                const dx = touch.clientX - centerX;
-                const dy = touch.clientY - centerY;
+                const dx = touch.clientX - originX;
+                const dy = touch.clientY - originY;
                 const dist = Math.hypot(dx, dy);
-                const maxRadius = (containerWidth - joystickKnob.offsetWidth) / 2 || 40;
+                const maxRadius = Math.max(34, (containerWidth - (joystickKnob.offsetWidth || 54)) / 2);
 
-                let angle = Math.atan2(dy, dx);
+                const angle = Math.atan2(dy, dx);
                 let moveX = dx;
                 let moveY = dy;
 
@@ -1600,13 +1699,7 @@ const Game = {
 
                 const nx = moveX / maxRadius;
                 const ny = moveY / maxRadius;
-                const threshold = 0.22;
-
-                this.keys['ArrowUp'] = ny < -threshold;
-                this.keys['ArrowDown'] = ny > threshold;
-                this.keys['ArrowLeft'] = nx < -threshold;
-                this.keys['ArrowRight'] = nx > threshold;
-                this.joystickTurn = Math.abs(nx) > threshold ? nx : 0;
+                this.setTouchInput(nx, ny, this.touchGasActive, this.touchBrakeActive);
             };
 
             const handleJoystickMove = (e) => {
@@ -1638,12 +1731,9 @@ const Game = {
                     e.preventDefault();
                     joystickActive = false;
                     joystickTouchId = null;
+                    joystickContainer.classList.remove('active');
                     joystickKnob.style.transform = 'translate(-50%, -50%)';
-                    this.keys['ArrowUp'] = false;
-                    this.keys['ArrowDown'] = false;
-                    this.keys['ArrowLeft'] = false;
-                    this.keys['ArrowRight'] = false;
-                    this.joystickTurn = 0;
+                    this.setTouchInput(0, 0, this.touchGasActive, this.touchBrakeActive);
                 }
             };
 
@@ -1653,19 +1743,84 @@ const Game = {
             window.addEventListener('touchcancel', handleJoystickEnd, { passive: false });
         }
 
+        // Dedicated Mobile Right-Thumb GAS & BRAKE/REVERSE Pedals
+        const bindPedalHold = (btnId, onChange) => {
+            const btn = document.getElementById(btnId);
+            if (!btn) return;
+            const startHold = (e) => {
+                e.preventDefault();
+                btn.classList.add('pressed');
+                onChange(true);
+            };
+            const endHold = (e) => {
+                e.preventDefault();
+                btn.classList.remove('pressed');
+                onChange(false);
+            };
+            btn.addEventListener('touchstart', startHold, { passive: false });
+            btn.addEventListener('touchend', endHold, { passive: false });
+            btn.addEventListener('touchcancel', endHold, { passive: false });
+            btn.addEventListener('mousedown', startHold);
+            btn.addEventListener('mouseup', endHold);
+            btn.addEventListener('mouseleave', endHold);
+        };
+
+        bindPedalHold('btn-gas', (active) => {
+            this.touchGasActive = active;
+            if (active) this.lastThrottleDir = 1;
+            else if (this.touchBrakeActive) this.lastThrottleDir = -1;
+            else this.lastThrottleDir = 0;
+        });
+
+        bindPedalHold('btn-brake', (active) => {
+            this.touchBrakeActive = active;
+            if (active) this.lastThrottleDir = -1;
+            else if (this.touchGasActive) this.lastThrottleDir = 1;
+            else this.lastThrottleDir = 0;
+        });
+
         const honkBtn = document.getElementById('btn-honk');
         if (honkBtn) {
             honkBtn.addEventListener('touchstart', e => {
                 e.preventDefault();
                 if (this.state === 'PLAYING') this.honk();
-            });
+            }, { passive: false });
         }
 
-        if ('ontouchstart' in window || window.innerWidth < 1024) {
+        const mobileCruiseBtn = document.getElementById('btn-mobile-cruise');
+        if (mobileCruiseBtn) {
+            mobileCruiseBtn.addEventListener('touchstart', e => {
+                e.preventDefault();
+                if (this.state === 'PLAYING') this.toggleCruiseControl();
+            }, { passive: false });
+        }
+
+        const touchModeBtn = document.getElementById('btn-touch-mode');
+        if (touchModeBtn) {
+            touchModeBtn.addEventListener('touchstart', e => {
+                e.preventDefault();
+                this.toggleTouchControlMode();
+            }, { passive: false });
+        }
+
+        const isTouchOrMobile = ('ontouchstart' in window) ||
+            (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0) ||
+            window.innerWidth <= 1024;
+        if (isTouchOrMobile) {
             const mc = document.getElementById('mobile-controls');
             const ha = document.getElementById('honk-area');
             if (mc) mc.style.display = 'flex';
-            if (ha) ha.style.display = 'block';
+            if (ha) ha.style.display = 'flex';
+            if (window.innerWidth <= 900) {
+                // Auto-collapse Debug Studio & set a comfortable wide-angle street view on mobile phones
+                this.zoom = 0.78;
+                const dbgBody = document.getElementById('debug-panel-body');
+                const dbgBtn = document.getElementById('debug-collapse-btn');
+                if (dbgBody && !dbgBody.classList.contains('collapsed')) {
+                    dbgBody.classList.add('collapsed');
+                    if (dbgBtn) dbgBtn.innerText = '▼';
+                }
+            }
         }
 
         const bindButtonTouch = (selector, action) => {
@@ -2340,6 +2495,7 @@ const Game = {
 
         this.generateBuildingsAndTrees();
         this.generateStreetParking();
+        this._buildRenderCaches();
 
         // Generate GTA Side-Hustle Cash Drops across Ballard road curbs
         this.sideHustles = [];
@@ -2389,6 +2545,80 @@ const Game = {
                     });
                 }
             }
+        }
+    },
+
+    _buildRenderCaches() {
+        // 1. Spatial tile grid for 6,700+ trees (eliminates full-array iteration on every frame)
+        this.treeGrid = Array(MAP_H).fill(0).map(() => Array(MAP_W).fill(null));
+        if (this.trees) {
+            for (let i = 0; i < this.trees.length; i++) {
+                const t = this.trees[i];
+                const tr = Math.max(0, Math.min(MAP_H - 1, Math.floor(t.y / TILE_SIZE)));
+                const tc = Math.max(0, Math.min(MAP_W - 1, Math.floor(t.x / TILE_SIZE)));
+                t.elevM = (this.elevationGrid && this.elevationGrid[tr]) ? this.elevationGrid[tr][tc] : undefined;
+                if (!this.treeGrid[tr][tc]) this.treeGrid[tr][tc] = [];
+                this.treeGrid[tr][tc].push(t);
+            }
+        }
+
+        // 2. Spatial tile grid for 1,680+ asphalt street-name / block stencils
+        this.textGrid = Array(MAP_H).fill(0).map(() => Array(MAP_W).fill(null));
+        if (this.textOverlay) {
+            for (let i = 0; i < this.textOverlay.length; i++) {
+                const t = this.textOverlay[i];
+                const nameStr = (t.text || '').toUpperCase();
+                t.fullStr = t.blockText ? `${nameStr}  •  ${t.blockText}` : nameStr;
+                const tr = Math.max(0, Math.min(MAP_H - 1, Math.floor(t.y / TILE_SIZE)));
+                const tc = Math.max(0, Math.min(MAP_W - 1, Math.floor(t.x / TILE_SIZE)));
+                if (!this.textGrid[tr][tc]) this.textGrid[tr][tc] = [];
+                this.textGrid[tr][tc].push(t);
+            }
+        }
+
+        // 3. Pre-filtered diagonal roads & non-intersection 24px centerline/parking dash segments
+        this.diagRoads = (typeof MapData !== 'undefined' && MapData.roads)
+            ? MapData.roads.filter(r => r.x1 !== r.x2 && r.y1 !== r.y2)
+            : [];
+        for (let i = 0; i < this.diagRoads.length; i++) {
+            const r = this.diagRoads[i];
+            const x1_w = r.x1 * TILE_SIZE + TILE_SIZE / 2;
+            const y1_w = r.y1 * TILE_SIZE + TILE_SIZE / 2;
+            const x2_w = r.x2 * TILE_SIZE + TILE_SIZE / 2;
+            const y2_w = r.y2 * TILE_SIZE + TILE_SIZE / 2;
+            const dx = x2_w - x1_w;
+            const dy = y2_w - y1_w;
+            const len = Math.hypot(dx, dy) || 1;
+            const ux = dx / len;
+            const uy = dy / len;
+            const stepLen = 24;
+            const segs = [];
+            for (let d = 0; d < len; d += stepLen) {
+                const dNext = Math.min(len, d + stepLen);
+                const midX = x1_w + ux * ((d + dNext) * 0.5);
+                const midY = y1_w + uy * ((d + dNext) * 0.5);
+                const nearbyDiagInters = this.getNearbyIntersections(midX, midY);
+                let nearInter = false;
+                for (let k = 0; k < nearbyDiagInters.length; k++) {
+                    const inter = nearbyDiagInters[k];
+                    if (Math.hypot(inter.worldX - midX, inter.worldY - midY) < (inter.hasArterial ? 78 : 56)) {
+                        nearInter = true;
+                        break;
+                    }
+                }
+                if (!nearInter) {
+                    segs.push({
+                        x1: x1_w + ux * d,
+                        y1: y1_w + uy * d,
+                        x2: x1_w + ux * dNext,
+                        y2: y1_w + uy * dNext,
+                        midX,
+                        midY,
+                        even: (Math.floor(d / stepLen) % 2 === 0)
+                    });
+                }
+            }
+            r._dashSegments = segs;
         }
     },
 
@@ -4143,6 +4373,9 @@ const Game = {
             const focusY = this.player ? this.player.y : (this.cam.y + (this.canvas ? this.canvas.height / 2 : 400));
             const maxPeds = this.maxPedestrians || 280;
 
+            if (!this.crossingPedestrians) this.crossingPedestrians = [];
+            else this.crossingPedestrians.length = 0;
+
             for (let i = 0; i < this.pedestrians.length; i++) {
                 const ped = this.pedestrians[i];
                 // Recycle pedestrians that fall far behind outside the 3300px active neighborhood radius
@@ -4151,6 +4384,9 @@ const Game = {
                     continue;
                 }
                 ped.update();
+                if (ped.state === 'CROSSING') {
+                    this.crossingPedestrians.push(ped);
+                }
             }
             this.pedestrians = this.pedestrians.filter(p => p.state !== 'FINISHED');
 
@@ -4992,19 +5228,55 @@ const Game = {
         }
 
         // Ground-level parcel lots (lawns, fenced backyards, decks, alleys, walkways) at z = 0
+        this._lotDrawStamp = ((this._lotDrawStamp || 0) + 1) & 0x7fffffff;
+        const lotStamp = this._lotDrawStamp;
         for (let r = startR; r <= endR; r++) {
             const bRow = this.buildingGrid[r];
             if (!bRow) continue;
             for (let c = startC; c <= endC; c++) {
                 const b = bRow[c];
-                if (b && b.drawLot) b.drawLot(this.ctx, cx, cy);
+                if (b && b._lotStamp !== lotStamp && b.drawLot) {
+                    b._lotStamp = lotStamp;
+                    b.drawLot(this.ctx, cx, cy);
+                }
             }
         }
 
         // =====================================================================
         // LAYER 2: LOCAL RESIDENTIAL STREETS (94px) vs WIDE ARTERIALS (156px)
         // =====================================================================
-        const diagRoads = MapData.roads.filter(r => r.x1 !== r.x2 && r.y1 !== r.y2);
+        const diagRoads = this.diagRoads || MapData.roads.filter(r => r.x1 !== r.x2 && r.y1 !== r.y2);
+
+        // Collect visible intersections once per frame from spatial intersectionGrid
+        const visibleIntersections = [];
+        this._visInterStamp = ((this._visInterStamp || 0) + 1) & 0x7fffffff;
+        const stamp = this._visInterStamp;
+        if (this.intersectionGrid && this.intersectionGrid.length > 0) {
+            const ir0 = Math.max(0, startR - 1);
+            const ir1 = Math.min(MAP_H - 1, endR + 1);
+            const ic0 = Math.max(0, startC - 1);
+            const ic1 = Math.min(MAP_W - 1, endC + 1);
+            for (let r = ir0; r <= ir1; r++) {
+                const iRow = this.intersectionGrid[r];
+                if (!iRow) continue;
+                for (let c = ic0; c <= ic1; c++) {
+                    const cell = iRow[c];
+                    if (cell && cell.length > 0) {
+                        for (let k = 0; k < cell.length; k++) {
+                            const inter = cell[k];
+                            if (inter._visStamp !== stamp) {
+                                inter._visStamp = stamp;
+                                visibleIntersections.push(inter);
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            for (let i = 0; i < this.intersections.length; i++) {
+                visibleIntersections.push(this.intersections[i]);
+            }
+        }
 
         // Pass 2A: Multi-Pass Curved & Diagonal Road Sidewalk, Rolled Curb, Burke-Gilman Trail & Asphalt/Concrete
         this.ctx.lineCap = 'round';
@@ -5241,7 +5513,8 @@ const Game = {
         }
 
         // Pass 2D: Smooth circular asphalt plazas at intersections + Seattle Neighborhood Traffic Circles
-        this.intersections.forEach(inter => {
+        for (let i = 0; i < visibleIntersections.length; i++) {
+            const inter = visibleIntersections[i];
             const ix = inter.worldX - cx;
             const iy = inter.worldY - cy;
             if (ix > vMinX - 120 && ix < vMaxX + 120 && iy > vMinY - 120 && iy < vMaxY + 120) {
@@ -5274,7 +5547,7 @@ const Game = {
                     this.ctx.fill();
                 }
             }
-        });
+        }
 
         // =====================================================================
         // LAYER 3: ROAD CENTERLINES, MULTI-LANE DIVIDERS, BUS LANES & GREENWAYS
@@ -5523,79 +5796,66 @@ const Game = {
             }
 
             this.ctx.lineCap = 'butt';
-            const stepLen = 24;
-            for (let d = 0; d < len; d += stepLen) {
-                const dNext = Math.min(len, d + stepLen);
-                const midX = x1_w + ux * ((d + dNext) / 2);
-                const midY = y1_w + uy * ((d + dNext) / 2);
+            const dashSegs = r._dashSegments;
+            if (dashSegs && dashSegs.length > 0) {
+                for (let sIdx = 0; sIdx < dashSegs.length; sIdx++) {
+                    const seg = dashSegs[sIdx];
+                    const midSX = seg.midX - cx;
+                    const midSY = seg.midY - cy;
+                    if (midSX < vMinX - 90 || midSX > vMaxX + 90 || midSY < vMinY - 90 || midSY > vMaxY + 90) continue;
 
-                // Viewport culling: skip dash segments far off-screen before any intersection lookups
-                const midSX = midX - cx;
-                const midSY = midY - cy;
-                if (midSX < vMinX - 90 || midSX > vMaxX + 90 || midSY < vMinY - 90 || midSY > vMaxY + 90) continue;
+                    const sx1 = seg.x1 - cx;
+                    const sy1 = seg.y1 - cy;
+                    const sx2 = seg.x2 - cx;
+                    const sy2 = seg.y2 - cy;
 
-                const nearbyDiagInters = this.getNearbyIntersections(midX, midY);
-                const nearInter = nearbyDiagInters.some(inter =>
-                    Math.hypot(inter.worldX - midX, inter.worldY - midY) < (inter.hasArterial ? 78 : 56)
-                );
-                if (nearInter) continue;
-
-                const sx1 = x1_w + ux * d - cx;
-                const sy1 = y1_w + uy * d - cy;
-                const sx2 = x1_w + ux * dNext - cx;
-                const sy2 = y1_w + uy * dNext - cy;
-
-                if (r.type === 9 && r.hasMiddleLane) {
-                    // Middle Turn Lane (TWLTL) along diagonal arterials (Leary Ave / Leary Way / Holman Rd)
-                    this.ctx.strokeStyle = '#ecc94b';
-                    this.ctx.lineWidth = 2;
-                    for (const side of [-14, 14]) {
+                    if (r.type === 9 && r.hasMiddleLane) {
+                        // Middle Turn Lane (TWLTL) along diagonal arterials (Leary Ave / Leary Way / Holman Rd)
+                        this.ctx.strokeStyle = '#ecc94b';
+                        this.ctx.lineWidth = 2;
                         this.ctx.beginPath();
-                        this.ctx.moveTo(sx1 + nx * side, sy1 + ny * side);
-                        this.ctx.lineTo(sx2 + nx * side, sy2 + ny * side);
-                        this.ctx.stroke();
-                    }
-                    // Dashed white outer lane dividers
-                    if (Math.floor(d / stepLen) % 2 === 0) {
-                        this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-                        this.ctx.lineWidth = 1.6;
-                        for (const side of [-44, 44]) {
-                            this.ctx.beginPath();
+                        for (const side of [-14, 14]) {
                             this.ctx.moveTo(sx1 + nx * side, sy1 + ny * side);
                             this.ctx.lineTo(sx2 + nx * side, sy2 + ny * side);
-                            this.ctx.stroke();
                         }
-                    }
-                } else if (r.type === 9 || r.isCollector) {
-                    this.ctx.strokeStyle = r.type === 9 ? '#ecc94b' : '#d69e2e';
-                    this.ctx.lineWidth = 2;
-                    this.ctx.beginPath();
-                    this.ctx.moveTo(sx1 + nx * 2, sy1 + ny * 2);
-                    this.ctx.lineTo(sx2 + nx * 2, sy2 + ny * 2);
-                    this.ctx.stroke();
-
-                    this.ctx.beginPath();
-                    this.ctx.moveTo(sx1 - nx * 2, sy1 - ny * 2);
-                    this.ctx.lineTo(sx2 - nx * 2, sy2 - ny * 2);
-                    this.ctx.stroke();
-                }
-
-                // Diagonal Commercial Metered Parking Lines & White T-Stalls (Ballard Ave NW & Seaview Ave NW!)
-                if (r.parkingMarking === 'T_STALLS' || r.parkingMarking === 'WHITE_LINE') {
-                    const pLineOffset = 29;
-                    this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.48)';
-                    this.ctx.lineWidth = 1.4;
-                    for (const side of [-1, 1]) {
-                        this.ctx.beginPath();
-                        this.ctx.moveTo(sx1 + nx * side * pLineOffset, sy1 + ny * side * pLineOffset);
-                        this.ctx.lineTo(sx2 + nx * side * pLineOffset, sy2 + ny * side * pLineOffset);
                         this.ctx.stroke();
-                        if (r.parkingMarking === 'T_STALLS' && Math.floor(d / stepLen) % 2 === 0) {
+                        // Dashed white outer lane dividers
+                        if (seg.even) {
+                            this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+                            this.ctx.lineWidth = 1.6;
                             this.ctx.beginPath();
-                            this.ctx.moveTo(sx1 + nx * side * pLineOffset, sy1 + ny * side * pLineOffset);
-                            this.ctx.lineTo(sx1 + nx * side * (pLineOffset + 9), sy1 + ny * side * (pLineOffset + 9));
+                            for (const side of [-44, 44]) {
+                                this.ctx.moveTo(sx1 + nx * side, sy1 + ny * side);
+                                this.ctx.lineTo(sx2 + nx * side, sy2 + ny * side);
+                            }
                             this.ctx.stroke();
                         }
+                    } else if (r.type === 9 || r.isCollector) {
+                        this.ctx.strokeStyle = r.type === 9 ? '#ecc94b' : '#d69e2e';
+                        this.ctx.lineWidth = 2;
+                        this.ctx.beginPath();
+                        this.ctx.moveTo(sx1 + nx * 2, sy1 + ny * 2);
+                        this.ctx.lineTo(sx2 + nx * 2, sy2 + ny * 2);
+                        this.ctx.moveTo(sx1 - nx * 2, sy1 - ny * 2);
+                        this.ctx.lineTo(sx2 - nx * 2, sy2 - ny * 2);
+                        this.ctx.stroke();
+                    }
+
+                    // Diagonal Commercial Metered Parking Lines & White T-Stalls (Ballard Ave NW & Seaview Ave NW!)
+                    if (r.parkingMarking === 'T_STALLS' || r.parkingMarking === 'WHITE_LINE') {
+                        const pLineOffset = 29;
+                        this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.48)';
+                        this.ctx.lineWidth = 1.4;
+                        this.ctx.beginPath();
+                        for (const side of [-1, 1]) {
+                            this.ctx.moveTo(sx1 + nx * side * pLineOffset, sy1 + ny * side * pLineOffset);
+                            this.ctx.lineTo(sx2 + nx * side * pLineOffset, sy2 + ny * side * pLineOffset);
+                            if (r.parkingMarking === 'T_STALLS' && seg.even) {
+                                this.ctx.moveTo(sx1 + nx * side * pLineOffset, sy1 + ny * side * pLineOffset);
+                                this.ctx.lineTo(sx1 + nx * side * (pLineOffset + 9), sy1 + ny * side * (pLineOffset + 9));
+                            }
+                        }
+                        this.ctx.stroke();
                     }
                 }
             }
@@ -5863,7 +6123,8 @@ const Game = {
         }
 
         // Draw Stop Lines, "STOP" Legends, Dedicated Turn-Pocket Arrows & Crosswalks (Continental + Historic Old Ballard Brick!)
-        this.intersections.forEach(inter => {
+        for (let i = 0; i < visibleIntersections.length; i++) {
+            const inter = visibleIntersections[i];
             inter.approaches.forEach(a => {
                 if (a.controlType === 'NONE') return;
 
@@ -5983,35 +6244,52 @@ const Game = {
                     this.ctx.restore();
                 }
             });
-        });
+        }
 
-        // Draw High-Contrast Seattle Street Names & Real 100-Block Stencils on Asphalt
+        // Draw High-Contrast Seattle Street Names & Real 100-Block Stencils on Asphalt (culled via spatial textGrid!)
         this.ctx.textAlign = 'center';
         this.ctx.textBaseline = 'middle';
-        this.textOverlay.forEach(t => {
-            const tx = t.x - cx; const ty = t.y - cy;
-            if (tx > vMinX - 140 && tx < vMaxX + 140 && ty > vMinY - 140 && ty < vMaxY + 140) {
-                this.ctx.save();
-                this.ctx.translate(tx, ty);
-                if (t.vertical) this.ctx.rotate(-Math.PI / 2);
-                else if (t.diagonal) this.ctx.rotate(t.angle);
+        if (this.textGrid) {
+            const tr0 = Math.max(0, startR - 1);
+            const tr1 = Math.min(MAP_H - 1, endR + 1);
+            const tc0 = Math.max(0, startC - 1);
+            const tc1 = Math.min(MAP_W - 1, endC + 1);
+            for (let r = tr0; r <= tr1; r++) {
+                const tRow = this.textGrid[r];
+                if (!tRow) continue;
+                for (let c = tc0; c <= tc1; c++) {
+                    const cell = tRow[c];
+                    if (!cell) continue;
+                    for (let k = 0; k < cell.length; k++) {
+                        const t = cell[k];
+                        const tx = t.x - cx; const ty = t.y - cy;
+                        if (tx > vMinX - 140 && tx < vMaxX + 140 && ty > vMinY - 140 && ty < vMaxY + 140) {
+                            this.ctx.save();
+                            this.ctx.translate(tx, ty);
+                            if (t.vertical) this.ctx.rotate(-Math.PI / 2);
+                            else if (t.diagonal) this.ctx.rotate(t.angle);
 
-                const nameStr = t.text.toUpperCase();
-                const fullStr = t.blockText ? `${nameStr}  •  ${t.blockText}` : nameStr;
-                this.ctx.font = t.isArterial ? '800 13px "Inter", sans-serif' : 'bold 11.5px "Inter", sans-serif';
-                const tw = this.ctx.measureText(fullStr).width;
+                            const fullStr = t.fullStr || t.text.toUpperCase();
+                            this.ctx.font = t.isArterial ? '800 13px "Inter", sans-serif' : 'bold 11.5px "Inter", sans-serif';
+                            if (t._cachedW === undefined) {
+                                t._cachedW = this.ctx.measureText(fullStr).width;
+                            }
+                            const tw = t._cachedW;
 
-                // Subtle dark asphalt backing pill so pavement street names & block numbers pop clearly over concrete joints & lane stripes
-                this.ctx.fillStyle = 'rgba(15, 23, 42, 0.42)';
-                this.ctx.fillRect(-tw * 0.5 - 7, -8.5, tw + 14, 17);
+                            // Subtle dark asphalt backing pill so pavement street names & block numbers pop clearly over concrete joints & lane stripes
+                            this.ctx.fillStyle = 'rgba(15, 23, 42, 0.42)';
+                            this.ctx.fillRect(-tw * 0.5 - 7, -8.5, tw + 14, 17);
 
-                this.ctx.fillStyle = t.isArterial
-                    ? 'rgba(254, 240, 138, 0.78)'
-                    : (t.isCollector ? 'rgba(248, 250, 252, 0.72)' : 'rgba(226, 232, 240, 0.64)');
-                this.ctx.fillText(fullStr, 0, 0.5);
-                this.ctx.restore();
+                            this.ctx.fillStyle = t.isArterial
+                                ? 'rgba(254, 240, 138, 0.78)'
+                                : (t.isCollector ? 'rgba(248, 250, 252, 0.72)' : 'rgba(226, 232, 240, 0.64)');
+                            this.ctx.fillText(fullStr, 0, 0.5);
+                            this.ctx.restore();
+                        }
+                    }
+                }
             }
-        });
+        }
 
         // Bergen Place Nordic Triangular Plaza (at 22nd Ave NW, NW Market St & Leary Ave NW)
         {
@@ -6261,8 +6539,19 @@ const Game = {
             }
         }
 
-        this.entities.sort((a, b) => a.y - b.y);
-        this.entities.forEach(e => e.draw(this.ctx, cx, cy));
+        const visibleEntities = [];
+        for (let i = 0; i < this.entities.length; i++) {
+            const e = this.entities[i];
+            const sx = e.x - cx;
+            const sy = e.y - cy;
+            if (sx >= vMinX - 80 && sx <= vMaxX + 80 && sy >= vMinY - 80 && sy <= vMaxY + 80) {
+                visibleEntities.push(e);
+            }
+        }
+        visibleEntities.sort((a, b) => a.y - b.y);
+        for (let i = 0; i < visibleEntities.length; i++) {
+            visibleEntities[i].draw(this.ctx, cx, cy);
+        }
 
         // =====================================================================
         // LAYER 5: 3D EXTRUDED BUILDINGS, HOUSES, CANOPIES & TREES
@@ -6273,16 +6562,26 @@ const Game = {
             : { x: centerX, y: centerY };
 
         const visibleSubs = [];
+        this._subDrawStamp = ((this._subDrawStamp || 0) + 1) & 0x7fffffff;
+        const subStamp = this._subDrawStamp;
+        const subMinX = vMinX - 45;
+        const subMaxX = vMaxX + 45;
+        const subMinY = vMinY - 45;
+        const subMaxY = vMaxY + 45;
         for (let r = startR; r <= endR; r++) {
             const bRow = this.buildingGrid[r];
             if (!bRow) continue;
             for (let c = startC; c <= endC; c++) {
                 const b = bRow[c];
-                if (b && b.subStructures) {
+                if (b && b._subStamp !== subStamp && b.subStructures) {
+                    b._subStamp = subStamp;
                     for (let k = 0; k < b.subStructures.length; k++) {
                         const sub = b.subStructures[k];
-                        const sx = (sub.x + sub.w / 2) - cx - vp.x;
-                        const sy = (sub.y + sub.h / 2) - cy - vp.y;
+                        const sx1 = sub.x - cx;
+                        const sy1 = sub.y - cy;
+                        if (sx1 + sub.w < subMinX || sx1 > subMaxX || sy1 + sub.h < subMinY || sy1 > subMaxY) continue;
+                        const sx = sx1 + sub.w * 0.5 - vp.x;
+                        const sy = sy1 + sub.h * 0.5 - vp.y;
                         visibleSubs.push({ b, sub, distSq: sx * sx + sy * sy });
                     }
                 }
@@ -6368,16 +6667,35 @@ const Game = {
             }
         }
 
-        // 3D Park & Yard Trees (with camera-relative 2.5D terrain elevation!)
-        this.trees.forEach(t => {
-            const tx = t.x - cx; const ty = t.y - cy;
-            if (tx > vMinX - 30 && tx < vMaxX + 30 && ty > vMinY - 30 && ty < vMaxY + 30) {
-                const tr = Math.max(0, Math.min(MAP_H - 1, Math.floor(t.y / TILE_SIZE)));
-                const tc = Math.max(0, Math.min(MAP_W - 1, Math.floor(t.x / TILE_SIZE)));
-                const tElevM = (this.elevationGrid && this.elevationGrid[tr]) ? this.elevationGrid[tr][tc] : undefined;
-                Draw.tree(this.ctx, tx, ty, tElevM);
+        // 3D Park & Yard Trees (culled via spatial treeGrid with camera-relative 2.5D terrain elevation!)
+        if (this.treeGrid) {
+            for (let r = startR; r <= endR; r++) {
+                const tRow = this.treeGrid[r];
+                if (!tRow) continue;
+                for (let c = startC; c <= endC; c++) {
+                    const cell = tRow[c];
+                    if (!cell) continue;
+                    for (let k = 0; k < cell.length; k++) {
+                        const t = cell[k];
+                        const tx = t.x - cx;
+                        const ty = t.y - cy;
+                        if (tx > vMinX - 30 && tx < vMaxX + 30 && ty > vMinY - 30 && ty < vMaxY + 30) {
+                            Draw.tree(this.ctx, tx, ty, t.elevM);
+                        }
+                    }
+                }
             }
-        });
+        } else {
+            this.trees.forEach(t => {
+                const tx = t.x - cx; const ty = t.y - cy;
+                if (tx > vMinX - 30 && tx < vMaxX + 30 && ty > vMinY - 30 && ty < vMaxY + 30) {
+                    const tr = Math.max(0, Math.min(MAP_H - 1, Math.floor(t.y / TILE_SIZE)));
+                    const tc = Math.max(0, Math.min(MAP_W - 1, Math.floor(t.x / TILE_SIZE)));
+                    const tElevM = (this.elevationGrid && this.elevationGrid[tr]) ? this.elevationGrid[tr][tc] : undefined;
+                    Draw.tree(this.ctx, tx, ty, tElevM);
+                }
+            });
+        }
 
         // 3D Seattle Boulevard Street Trees planted in the green residential planting strips
         // (Skipped in Olympic Manor / Blue Ridge where OSM sidewalk=no preserves open Puget Sound view corridors!)
@@ -6413,7 +6731,8 @@ const Game = {
         this.drawNavArrow();
 
         // Draw 3D Traffic Lights (with Cantilevered Overhead Mast Arms & Wet-Asphalt Reflections), 3D Stop Signs, RapidRide Shelters & Corner Streetlamps
-        this.intersections.forEach(inter => {
+        for (let vIdx = 0; vIdx < visibleIntersections.length; vIdx++) {
+            const inter = visibleIntersections[vIdx];
             // Corner 3D Ornamental Streetlamp, Fire Hydrant, Blue USPS Mailbox & RapidRide Transit Shelter at visible intersections
             const ix = inter.worldX - cx;
             const iy = inter.worldY - cy;
@@ -6592,17 +6911,26 @@ const Game = {
                             this.ctx.fillStyle = activeColor;
                             this.ctx.fillRect(-4.6, 9.2, 9.2, 1.8);
 
+                            // Fast translucent signal bulb halo (replaces expensive GPU shadowBlur FBO pass)
+                            if (glow === 'red') {
+                                this.ctx.fillStyle = 'rgba(239, 68, 68, 0.38)';
+                                this.ctx.beginPath(); this.ctx.arc(0, -5.8, 4.8, 0, Math.PI * 2); this.ctx.fill();
+                            } else if (glow === 'yellow') {
+                                this.ctx.fillStyle = 'rgba(250, 204, 21, 0.38)';
+                                this.ctx.beginPath(); this.ctx.arc(0, 0, 4.8, 0, Math.PI * 2); this.ctx.fill();
+                            } else if (glow === 'green') {
+                                this.ctx.fillStyle = 'rgba(34, 197, 94, 0.38)';
+                                this.ctx.beginPath(); this.ctx.arc(0, 5.8, 4.8, 0, Math.PI * 2); this.ctx.fill();
+                            }
+
                             this.ctx.fillStyle = rCol;
-                            if (glow === 'red') { this.ctx.shadowBlur = 7; this.ctx.shadowColor = 'red'; }
-                            this.ctx.beginPath(); this.ctx.arc(0, -5.8, 2.4, 0, Math.PI * 2); this.ctx.fill(); this.ctx.shadowBlur = 0;
+                            this.ctx.beginPath(); this.ctx.arc(0, -5.8, 2.4, 0, Math.PI * 2); this.ctx.fill();
 
                             this.ctx.fillStyle = yCol;
-                            if (glow === 'yellow') { this.ctx.shadowBlur = 7; this.ctx.shadowColor = 'yellow'; }
-                            this.ctx.beginPath(); this.ctx.arc(0, 0, 2.4, 0, Math.PI * 2); this.ctx.fill(); this.ctx.shadowBlur = 0;
+                            this.ctx.beginPath(); this.ctx.arc(0, 0, 2.4, 0, Math.PI * 2); this.ctx.fill();
 
                             this.ctx.fillStyle = gCol;
-                            if (glow === 'green') { this.ctx.shadowBlur = 7; this.ctx.shadowColor = 'green'; }
-                            this.ctx.beginPath(); this.ctx.arc(0, 5.8, 2.4, 0, Math.PI * 2); this.ctx.fill(); this.ctx.shadowBlur = 0;
+                            this.ctx.beginPath(); this.ctx.arc(0, 5.8, 2.4, 0, Math.PI * 2); this.ctx.fill();
 
                             this.ctx.restore();
                         }
@@ -6737,7 +7065,7 @@ const Game = {
                     }
                 }
             });
-        });
+        }
 
         // 3D Wooden Seattle City Light Utility Poles & Sagging Overhead Power Lines along residential streets
         if (typeof Projection3D !== 'undefined') {
@@ -7037,15 +7365,20 @@ const Game = {
             this.ctx.restore();
         }
 
-        // Subtle Atmospheric Cinematic Vignette around screen edges
+        // Subtle Atmospheric Cinematic Vignette around screen edges (cached RadialGradient)
         if (centerX > 0 && centerY > 0) {
-            const vigGrad = this.ctx.createRadialGradient(
-                centerX, centerY, Math.min(centerX, centerY) * 0.65,
-                centerX, centerY, Math.hypot(centerX, centerY)
-            );
-            vigGrad.addColorStop(0, 'rgba(0, 0, 0, 0)');
-            vigGrad.addColorStop(1, this.timeOfDay === 3 ? 'rgba(2, 6, 23, 0.26)' : 'rgba(15, 23, 42, 0.18)');
-            this.ctx.fillStyle = vigGrad;
+            const vigKey = `${centerX}|${centerY}|${this.timeOfDay === 3 ? 1 : 0}`;
+            if (this._vigKey !== vigKey || !this._vigGrad) {
+                this._vigKey = vigKey;
+                const vigGrad = this.ctx.createRadialGradient(
+                    centerX, centerY, Math.min(centerX, centerY) * 0.65,
+                    centerX, centerY, Math.hypot(centerX, centerY)
+                );
+                vigGrad.addColorStop(0, 'rgba(0, 0, 0, 0)');
+                vigGrad.addColorStop(1, this.timeOfDay === 3 ? 'rgba(2, 6, 23, 0.26)' : 'rgba(15, 23, 42, 0.18)');
+                this._vigGrad = vigGrad;
+            }
+            this.ctx.fillStyle = this._vigGrad;
             this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
         }
 

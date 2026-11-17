@@ -1,12 +1,19 @@
 const Draw = {
+    _shadeCache: new Map(),
     shadeHex(hex, percent) {
         if (!hex || hex[0] !== '#') return hex || '#4a5568';
+        if (percent === 0) return hex;
+        const key = hex + '|' + percent;
+        const cached = this._shadeCache.get(key);
+        if (cached !== undefined) return cached;
         const num = parseInt(hex.slice(1), 16);
         const amt = Math.round(2.55 * percent);
         const R = Math.min(255, Math.max(0, (num >> 16) + amt));
         const G = Math.min(255, Math.max(0, ((num >> 8) & 0x00FF) + amt));
         const B = Math.min(255, Math.max(0, (num & 0x0000FF) + amt));
-        return "#" + (0x1000000 + R * 0x10000 + G * 0x100 + B).toString(16).slice(1);
+        const res = "#" + (0x1000000 + R * 0x10000 + G * 0x100 + B).toString(16).slice(1);
+        this._shadeCache.set(key, res);
+        return res;
     },
 
     getShadowVector() {
@@ -225,6 +232,45 @@ const Draw = {
         // =====================================================================
         // 3D EXTRUDED PASSENGER CAR (SUBARU, VOLVO, PRIUS, COUPE & AI CARS)
         // =====================================================================
+        if (dyn.isParked) {
+            // Fast-path 3D extruded curbside parked car (zero nested save/restore or roundRect path overhead)
+            const bx = roofLocalX * 0.38;
+            const by = roofLocalY * 0.38;
+            const gx = roofLocalX * 0.68;
+            const gy = roofLocalY * 0.68;
+            const rx = roofLocalX;
+            const ry = roofLocalY;
+
+            ctx.fillStyle = `rgba(0,0,0,${(sh.alpha + 0.14).toFixed(2)})`;
+            ctx.fillRect(-13 + shLocalX * 0.55, -21 + shLocalY * 0.55, 27, 43);
+
+            // Tires + Lower chassis skirt
+            ctx.fillStyle = Draw.shadeHex(color, -28);
+            ctx.fillRect(-12.5, -20.5, 25, 41);
+
+            // Main body deck
+            ctx.fillStyle = color;
+            ctx.fillRect(-12 + bx, -20 + by, 24, 40);
+
+            // Greenhouse & windshields
+            ctx.fillStyle = '#0f172a';
+            ctx.fillRect(-10 + gx, -11 + gy, 20, 24);
+            ctx.fillStyle = '#334155';
+            ctx.fillRect(-8.5 + gx, -9.5 + gy, 17, 5.5);
+
+            // 3D Elevated Cabin Roof
+            ctx.fillStyle = Draw.shadeHex(color, 12);
+            ctx.fillRect(-8.5 + rx, -4.5 + ry, 17, 13);
+
+            // Parked unlit taillights
+            ctx.fillStyle = '#450a0a';
+            ctx.fillRect(-10, 18, 6, 2.5);
+            ctx.fillRect(4, 18, 6, 2.5);
+
+            ctx.restore();
+            return;
+        }
+
         // Directional Time-of-Day Ground Shadow
         ctx.fillStyle = `rgba(0,0,0,${(sh.alpha + 0.14).toFixed(2)})`;
         ctx.beginPath();
@@ -233,12 +279,17 @@ const Draw = {
 
         // Articulated Front Wheels (rotate with steerAngle!) & Rear Tires
         ctx.fillStyle = '#111827';
-        for (const wx of [-12.2, 12.2]) {
-            ctx.save();
-            ctx.translate(wx, -11.5);
-            ctx.rotate(steerAngle);
-            ctx.fillRect(-1.4, -3.6, 2.8, 7.2);
-            ctx.restore();
+        if (Math.abs(steerAngle) > 0.01) {
+            for (const wx of [-12.2, 12.2]) {
+                ctx.save();
+                ctx.translate(wx, -11.5);
+                ctx.rotate(steerAngle);
+                ctx.fillRect(-1.4, -3.6, 2.8, 7.2);
+                ctx.restore();
+            }
+        } else {
+            ctx.fillRect(-13.6, -15.1, 2.8, 7.2);
+            ctx.fillRect(10.8, -15.1, 2.8, 7.2);
         }
         ctx.fillRect(-13.5, 8, 2.5, 7);
         ctx.fillRect(11, 8, 2.5, 7);
@@ -359,23 +410,21 @@ const Draw = {
         }
 
         if (lightsOn) {
-            ctx.fillStyle = '#ffffcc'; ctx.globalAlpha = 0.85;
-            ctx.beginPath(); ctx.arc(10, -20, 3, 0, Math.PI * 2); ctx.arc(-10, -20, 3, 0, Math.PI * 2); ctx.fill();
-            ctx.globalCompositeOperation = 'screen';
-            const grad = ctx.createLinearGradient(0, -20, 0, -150);
-            grad.addColorStop(0, isRainy ? 'rgba(255, 255, 210, 0.52)' : 'rgba(255, 255, 200, 0.45)');
-            grad.addColorStop(1, 'rgba(255, 255, 200, 0)');
-            ctx.fillStyle = grad; ctx.beginPath(); ctx.moveTo(-10, -20); ctx.lineTo(-40, -150); ctx.lineTo(40, -150); ctx.lineTo(10, -20); ctx.fill();
-            ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+            ctx.fillStyle = '#ffffcc';
+            ctx.beginPath();
+            ctx.arc(10, -20, 3, 0, Math.PI * 2);
+            ctx.arc(-10, -20, 3, 0, Math.PI * 2);
+            ctx.fill();
         }
 
         if (braking) {
+            // Fast translucent brake-light bloom (avoids expensive GPU shadowBlur FBO pass)
+            ctx.fillStyle = 'rgba(255, 30, 30, 0.36)';
+            ctx.fillRect(-12, 16.5, 10, 6);
+            ctx.fillRect(2, 16.5, 10, 6);
             ctx.fillStyle = '#ff0000';
-            ctx.shadowBlur = 10;
-            ctx.shadowColor = 'red';
             ctx.fillRect(-10, 18, 6, 3);
             ctx.fillRect(4, 18, 6, 3);
-            ctx.shadowBlur = 0;
             // Wet-asphalt red brake-light specular reflection streak behind car
             if (isRainy) {
                 ctx.fillStyle = 'rgba(255, 40, 40, 0.24)';
